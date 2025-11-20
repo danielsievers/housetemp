@@ -24,6 +24,6 @@ class MitsubishiHeatPump:
         Returns base Coefficient of Performance at full load.
         """
         x_points = [5, 17, 47, 60]
-        y_points = [2.0, 2.33, 4.41, 5.0]
+        y_points = [1.9, 1.9, 3.7, 4.6]
         
         return np.interp(t_out_array, x_points, y_points)
