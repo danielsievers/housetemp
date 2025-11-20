@@ -27,13 +27,12 @@ def run_optimization(data, initial_guess=None):
     # Bounds for the solver
     # (min, max)
     bounds = [
-        (2000, 15000),  # C (Mass)
-        (100, 1000),    # UA (Leakage)
-        (5000, 40000),  # K_solar (Window Factor)
-        (0, 5000),      # Q_int (Internal Heat)
-        (5000, 30000)   # H_factor (Inverter Ramp)
-    ]
-    
+        (4000, 30000),  # C (Mass) - Widen this. Let it go higher if it wants.
+        (100, 800),     # UA (Leakage) - TIGHTEN THIS. Cap at 500 (Reasonable Max).
+        (1000, 20000),  # K_solar (Window Factor) - Lower cap (Low-E glass confirmed).
+        (500, 3000),    # Q_int (Internal Heat) - TIGHTEN THIS. Cap at 2500 (730 Watts).
+        (1000, 30000)   # H_factor (Inverter Ramp)
+    ]   
     print("Starting Optimization (this may take a few seconds)...")
     result = minimize(
         loss_function, 

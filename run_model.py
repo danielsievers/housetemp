@@ -38,13 +38,13 @@ def run_model(params, data: Measurements, hw: MitsubishiHeatPump):
             if data.hvac_state[i] > 0: # HEATING
                 gap = max(0, gap) # Only care if temp is too low
                 # Base load (12k) + Turbo Ramp
-                request = 12000 + (H_factor * gap)
+                request = 3000 + (H_factor * gap)
                 # Clamp to hardware limits
                 q_hvac = min(request, max_caps[i])
                 
             elif data.hvac_state[i] < 0: # COOLING
                 gap = max(0, -gap) # Only care if temp is too high
-                request = 12000 + (H_factor * gap)
+                request = 3000 + (H_factor * gap)
                 # Cap cooling ~54k
                 q_hvac = -min(request, 54000)
 
