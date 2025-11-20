@@ -1,0 +1,96 @@
+import numpy as np
+import run_model
+from heat_pump import MitsubishiHeatPump
+
+def estimate_consumption(data, params, cost_per_kwh=0.45):
+    """
+    Calculates estimated kWh usage and cost based on the thermal model fits.
+    Applies Mitsubishi-specific Part-Load Efficiency corrections.
+    """
+    hw = MitsubishiHeatPump()
+    
+    # 1. Re-Run Simulation to get the modeled indoor temperatures
+    # We use the simulated temps because they reflect the steady-state physics
+    # rather than noisy sensor jitter.
+    sim_temps = run_model.run_model(params, data, hw)
+    
+    # Unpack HVAC Aggressiveness (H_factor)
+    H_factor = params[4] 
+    
+    total_kwh = 0.0
+    hourly_kwh = np.zeros(len(data))
+    
+    # Pre-calculate Limits for vectorization speed
+    max_caps = hw.get_max_capacity(data.t_out)
+    base_cops = hw.get_cop(data.t_out)
+    
+    print(f"\nComputing Energy Profile ({len(data)} steps)...")
+    
+    for i in range(len(data)):
+        # Skip if HVAC is OFF
+        if data.hvac_state[i] == 0:
+            continue
+            
+        # --- A. CALCULATE THERMAL DEMAND (BTU) ---
+        # Re-create the inverter logic from simulation.py
+        current_temp = sim_temps[i]
+        gap = data.setpoint[i] - current_temp
+        
+        q_output = 0
+        
+        # HEATING Logic
+        if data.hvac_state[i] > 0:
+            gap = max(0, gap)
+            # Base Load (12k) + Ramp
+            request = 12000 + (H_factor * gap)
+            # Cap at hardware limit
+            q_output = min(request, max_caps[i])
+            
+        # COOLING Logic (Simplified symmetric model)
+        elif data.hvac_state[i] < 0:
+            gap = max(0, -gap)
+            request = 12000 + (H_factor * gap)
+            q_output = min(request, 54000) # 5-Ton Cool Limit
+
+        if q_output <= 0:
+            continue
+
+        # --- B. CALCULATE EFFICIENCY (COP) ---
+        # 1. Get Rated COP for this outdoor temp (High Static Ducted Curve)
+        rated_cop = base_cops[i]
+        
+        # 2. Calculate Part-Load Ratio (PLF)
+        # How hard is the unit working relative to max capacity?
+        load_ratio = q_output / max_caps[i]
+        
+        # Mitsubishi Inverter Correction Approximation:
+        # Low speed (30% load) is ~40% more efficient than Max speed.
+        # Curve: 1.4 at low load, tapering to 1.0 at full load.
+        plf_correction = 1.4 - (0.4 * load_ratio)
+        
+        # Real-world COP
+        final_cop = rated_cop * plf_correction
+        
+        # --- C. CONVERT TO KWH ---
+        # Watts = BTU / COP
+        watts_input = q_output / final_cop
+        
+        # kWh = (Watts / 1000) * Time Step Hours
+        kwh_step = (watts_input / 1000) * data.dt_hours[i]
+        
+        hourly_kwh[i] = kwh_step
+        total_kwh += kwh_step
+
+    # --- REPORTING ---
+    total_cost = total_kwh * cost_per_kwh
+    avg_cop = np.mean(base_cops) # Rough average for context
+    
+    print("-" * 40)
+    print(f"ENERGY ESTIMATE (Period Total)")
+    print("-" * 40)
+    print(f"Total Consumption: {total_kwh:.2f} kWh")
+    print(f"Estimated Cost:    ${total_cost:.2f} (@ ${cost_per_kwh}/kWh)")
+    print(f"Avg efficiency was improved by Inverter Logic.")
+    print("-" * 40)
+    
+    return total_kwh, total_cost
