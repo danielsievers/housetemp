@@ -45,13 +45,16 @@ def run_main(args_list=None):
     # Input Data (Made optional here so we can print help if missing)
     parser.add_argument("csv_file", nargs='?', help="Path to input CSV data (Home Assistant History)")
     
+    # Optional Start Temp (for forecast data)
+    parser.add_argument("--start-temp", type=float, help="Override starting indoor temperature (F). Useful for forecast data.")
+
     # Mode Flags
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("-r", "--reg-only", action="store_true", 
-                        help="Run Linear Regression only (Passive fit) and exit.\n"
-                             "Useful for checking C and UA without waiting for full optimization.")
-    group.add_argument("-e", "--estimate", metavar="MODEL_JSON", 
-                        help="Load an existing model JSON file and run Energy Estimation only.\n"
+    group.add_argument("-r", "--use-regression", action="store_true", 
+                        help="Initialize with Linear Regression (Passive fit) before optimization.\n"
+                             "If not specified, uses hardcoded defaults.")
+    group.add_argument("-p", "--predict", metavar="MODEL_JSON", 
+                        help="Load an existing model JSON file and run Prediction/Estimation.\n"
                              "Skips optimization. Applies saved physics to new data.")
     
     # Output Options
@@ -63,12 +66,14 @@ def run_main(args_list=None):
     if args_list is None and len(sys.argv) == 1:
         parser.print_help()
         print("\nUsage Examples:")
-        print("  1. Train Model (Full Optimization):")
+        print("  1. Train Model (Hardcoded Defaults):")
         print("     python main.py january_data.csv -o my_house.json")
-        print("\n  2. Quick Physics Check (Linear Fit Only):")
-        print("     python main.py january_data.csv -r")
-        print("\n  3. Estimate Energy Cost (Using saved model on new data):")
-        print("     python main.py february_data.csv -e my_house.json")
+        print("\n  2. Train Model (Initialize with Regression):")
+        print("     python main.py january_data.csv -r -o my_house.json")
+        print("\n  3. Predict/Estimate (Using saved model on new data):")
+        print("     python main.py forecast_data.csv -p my_house.json")
+        print("\n  4. Predict with Custom Start Temp:")
+        print("     python main.py forecast_data.csv -p my_house.json --start-temp 68.0")
         return 1
 
     args = parser.parse_args(args_list)
@@ -78,30 +83,32 @@ def run_main(args_list=None):
         return 1
 
     # 1. Load Data
-    measurements = load_csv.load_csv(args.csv_file)
+    measurements = load_csv.load_csv(args.csv_file, override_start_temp=args.start_temp)
     
-    # --- MODE 1: ENERGY ESTIMATION (Existing Model) ---
-    if args.estimate:
-        print("\n--- RUNNING IN ESTIMATION MODE ---")
-        params = load_model(args.estimate)
-        results.plot_results(measurements, params)
+    # --- MODE 1: PREDICTION / ESTIMATION (Existing Model) ---
+    if args.predict:
+        print("\n--- RUNNING IN PREDICTION MODE ---")
+        params = load_model(args.predict)
+        results.plot_results(measurements, params, title_suffix="Prediction Mode")
         energy.estimate_consumption(measurements, params, cost_per_kwh=0.45)
         return 0
 
-    # --- MODE 2: LINEAR CHECK (Passive Fit) ---
-    initial_params = linear_fit.linear_fit(measurements)
+    # --- MODE 2: INITIALIZATION (Regression or Defaults) ---
+    initial_params = None
     
-    if args.reg_only:
+    if args.use_regression:
+        print("\n--- RUNNING LINEAR REGRESSION (Initialization) ---")
+        initial_params = linear_fit.linear_fit(measurements)
+        
         print("\n" + "="*40)
-        print("LINEAR REGRESSION RESULTS (Passive Only)")
+        print("LINEAR REGRESSION RESULTS")
         print("="*40)
         print(f"Thermal Mass (C):      {initial_params[0]:.0f}")
         print(f"Insulation (UA):       {initial_params[1]:.0f}")
         print(f"Solar Factor (K):      {initial_params[2]:.0f}")
         print(f"Internal Heat (Q_int): {initial_params[3]:.0f} (Fixed)")
         
-        results.plot_results(measurements, initial_params)
-        return 0
+        # We don't exit here anymore, we proceed to optimization
 
     # --- MODE 3: FULL OPTIMIZATION (Train Model) ---
     optimization_result = optimize.run_optimization(measurements, initial_guess=initial_params)
@@ -110,7 +117,7 @@ def run_main(args_list=None):
         print("\nOptimization converged successfully!")
         best_params = optimization_result.x
         save_model(best_params, args.output)
-        results.plot_results(measurements, best_params)
+        results.plot_results(measurements, best_params, title_suffix="Optimization Result")
         energy.estimate_consumption(measurements, best_params, cost_per_kwh=0.45)
         return 0
     else:

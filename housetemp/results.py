@@ -3,7 +3,7 @@ import numpy as np
 from . import run_model
 from .heat_pump import MitsubishiHeatPump
 
-def plot_results(data, optimized_params):
+def plot_results(data, optimized_params, title_suffix=""):
     hw = MitsubishiHeatPump()
     
     # Run final simulation with best params
@@ -32,7 +32,11 @@ def plot_results(data, optimized_params):
     plt.plot(data.timestamps, simulated_t_in, label='Model Prediction', color='orange', linestyle='--', linewidth=2)
     plt.plot(data.timestamps, data.t_out, label='Outdoor', color='blue', alpha=0.3)
     plt.ylabel("Temperature (F)")
-    plt.title("Model Fit vs Reality")
+    
+    title = "Model Simulation"
+    if title_suffix:
+        title += f" - {title_suffix}"
+    plt.title(title)
     plt.legend()
     plt.grid(True)
     

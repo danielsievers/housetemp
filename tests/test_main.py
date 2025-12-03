@@ -23,7 +23,19 @@ class TestMainIntegration(unittest.TestCase):
         # Generate Test Data (Ported from generate_csv.py)
         self.generate_test_data()
 
+        # Conditional Plot Suppression
+        # If SHOW_PLOTS env var is NOT set, suppress plots.
+        if not os.environ.get('SHOW_PLOTS'):
+            self.plot_patcher = patch('matplotlib.pyplot.show')
+            self.mock_show = self.plot_patcher.start()
+        else:
+            self.plot_patcher = None
+
     def tearDown(self):
+        # Stop patcher if it was started
+        if self.plot_patcher:
+            self.plot_patcher.stop()
+            
         # Remove the directory after the test
         shutil.rmtree(self.test_dir)
 
@@ -81,17 +93,21 @@ class TestMainIntegration(unittest.TestCase):
         
         df.to_csv(self.csv_path, index=False)
 
-    def test_linear_regression_only(self):
-        """Test running with -r flag (Regression Only)"""
+    def test_use_regression(self):
+        """Test running with -r flag (Initialize with Regression)"""
         # Suppress stdout/stderr to keep test output clean
-        with patch('sys.stdout', new=open(os.devnull, 'w')):
-            status = main.run_main([self.csv_path, '-r'])
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                # This should now run regression AND optimization
+                status = main.run_main([self.csv_path, '-r', '-o', self.model_path])
         self.assertEqual(status, 0)
+        self.assertTrue(os.path.exists(self.model_path))
 
-    def test_full_optimization(self):
-        """Test full optimization run"""
-        with patch('sys.stdout', new=open(os.devnull, 'w')):
-            status = main.run_main([self.csv_path, '-o', self.model_path])
+    def test_full_optimization_defaults(self):
+        """Test full optimization run (Defaults, No Regression)"""
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                status = main.run_main([self.csv_path, '-o', self.model_path])
         
         self.assertEqual(status, 0)
         self.assertTrue(os.path.exists(self.model_path), "Model file should be created")
@@ -102,17 +118,63 @@ class TestMainIntegration(unittest.TestCase):
             self.assertIn('raw_params', data)
             self.assertEqual(len(data['raw_params']), 5)
 
-    def test_energy_estimation(self):
-        """Test energy estimation with -e flag"""
+    def test_prediction(self):
+        """Test prediction with -p flag"""
         # First create a model
-        with patch('sys.stdout', new=open(os.devnull, 'w')):
-            main.run_main([self.csv_path, '-o', self.model_path])
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                main.run_main([self.csv_path, '-o', self.model_path])
         
-        # Now run estimation
-        with patch('sys.stdout', new=open(os.devnull, 'w')):
-            status = main.run_main([self.csv_path, '-e', self.model_path])
+        # Now run prediction
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                status = main.run_main([self.csv_path, '-p', self.model_path])
         
         self.assertEqual(status, 0)
+
+    def test_prediction_forecast(self):
+        """Test prediction with forecast data - Requires --start-temp"""
+        forecast_csv = os.path.join(self.test_dir, 'forecast.csv')
+        df = pd.DataFrame({
+            'time': pd.date_range(start="2025-02-01 00:00", periods=48, freq="30min"),
+            'outdoor_temp': np.full(48, 50.0),
+            'solar_kw': np.zeros(48)
+        })
+        df.to_csv(forecast_csv, index=False)
+        
+        # Create model
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                main.run_main([self.csv_path, '-o', self.model_path])
+
+        # Run with --start-temp (Should Succeed)
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                status = main.run_main([forecast_csv, '-p', self.model_path, '--start-temp', '68.0'])
+        self.assertEqual(status, 0)
+
+    def test_prediction_forecast_missing_start_temp(self):
+        """Test prediction with forecast data MISSING --start-temp (Should Fail)"""
+        forecast_csv = os.path.join(self.test_dir, 'forecast.csv')
+        df = pd.DataFrame({
+            'time': pd.date_range(start="2025-02-01 00:00", periods=48, freq="30min"),
+            'outdoor_temp': np.full(48, 50.0),
+            'solar_kw': np.zeros(48)
+        })
+        df.to_csv(forecast_csv, index=False)
+        
+        # Create model
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                main.run_main([self.csv_path, '-o', self.model_path])
+
+        # Run WITHOUT --start-temp (Should Fail)
+        # We expect ValueError from load_csv, which main.py doesn't catch explicitly, so it crashes.
+        # unittest handles crashes as errors, but we want to verify it raises ValueError.
+        with self.assertRaises(ValueError):
+             with open(os.devnull, 'w') as devnull:
+                with patch('sys.stdout', new=devnull):
+                    main.run_main([forecast_csv, '-p', self.model_path])
 
 if __name__ == '__main__':
     unittest.main()
