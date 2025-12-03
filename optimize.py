@@ -22,16 +22,23 @@ def run_optimization(data, initial_guess=None):
     # [C, UA, K_solar, Q_int, H_factor]
     # If no linear fit provided, fall back to hardcoded defaults
     if initial_guess is None:
-        initial_guess = [8000, 310, 17000, 1900, 15000]
+        initial_guess = [4732, 213, 836, 600, 10000]
     
     # Bounds for the solver
     # (min, max)
     bounds = [
-        (4000, 30000),  # C (Mass) - Widen this. Let it go higher if it wants.
-        (100, 800),     # UA (Leakage) - TIGHTEN THIS. Cap at 500 (Reasonable Max).
-        (1000, 20000),  # K_solar (Window Factor) - Lower cap (Low-E glass confirmed).
-        (500, 3000),    # Q_int (Internal Heat) - TIGHTEN THIS. Cap at 2500 (730 Watts).
-        (1000, 30000)   # H_factor (Inverter Ramp)
+# vacation run:
+#        (4000, 20000),  # C (Mass) - Widen this. Let it go higher if it wants.
+#        (150, 800),     # UA (Leakage) - TIGHTEN THIS. Cap at 500 (Reasonable Max).
+#        (700, 2000),  # K_solar (Window Factor) - Lower cap (Low-E glass confirmed).
+#        (200, 2500),    # Q_int (Internal Heat) - TIGHTEN THIS. Cap at 2500 (730 Watts).
+#        (1000, 30000)   # H_factor (Inverter Ramp)
+
+        (4000, 20000),  # C (Mass) - Widen this. Let it go higher if it wants.
+        (200, 1500),     # UA (Leakage) - TIGHTEN THIS. Cap at 500 (Reasonable Max).
+        (700, 2000),  # K_solar (Window Factor) - Lower cap (Low-E glass confirmed).
+        (200, 10000),    # Q_int (Internal Heat) - TIGHTEN THIS. Cap at 2500 (730 Watts).
+        (5000, 20000)   # H_factor (Inverter Ramp)
     ]   
     print("Starting Optimization (this may take a few seconds)...")
     result = minimize(

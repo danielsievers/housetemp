@@ -66,8 +66,9 @@ def build_indoor_average(df: pd.DataFrame) -> pd.Series:
     )
     has_outside = ent.str.contains("outside", case=False, na=False)
     has_outdoor = ent.str.contains("outdoor", case=False, na=False)
+    has_jbw = ent.str.contains("jbw_station", case=False, na=False)
 
-    mask_indoor_sensor = is_sensor & is_tempish & ~(has_outside | has_outdoor)
+    mask_indoor_sensor = is_sensor & is_tempish & ~(has_outside | has_outdoor | has_jbw)
     sensor_df = df[mask_indoor_sensor].copy()
 
     if not sensor_df.empty:
@@ -143,8 +144,9 @@ def interpolate_outdoor(df: pd.DataFrame, primary_index: pd.DatetimeIndex) -> pd
     is_temperature = ent.str.contains("_temp")
     has_outside = ent.str.contains("outside", case=False, na=False)
     has_outdoor = ent.str.contains("outdoor", case=False, na=False)
+    has_jbw = ent.str.contains("jbw_station", case=False, na=False)
 
-    mask_outdoor = is_sensor & is_temperature & (has_outside | has_outdoor)
+    mask_outdoor = is_sensor & is_temperature & (has_outside | has_outdoor | has_jbw)
     out_df = df[mask_outdoor].copy()
 
     if out_df.empty:

@@ -19,7 +19,8 @@ def load_csv(filepath: str) -> Measurements:
     df['dt'] = time_diffs.fillna(method='bfill') # Fill first row
 
     # Clean data (drop NaNs)
-    df = df.dropna()
+    # TODO
+    #df = df.dropna()
     
     print(f"Successfully loaded {len(df)} rows.")
 
