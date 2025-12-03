@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import minimize
-import run_model
-from heat_pump import MitsubishiHeatPump
+from . import run_model
+from .heat_pump import MitsubishiHeatPump
 
 def loss_function(params, data, hw):
     # 1. Run Simulation with current parameter guess

@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import run_model
-from heat_pump import MitsubishiHeatPump
+from . import run_model
+from .heat_pump import MitsubishiHeatPump
 
 def plot_results(data, optimized_params):
     hw = MitsubishiHeatPump()

@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from measurements import Measurements
+from .measurements import Measurements
 
 def load_csv(filepath: str) -> Measurements:
     print(f"Loading data from {filepath}...")

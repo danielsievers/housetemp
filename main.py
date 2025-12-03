@@ -4,11 +4,11 @@ import argparse
 import json
 import os
 import sys
-import load_csv
-import optimize
-import results
-import linear_fit
-import energy
+from housetemp import load_csv
+from housetemp import optimize
+from housetemp import results
+from housetemp import linear_fit
+from housetemp import energy
 
 def save_model(params, filename):
     data = {
@@ -36,7 +36,7 @@ def load_model(filename):
     print(f" -> C: {data['C_thermal']:.0f}, UA: {data['UA_overall']:.0f}")
     return data['raw_params']
 
-def main():
+def run_main(args_list=None):
     parser = argparse.ArgumentParser(
         description="Home Thermal Model Optimizer & Estimator",
         formatter_class=argparse.RawTextHelpFormatter
@@ -59,7 +59,8 @@ def main():
                         help="Filename to save optimized model parameters (default: model.json)")
 
     # --- CUSTOM HELP DISPLAY ---
-    if len(sys.argv) == 1:
+    # If no args provided (and not called programmatically with empty list), show help
+    if args_list is None and len(sys.argv) == 1:
         parser.print_help()
         print("\nUsage Examples:")
         print("  1. Train Model (Full Optimization):")
@@ -68,13 +69,13 @@ def main():
         print("     python main.py january_data.csv -r")
         print("\n  3. Estimate Energy Cost (Using saved model on new data):")
         print("     python main.py february_data.csv -e my_house.json")
-        sys.exit(1)
+        return 1
 
-    args = parser.parse_args()
+    args = parser.parse_args(args_list)
 
     if not args.csv_file:
         print("Error: You must provide a CSV file.")
-        sys.exit(1)
+        return 1
 
     # 1. Load Data
     measurements = load_csv.load_csv(args.csv_file)
@@ -85,7 +86,7 @@ def main():
         params = load_model(args.estimate)
         results.plot_results(measurements, params)
         energy.estimate_consumption(measurements, params, cost_per_kwh=0.45)
-        return
+        return 0
 
     # --- MODE 2: LINEAR CHECK (Passive Fit) ---
     initial_params = linear_fit.linear_fit(measurements)
@@ -100,7 +101,7 @@ def main():
         print(f"Internal Heat (Q_int): {initial_params[3]:.0f} (Fixed)")
         
         results.plot_results(measurements, initial_params)
-        return
+        return 0
 
     # --- MODE 3: FULL OPTIMIZATION (Train Model) ---
     optimization_result = optimize.run_optimization(measurements, initial_guess=initial_params)
@@ -111,8 +112,10 @@ def main():
         save_model(best_params, args.output)
         results.plot_results(measurements, best_params)
         energy.estimate_consumption(measurements, best_params, cost_per_kwh=0.45)
+        return 0
     else:
         print("Optimization failed:", optimization_result.message)
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(run_main())

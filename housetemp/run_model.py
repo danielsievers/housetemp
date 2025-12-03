@@ -1,6 +1,6 @@
 import numpy as np
-from measurements import Measurements
-from heat_pump import MitsubishiHeatPump
+from .measurements import Measurements
+from .heat_pump import MitsubishiHeatPump
 
 def run_model(params, data: Measurements, hw: MitsubishiHeatPump):
     # --- 1. Unpack Parameters (The things we are optimizing) ---

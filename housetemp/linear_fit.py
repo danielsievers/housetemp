@@ -1,6 +1,6 @@
 # linear_fit.py
 import numpy as np
-from measurements import Measurements
+from .measurements import Measurements
 
 def linear_fit(data: Measurements, assumed_q_int=1900, default_hvac_cap=40000):
     """

@@ -1,6 +1,6 @@
 import numpy as np
-import run_model
-from heat_pump import MitsubishiHeatPump
+from . import run_model
+from .heat_pump import MitsubishiHeatPump
 
 def estimate_consumption(data, params, cost_per_kwh=0.45):
     """
