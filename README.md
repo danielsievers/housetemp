@@ -1,6 +1,11 @@
 # HouseTemp: Home Thermal Model
 
 A physics-based thermal model for estimating home insulation (UA), thermal mass (C), and other parameters from Home Assistant history data.
+A physics-based thermal model for estimating home insulation (UA), thermal mass (C), and other parameters from Home Assistant history data.
+
+## Home Assistant Integration
+This repository includes a custom component for Home Assistant.
+See [homeassistant/custom_components/housetemp/README.md](homeassistant/custom_components/housetemp/README.md) for installation and usage instructions.
 
 ## Usage
 
