@@ -176,5 +176,35 @@ class TestMainIntegration(unittest.TestCase):
                 with patch('sys.stdout', new=devnull):
                     main.run_main([forecast_csv, '-p', self.model_path])
 
+    def test_prediction_duration(self):
+        """Test prediction with --duration argument"""
+        # Create model
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                main.run_main([self.csv_path, '-o', self.model_path])
+        
+        # Run prediction with duration=60 minutes (2 steps)
+        # We can't easily check the output length from integration test without capturing stdout or inspecting internals
+        # But we can check it runs successfully
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                status = main.run_main([self.csv_path, '-p', self.model_path, '--duration', '60'])
+        self.assertEqual(status, 0)
+
+    def test_rolling_evaluation(self):
+        """Test rolling evaluation with -e flag"""
+        # Create model
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                main.run_main([self.csv_path, '-o', self.model_path])
+        
+        # Run rolling evaluation
+        # We need enough data for at least one 12h window.
+        # Our test data is 48 hours, so it should be fine.
+        with open(os.devnull, 'w') as devnull:
+            with patch('sys.stdout', new=devnull):
+                status = main.run_main([self.csv_path, '-e', self.model_path])
+        self.assertEqual(status, 0)
+
 if __name__ == '__main__':
     unittest.main()

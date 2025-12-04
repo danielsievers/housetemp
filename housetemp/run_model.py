@@ -2,7 +2,7 @@ import numpy as np
 from .measurements import Measurements
 from .heat_pump import MitsubishiHeatPump
 
-def run_model(params, data: Measurements, hw: MitsubishiHeatPump):
+def run_model(params, data: Measurements, hw: MitsubishiHeatPump, duration_minutes: int = 0):
     # --- 1. Unpack Parameters (The things we are optimizing) ---
     C_thermal = params[0]   # Thermal Mass (BTU/F)
     UA = params[1]          # Insulation Leakage (BTU/hr/F)
@@ -14,11 +14,19 @@ def run_model(params, data: Measurements, hw: MitsubishiHeatPump):
     # We know the max capacity for every hour based on weather
     max_caps = hw.get_max_capacity(data.t_out)
     
-    # --- 3. Simulation Loop ---
-    sim_temps = np.zeros(len(data))
+    # --- 3. Determine Simulation Steps ---
+    total_steps = len(data)
+    if duration_minutes > 0:
+        # Assuming 30-minute intervals (0.5 hours)
+        # TODO: Make this dynamic based on data.dt_hours if needed, but for now assuming uniform
+        steps_needed = int(duration_minutes / 30)
+        total_steps = min(total_steps, steps_needed)
+
+    # --- 4. Simulation Loop ---
+    sim_temps = np.zeros(total_steps)
     current_temp = data.t_in[0] # Start at actual temp
     
-    for i in range(len(data)):
+    for i in range(total_steps):
         sim_temps[i] = current_temp
         
         # A. Passive Physics
@@ -57,4 +65,19 @@ def run_model(params, data: Measurements, hw: MitsubishiHeatPump):
         
         current_temp += delta_T
 
-    return sim_temps
+    # --- 5. Calculate Error (RMSE) ---
+    # Only calculate error for the steps we simulated
+    # And only if we have actual data (indoor_temp might be NaN or forecast)
+    # For now, assuming data.t_in is populated (even if dummy for forecast)
+    # If it's forecast data, t_in might be zeros or start temp, so error is meaningless?
+    # User asked to calculate error "from the data".
+    
+    # We need to slice the actual data to match the simulation length
+    actual_temps = data.t_in[:total_steps]
+    
+    # Check if actual_temps has meaningful data (not just start temp repeated or zeros)
+    # But for optimization, we rely on this.
+    mse = np.mean((sim_temps - actual_temps)**2)
+    rmse = np.sqrt(mse)
+
+    return sim_temps, rmse

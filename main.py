@@ -9,6 +9,7 @@ from housetemp import optimize
 from housetemp import results
 from housetemp import linear_fit
 from housetemp import energy
+from housetemp import evaluate
 
 def save_model(params, filename):
     data = {
@@ -56,8 +57,12 @@ def run_main(args_list=None):
     group.add_argument("-p", "--predict", metavar="MODEL_JSON", 
                         help="Load an existing model JSON file and run Prediction/Estimation.\n"
                              "Skips optimization. Applies saved physics to new data.")
+    group.add_argument("-e", "--eval", metavar="MODEL_JSON",
+                        help="Run Rolling Evaluation (6h/12h RMSE) over the dataset.\n"
+                             "Requires a model JSON file.")
     
     # Output Options
+    parser.add_argument("--duration", type=int, default=0, help="Limit simulation duration in minutes (default: 0 = full duration)")
     parser.add_argument("-o", "--output", default="model.json", 
                         help="Filename to save optimized model parameters (default: model.json)")
 
@@ -89,8 +94,15 @@ def run_main(args_list=None):
     if args.predict:
         print("\n--- RUNNING IN PREDICTION MODE ---")
         params = load_model(args.predict)
-        results.plot_results(measurements, params, title_suffix="Prediction Mode")
+        results.plot_results(measurements, params, title_suffix="Prediction Mode", duration_minutes=args.duration)
         energy.estimate_consumption(measurements, params, cost_per_kwh=0.45)
+        return 0
+
+    # --- MODE 1.5: ROLLING EVALUATION ---
+    if args.eval:
+        print("\n--- RUNNING ROLLING EVALUATION ---")
+        params = load_model(args.eval)
+        evaluate.run_rolling_evaluation(measurements, params)
         return 0
 
     # --- MODE 2: INITIALIZATION (Regression or Defaults) ---

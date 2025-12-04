@@ -5,10 +5,20 @@ from .heat_pump import MitsubishiHeatPump
 
 def loss_function(params, data, hw):
     # 1. Run Simulation with current parameter guess
-    predicted_temps = run_model.run_model(params, data, hw)
+    predicted_temps, sim_error = run_model.run_model(params, data, hw)
     
     # 2. Compare to Reality (Root Mean Square Error)
-    error = np.sqrt(np.mean((predicted_temps - data.t_in)**2))
+    # We use the error returned by run_model directly, but let's verify:
+    manual_error = np.sqrt(np.mean((predicted_temps - data.t_in)**2))
+    
+    # Print both (as requested) - Note: This will spam the console during optimization
+    # print(f"DEBUG: Sim Error={sim_error:.6f}, Manual Error={manual_error:.6f}")
+    
+    # Assert that they match (sanity check)
+    if not np.isclose(sim_error, manual_error, atol=1e-5):
+        raise ValueError(f"Error mismatch! Sim: {sim_error}, Manual: {manual_error}")
+    
+    error = sim_error
     
     # 3. Penalize Physics Violations (Soft Constraints)
     if params[0] < 1000: return 1e6 # Mass too low

@@ -12,7 +12,10 @@ def estimate_consumption(data, params, cost_per_kwh=0.45):
     # 1. Re-Run Simulation to get the modeled indoor temperatures
     # We use the simulated temps because they reflect the steady-state physics
     # rather than noisy sensor jitter.
-    sim_temps = run_model.run_model(params, data, hw)
+    # 1. Re-Run Simulation to get the modeled indoor temperatures
+    # We use the simulated temps because they reflect the steady-state physics
+    # rather than noisy sensor jitter.
+    sim_temps, _ = run_model.run_model(params, data, hw)
     
     # Unpack HVAC Aggressiveness (H_factor)
     H_factor = params[4] 
