@@ -3,11 +3,11 @@ import numpy as np
 from . import run_model
 from . import run_model
 
-def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0):
+def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0, marker_interval_minutes=None, target_temps=None, min_bounds=None, max_bounds=None):
     # hw is passed in
     
     # Run final simulation with best params
-    simulated_t_in, rmse, _ = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)
+    simulated_t_in, rmse, hvac_outputs = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)
     
     # Calculate Error (Manual Verification)
     # We need to slice data.t_in to match simulation length if duration was limited
@@ -38,8 +38,49 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     
     # Subplot 1: Temperature
     plt.subplot(2, 1, 1)
+    
+    # Plot Comfort Band (if provided)
+    if min_bounds is not None and max_bounds is not None:
+        min_b = min_bounds[:sim_len]
+        max_b = max_bounds[:sim_len]
+        plt.fill_between(timestamps, min_b, max_b, color='green', alpha=0.1, label='Comfort Band')
+        
+    # Plot Ideal Target (if provided)
+    if target_temps is not None:
+        targets = target_temps[:sim_len]
+        plt.plot(timestamps, targets, label='Ideal Target', color='green', linestyle=':', linewidth=1.5, alpha=0.7)
+
     plt.plot(timestamps, actual_t_in, label='Actual Indoor', color='grey', linewidth=2)
     plt.plot(timestamps, simulated_t_in, label='Model Prediction', color='orange', linestyle='--', linewidth=2)
+    # Filter target temp markers if interval is specified
+    target_timestamps = timestamps
+    target_values = data.setpoint[:sim_len]
+    
+    if marker_interval_minutes:
+        # Simpler: Use numpy searchsorted
+        # Convert to numpy array of datetime64 if not already
+        ts_np = np.array(timestamps, dtype='datetime64[ns]')
+        
+        # Align start to marker interval
+        import pandas as pd
+        start_ts = pd.Timestamp(ts_np[0])
+        end_ts = pd.Timestamp(ts_np[-1])
+        
+        freq = f"{marker_interval_minutes}min"
+        aligned_start = start_ts.floor(freq)
+        aligned_end = end_ts.ceil(freq)
+        
+        marker_times = pd.date_range(start=aligned_start, end=aligned_end, freq=freq).values
+        
+        # Find closest indices
+        indices = np.searchsorted(ts_np, marker_times)
+        # Clip to valid range
+        indices = indices[indices < len(ts_np)]
+        
+        target_timestamps = timestamps[indices]
+        target_values = data.setpoint[:sim_len][indices]
+
+    plt.plot(target_timestamps, target_values, label='Optimized Setpoint', color='green', marker='x', linestyle='None', markersize=6, markeredgewidth=1.5, alpha=0.8)
     plt.plot(timestamps, outdoor_t, label='Outdoor', color='blue', alpha=0.3)
     plt.ylabel("Temperature (F)")
     
@@ -56,22 +97,25 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     # We need to slice inputs for calculation too
     t_out_sliced = data.t_out[:sim_len]
     setpoint_sliced = data.setpoint[:sim_len]
-    hvac_state_sliced = data.hvac_state[:sim_len]
+    # hvac_state_sliced = data.hvac_state[:sim_len] # No longer needed for plotting output
     solar_kw_sliced = data.solar_kw[:sim_len]
 
     # Unpack params for plotting
     UA = optimized_params[1]
     K_solar = optimized_params[2]
     Q_int = optimized_params[3]
-    H_factor = optimized_params[4]
+    # H_factor = optimized_params[4]
 
     # Calculate Flows
-    max_caps = hw.get_max_capacity(t_out_sliced)
-    gap = np.maximum(0, setpoint_sliced - simulated_t_in)
-    est_btu = 12000 + (H_factor * gap)
+    # max_caps = hw.get_max_capacity(t_out_sliced)
+    # gap = np.maximum(0, setpoint_sliced - simulated_t_in)
+    # est_btu = 12000 + (H_factor * gap)
     # Apply hvac state mask (1, 0, -1) and limits
-    est_btu = np.where(hvac_state_sliced > 0, np.minimum(est_btu, max_caps), 
-                       np.where(hvac_state_sliced < 0, -np.minimum(est_btu, 54000), 0))
+    # est_btu = np.where(hvac_state_sliced > 0, np.minimum(est_btu, max_caps), 
+    #                    np.where(hvac_state_sliced < 0, -np.minimum(est_btu, 54000), 0))
+    
+    # Use the actual output from the simulation
+    est_btu = hvac_outputs[:sim_len]
     
     q_leak = UA * (t_out_sliced - simulated_t_in)
     q_solar = solar_kw_sliced * K_solar
@@ -86,6 +130,17 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     plt.ylabel("Heat Flow (BTU/hr)")
     plt.legend(loc='upper right', fontsize='small')
     plt.grid(True)
+    
+    # Format x-axis dates
+    import matplotlib.dates as mdates
+    myFmt = mdates.DateFormatter('%m-%d %H:%M')
+    
+    # Apply to both subplots
+    plt.subplot(2, 1, 1)
+    plt.gca().xaxis.set_major_formatter(myFmt)
+    
+    plt.subplot(2, 1, 2)
+    plt.gca().xaxis.set_major_formatter(myFmt)
     
     plt.tight_layout()
     plt.show()
