@@ -39,10 +39,12 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
     # --- 3. Determine Simulation Steps ---
     total_steps = len(data)
     if duration_minutes > 0:
-        # Assuming 30-minute intervals (0.5 hours)
-        # TODO: Make this dynamic based on data.dt_hours if needed, but for now assuming uniform
-        steps_needed = int(duration_minutes / 30)
-        total_steps = min(total_steps, steps_needed)
+        # Calculate steps based on actual dt
+        # dt_hours is in hours. duration_minutes is in minutes.
+        avg_dt_minutes = np.mean(data.dt_hours) * 60
+        if avg_dt_minutes > 0:
+            steps_needed = int(duration_minutes / avg_dt_minutes)
+            total_steps = min(total_steps, steps_needed)
 
     # --- 4. Simulation Loop ---
     sim_temps = np.zeros(total_steps)
@@ -66,14 +68,22 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
             # Calculate the "Gap" (Error)
             gap = data.setpoint[i] - current_temp
             
-            if data.hvac_state[i] > 0: # HEATING
+            mode = data.hvac_state[i]
+            
+            # AUTO MODE (2) - Decide based on gap
+            if mode == 2:
+                if gap > 0: mode = 1  # Need Heat
+                elif gap < 0: mode = -1 # Need Cool
+                else: mode = 0 # Satisfied
+            
+            if mode > 0: # HEATING
                 gap = max(0, gap) # Only care if temp is too low
                 # Base load (12k) + Turbo Ramp
                 request = 3000 + (H_factor * gap)
                 # Clamp to hardware limits
                 q_hvac = min(request, max_caps[i])
                 
-            elif data.hvac_state[i] < 0: # COOLING
+            elif mode < 0: # COOLING
                 gap = max(0, -gap) # Only care if temp is too high
                 request = 3000 + (H_factor * gap)
                 # Cap cooling ~54k

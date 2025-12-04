@@ -17,3 +17,15 @@ class Measurements:
 
     def __len__(self):
         return len(self.timestamps)
+
+    def slice(self, start_idx, end_idx):
+        """Returns a new Measurements object sliced from start_idx to end_idx."""
+        return Measurements(
+            timestamps=self.timestamps[start_idx:end_idx],
+            t_in=self.t_in[start_idx:end_idx],
+            t_out=self.t_out[start_idx:end_idx],
+            solar_kw=self.solar_kw[start_idx:end_idx],
+            hvac_state=self.hvac_state[start_idx:end_idx],
+            setpoint=self.setpoint[start_idx:end_idx],
+            dt_hours=self.dt_hours[start_idx:end_idx]
+        )

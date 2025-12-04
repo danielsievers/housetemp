@@ -71,3 +71,26 @@ $$ E_{kWh} = \frac{Q_{hvac}}{\text{COP} \cdot 3412} \cdot \Delta t_{hours} $$
 1.  **Outdoor Temperature**: Lower $T_{out}$ reduces efficiency (lookup table).
 2.  **Part-Load Ratio**: Running at partial capacity is *more* efficient than full capacity.
     *   Modeled as a linear correction factor (e.g., +40% efficiency at 30% load).
+
+## 6. HVAC Schedule Optimization
+The system can optimize the thermostat schedule to minimize energy consumption while maintaining comfort.
+
+### 6.1 Objective Function
+Minimize total cost $J$:
+$$ J = \sum_{t=0}^{T} \left( \text{Cost}_{kWh}(t) + \text{Cost}_{comfort}(t) \right) $$
+
+### 6.2 Comfort Penalty (Hybrid Envelope)
+Defined by a target schedule and optional `min`/`max` bounds.
+Let $e(t) = T_{in}(t) - T_{target}(t)$.
+
+*   **Inside Envelope** ($Min \le T_{in} \le Max$):
+    The cost is a gentle parabola centered at $T_{target}$.
+    $$ \text{Cost}_{inner} = P_{center} \cdot \left(\frac{e}{\text{DistanceToBound}}\right)^2 $$
+    *   $P_{center}$: **Center Preference** (e.g., 0.5). Controls how much the optimizer prefers the target vs. coasting near the edge.
+    *   $\text{DistanceToBound}$: Distance from Target to Min (if $T < Target$) or Max (if $T > Target$).
+
+*   **Outside Envelope** (Violation):
+    Steep penalty for violating the comfort bounds.
+    $$ \text{Cost}_{outer} = P_{center} + \text{Slope} \cdot \text{Excess} + P_{outer} \cdot \text{Excess}^2 $$
+    *   $P_{outer}$: Automatically set to $100 \cdot P_{center}$.
+    *   Ensures a smooth ($C^1$) transition at the boundary to help the optimizer.

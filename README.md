@@ -43,6 +43,28 @@ Assess model performance by running repeated 12-hour forecasts starting at every
 python3 main.py data.csv -e my_house.json
 ```
 
+### 4. HVAC Schedule Optimization
+Optimize your thermostat schedule to minimize energy cost while maintaining comfort.
+
+```bash
+# Optimize schedule using comfort.json
+python3 main.py data.csv -p my_house.json --optimize-hvac --comfort data/comfort.json
+
+# Optimize for a specific duration (e.g., next 24 hours)
+python3 main.py data.csv -p my_house.json --optimize-hvac --comfort data/comfort.json --duration 1440
+```
+
+**Configuration (`comfort.json`):**
+```json
+{
+    "center_preference": 0.5,
+    "schedule": [
+        {"time": "08:00", "temp": 70, "min": 68, "max": 72},
+        {"time": "22:00", "temp": 60}
+    ]
+}
+```
+
 ## Testing & Plots
 
 Unit tests are located in `tests/`.
