@@ -209,7 +209,41 @@ def optimize_hvac_schedule(data, params, hw, target_temps, min_bounds, max_bound
         
         total_penalty = np.sum(total_cost * data.dt_hours)
         
-        return kwh + total_penalty
+        # 6. Defrost Energy Cost (Optional)
+        # Only calculated if heat pump has defrost specs.
+        # When running in the "frost zone", defrost cycles occur periodically.
+        # Energy = (runtime_in_zone / interval) * duration * power
+        
+        defrost_cost = 0.0
+        
+        if hasattr(hw, 'defrost_risk_zone') and hw.defrost_risk_zone is not None:
+            # Get defrost params from heat pump
+            risk_min, risk_max = hw.defrost_risk_zone
+            duration_hr = hw.defrost_duration_min / 60.0
+            interval_hr = hw.defrost_interval_min / 60.0
+            power_kw = hw.defrost_power_kw
+            
+            # Mask: Are we in the frost zone?
+            in_frost_zone = (data.t_out >= risk_min) & (data.t_out <= risk_max)
+            
+            # Weight by load ratio (high load = more defrost needed)
+            # Expected defrost cycles = runtime_in_zone / interval
+            # Energy per cycle = duration * power
+            
+            runtime_in_zone = np.sum(load_ratios * in_frost_zone * dt_hours)
+            expected_cycles = runtime_in_zone / interval_hr
+            defrost_energy_kwh = expected_cycles * duration_hr * power_kw
+            
+            # Add to energy cost (1:1 with kWh)
+            defrost_cost = defrost_energy_kwh
+            
+            # Aggressive avoidance mode: add extra penalty to reduce hardware stress
+            avoid_defrost = comfort_config.get('avoid_defrost', False)
+            if avoid_defrost:
+                # Strong penalty: 10x the energy cost
+                defrost_cost *= 10.0
+            
+        return kwh + total_penalty + defrost_cost
 
     # Run Optimization
     print(f"Solving for {num_blocks} control variables (30-min blocks)...")

@@ -29,5 +29,16 @@
             3.7,
             4.6
         ]
+    },
+    "defrost": {
+        "description": "Defrost cycle parameters for cold/humid conditions",
+        "trigger_temp_f": 32,
+        "risk_zone_f": [
+            28,
+            42
+        ],
+        "cycle_duration_minutes": 10,
+        "cycle_interval_minutes": 60,
+        "power_kw": 4.5
     }
 }

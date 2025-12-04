@@ -1,6 +1,7 @@
 {
     "center_preference": 0.5,
     "mode": "heat",
+    "avoid_defrost": true,
     "schedule": [
         {
             "time": "00:00",

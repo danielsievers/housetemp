@@ -11,6 +11,17 @@ class HeatPump:
         self.cap_y = data['max_capacity']['y_btu_hr']
         self.cop_x = data['cop']['x_outdoor_f']
         self.cop_y = data['cop']['y_cop']
+        
+        # Defrost parameters (optional - None if not specified)
+        if 'defrost' in data:
+            defrost = data['defrost']
+            self.defrost_trigger_temp = defrost.get('trigger_temp_f', 32)
+            self.defrost_risk_zone = defrost.get('risk_zone_f', [28, 42])
+            self.defrost_duration_min = defrost.get('cycle_duration_minutes', 10)
+            self.defrost_interval_min = defrost.get('cycle_interval_minutes', 60)
+            self.defrost_power_kw = defrost.get('power_kw', 4.5)
+        else:
+            self.defrost_risk_zone = None  # Signals no defrost modeling
 
     def get_max_capacity(self, t_out_array):
         return np.interp(t_out_array, self.cap_x, self.cap_y)
