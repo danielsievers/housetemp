@@ -59,17 +59,32 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     hvac_state_sliced = data.hvac_state[:sim_len]
     solar_kw_sliced = data.solar_kw[:sim_len]
 
+    # Unpack params for plotting
+    UA = optimized_params[1]
+    K_solar = optimized_params[2]
+    Q_int = optimized_params[3]
+    H_factor = optimized_params[4]
+
+    # Calculate Flows
     max_caps = hw.get_max_capacity(t_out_sliced)
     gap = np.maximum(0, setpoint_sliced - simulated_t_in)
-    est_btu = 12000 + (optimized_params[4] * gap)
+    est_btu = 12000 + (H_factor * gap)
     # Apply hvac state mask (1, 0, -1) and limits
     est_btu = np.where(hvac_state_sliced > 0, np.minimum(est_btu, max_caps), 
                        np.where(hvac_state_sliced < 0, -np.minimum(est_btu, 54000), 0))
     
-    plt.plot(timestamps, est_btu, label='Modeled HVAC Output (BTU)', color='red', alpha=0.6)
-    plt.plot(timestamps, solar_kw_sliced * optimized_params[2], label='Solar Gain (BTU)', color='gold', alpha=0.6)
+    q_leak = UA * (t_out_sliced - simulated_t_in)
+    q_solar = solar_kw_sliced * K_solar
+    q_total = est_btu + q_solar + q_leak + Q_int
+    
+    plt.plot(timestamps, est_btu, label='Modeled HVAC', color='red', alpha=0.6)
+    plt.plot(timestamps, q_solar, label='Solar Gain', color='gold', alpha=0.6)
+    plt.plot(timestamps, q_leak, label='Leakage (UA)', color='cyan', alpha=0.6, linestyle=':')
+    plt.axhline(y=Q_int, label='Internal Heat', color='green', alpha=0.5, linestyle='--')
+    plt.plot(timestamps, q_total, label='Net Gain', color='black', linewidth=1.5, linestyle='-')
+    
     plt.ylabel("Heat Flow (BTU/hr)")
-    plt.legend()
+    plt.legend(loc='upper right', fontsize='small')
     plt.grid(True)
     
     plt.tight_layout()
