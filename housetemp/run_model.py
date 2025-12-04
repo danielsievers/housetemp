@@ -77,17 +77,23 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
                 else: mode = 0 # Satisfied
             
             if mode > 0: # HEATING
-                gap = max(0, gap) # Only care if temp is too low
-                # Base load (12k) + Turbo Ramp
-                request = 3000 + (H_factor * gap)
-                # Clamp to hardware limits
-                q_hvac = min(request, max_caps[i])
+                gap = data.setpoint[i] - current_temp
+                if gap > 0:
+                    # Base load (3000) + Turbo Ramp
+                    request = 3000 + (H_factor * gap)
+                    # Clamp to hardware limits
+                    q_hvac = min(request, max_caps[i])
+                else:
+                    q_hvac = 0
                 
             elif mode < 0: # COOLING
-                gap = max(0, -gap) # Only care if temp is too high
-                request = 3000 + (H_factor * gap)
-                # Cap cooling ~54k
-                q_hvac = -min(request, 54000)
+                gap = current_temp - data.setpoint[i]
+                if gap > 0:
+                    request = 3000 + (H_factor * gap)
+                    # Cap cooling ~54k
+                    q_hvac = -min(request, 54000)
+                else:
+                    q_hvac = 0
         
         hvac_outputs[i] = q_hvac
 

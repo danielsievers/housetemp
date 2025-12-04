@@ -1,5 +1,6 @@
 {
     "center_preference": 0.5,
+    "mode": "heat",
     "schedule": [
         {
             "time": "00:00",

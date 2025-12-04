@@ -72,7 +72,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, min_bounds, max_bound
     # Config
     center_preference = comfort_config.get('center_preference', 0.5)
     # Outer penalty is implicitly much steeper (soft wall)
-    w_outer = center_preference * 100.0
+    w_outer = center_preference * 10000.0
     
     # --- 1. Setup Control Blocks (Aligned) ---
     # Convert start/end to pandas Timestamp for easy flooring
@@ -109,9 +109,17 @@ def optimize_hvac_schedule(data, params, hw, target_temps, min_bounds, max_bound
     base_cops = hw.get_cop(data.t_out)
     dt_hours = data.dt_hours
     
-    # Force Auto Mode
+    # Force Mode based on Config
+    mode_str = comfort_config.get('mode', 'auto').lower()
+    hvac_mode_val = 2 # Default Auto
+    
+    if mode_str == 'heat':
+        hvac_mode_val = 1
+    elif mode_str == 'cool':
+        hvac_mode_val = -1
+        
     original_hvac_state = data.hvac_state.copy()
-    data.hvac_state[:] = 2 # Set all to AUTO
+    data.hvac_state[:] = hvac_mode_val
     
     def schedule_loss(candidate_blocks):
         # 1. Upsample Blocks to Simulation Resolution
