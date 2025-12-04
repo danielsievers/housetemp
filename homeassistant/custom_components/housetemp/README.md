@@ -4,13 +4,23 @@ This custom component integrates the HouseTemp thermal model into Home Assistant
 
 ## Installation
 
+### HACS (Recommended)
+1.  Open HACS in Home Assistant.
+2.  Go to **Integrations** > Top right menu > **Custom repositories**.
+3.  Enter the URL of this repository.
+4.  Category: **Integration**.
+5.  Click **Add** and then **Download**.
+6.  Restart Home Assistant.
+
+*Note: The component will automatically install the required `housetemp` library from PyPI.*
+
 ### Manual Installation
 1.  Copy the `housetemp` directory from `homeassistant/custom_components/` to your Home Assistant's `custom_components` directory.
-    - **Path**: `/config/custom_components/housetemp`
-2.  **Important**: The `housetemp_lib` folder inside the component is a **symlink** to the root `housetemp/` directory.
-    - If you are mounting this repository into your Home Assistant container, the symlink will work automatically.
-    - If you are copying files, you must ensure the contents of the root `housetemp/` directory are copied into `custom_components/housetemp/housetemp_lib/`.
-
+2.  **Install Library**: You must also install the `housetemp` library into your Home Assistant's Python environment.
+    *   If you haven't published to PyPI yet, navigate to the root of this repository and run:
+        ```bash
+        pip install .
+        ```
 3.  Restart Home Assistant.
 
 ## Configuration

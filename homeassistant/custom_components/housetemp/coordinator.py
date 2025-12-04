@@ -32,9 +32,9 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL,
 )
 
-# Import from the symlinked library
-from .housetemp_lib.run_model import run_model, HeatPump
-from .housetemp_lib.measurements import Measurements
+# Import from the installed package
+from housetemp.run_model import run_model, HeatPump
+from housetemp.measurements import Measurements
 
 _LOGGER = logging.getLogger(__name__)
 
