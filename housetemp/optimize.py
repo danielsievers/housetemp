@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import minimize
 from . import run_model
-from .heat_pump import MitsubishiHeatPump
+from . import run_model
 
 def loss_function(params, data, hw):
     # 1. Run Simulation with current parameter guess
@@ -26,8 +26,8 @@ def loss_function(params, data, hw):
     
     return error
 
-def run_optimization(data, initial_guess=None):
-    hw = MitsubishiHeatPump()
+def run_optimization(data, hw, initial_guess=None):
+    # hw is now passed in
     
     # [C, UA, K_solar, Q_int, H_factor]
     # If no linear fit provided, fall back to hardcoded defaults

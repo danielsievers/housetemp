@@ -10,6 +10,7 @@ from housetemp import results
 from housetemp import linear_fit
 from housetemp import energy
 from housetemp import evaluate
+from housetemp import run_model
 
 def save_model(params, filename):
     data = {
@@ -63,6 +64,7 @@ def run_main(args_list=None):
     
     # Output Options
     parser.add_argument("--duration", type=int, default=0, help="Limit simulation duration in minutes (default: 0 = full duration)")
+    parser.add_argument("--heat-pump", default="data/heat_pump.json", help="Path to Heat Pump JSON config (default: data/heat_pump.json)")
     parser.add_argument("-o", "--output", default="model.json", 
                         help="Filename to save optimized model parameters (default: model.json)")
 
@@ -90,19 +92,37 @@ def run_main(args_list=None):
     # 1. Load Data
     measurements = load_csv.load_csv(args.csv_file, override_start_temp=args.start_temp)
     
+    # 2. Load Heat Pump Config (Required for Optimization, Prediction, Evaluation)
+    # It is NOT strictly required for Regression, but we might as well load it if present.
+    # If missing, we error out unless we are ONLY doing regression (which doesn't use it).
+    
+    # 2. Load Heat Pump Config (Required for Optimization, Prediction, Evaluation)
+    # Always load it since all modes now require it (Optimization is the default fall-through).
+    
+    hw = None
+    if not os.path.exists(args.heat_pump):
+        print(f"Error: Heat Pump config file '{args.heat_pump}' not found.")
+        print("You must provide a valid JSON config via --heat-pump.")
+        return 1
+    try:
+        hw = run_model.HeatPump(args.heat_pump)
+    except Exception as e:
+        print(f"Error loading heat pump config: {e}")
+        return 1
+    
     # --- MODE 1: PREDICTION / ESTIMATION (Existing Model) ---
     if args.predict:
         print("\n--- RUNNING IN PREDICTION MODE ---")
         params = load_model(args.predict)
-        results.plot_results(measurements, params, title_suffix="Prediction Mode", duration_minutes=args.duration)
-        energy.estimate_consumption(measurements, params, cost_per_kwh=0.45)
+        results.plot_results(measurements, params, hw, title_suffix="Prediction Mode", duration_minutes=args.duration)
+        energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
         return 0
 
     # --- MODE 1.5: ROLLING EVALUATION ---
     if args.eval:
         print("\n--- RUNNING ROLLING EVALUATION ---")
         params = load_model(args.eval)
-        evaluate.run_rolling_evaluation(measurements, params)
+        evaluate.run_rolling_evaluation(measurements, params, hw)
         return 0
 
     # --- MODE 2: INITIALIZATION (Regression or Defaults) ---
@@ -123,14 +143,14 @@ def run_main(args_list=None):
         # We don't exit here anymore, we proceed to optimization
 
     # --- MODE 3: FULL OPTIMIZATION (Train Model) ---
-    optimization_result = optimize.run_optimization(measurements, initial_guess=initial_params)
+    optimization_result = optimize.run_optimization(measurements, hw, initial_guess=initial_params)
     
     if optimization_result.success:
         print("\nOptimization converged successfully!")
         best_params = optimization_result.x
         save_model(best_params, args.output)
-        results.plot_results(measurements, best_params, title_suffix="Optimization Result")
-        energy.estimate_consumption(measurements, best_params, cost_per_kwh=0.45)
+        results.plot_results(measurements, best_params, hw, title_suffix="Optimization Result")
+        energy.estimate_consumption(measurements, best_params, hw, cost_per_kwh=0.45)
         return 0
     else:
         print("Optimization failed:", optimization_result.message)

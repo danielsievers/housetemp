@@ -1,8 +1,24 @@
+import json
 import numpy as np
 from .measurements import Measurements
-from .heat_pump import MitsubishiHeatPump
 
-def run_model(params, data: Measurements, hw: MitsubishiHeatPump, duration_minutes: int = 0):
+class HeatPump:
+    def __init__(self, json_path):
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        
+        self.cap_x = data['max_capacity']['x_outdoor_f']
+        self.cap_y = data['max_capacity']['y_btu_hr']
+        self.cop_x = data['cop']['x_outdoor_f']
+        self.cop_y = data['cop']['y_cop']
+
+    def get_max_capacity(self, t_out_array):
+        return np.interp(t_out_array, self.cap_x, self.cap_y)
+
+    def get_cop(self, t_out_array):
+        return np.interp(t_out_array, self.cop_x, self.cop_y)
+
+def run_model(params, data: Measurements, hw: HeatPump, duration_minutes: int = 0):
     # --- 1. Unpack Parameters (The things we are optimizing) ---
     C_thermal = params[0]   # Thermal Mass (BTU/F)
     UA = params[1]          # Insulation Leakage (BTU/hr/F)

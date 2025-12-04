@@ -1,9 +1,9 @@
 import numpy as np
 from . import run_model
-from .heat_pump import MitsubishiHeatPump
+from . import run_model
 from .measurements import Measurements
 
-def run_rolling_evaluation(data: Measurements, params):
+def run_rolling_evaluation(data: Measurements, params, hw):
     """
     Runs a rolling window evaluation.
     - Starts at every hour (index 0, 2, 4...)
@@ -11,7 +11,7 @@ def run_rolling_evaluation(data: Measurements, params):
     - Calculates RMSE for 6h and 12h horizons
     - Prints average RMSE
     """
-    hw = MitsubishiHeatPump()
+    # hw is passed in
     
     # Assuming 30-minute intervals
     # TODO: Make dynamic based on dt_hours if possible, but 30min is standard here

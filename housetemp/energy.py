@@ -1,13 +1,13 @@
 import numpy as np
 from . import run_model
-from .heat_pump import MitsubishiHeatPump
+from . import run_model
 
-def estimate_consumption(data, params, cost_per_kwh=0.45):
+def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
     """
     Calculates estimated kWh usage and cost based on the thermal model fits.
     Applies Mitsubishi-specific Part-Load Efficiency corrections.
     """
-    hw = MitsubishiHeatPump()
+    # hw is passed in
     
     # 1. Re-Run Simulation to get the modeled indoor temperatures
     # We use the simulated temps because they reflect the steady-state physics

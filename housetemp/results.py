@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from . import run_model
-from .heat_pump import MitsubishiHeatPump
+from . import run_model
 
-def plot_results(data, optimized_params, title_suffix="", duration_minutes=0):
-    hw = MitsubishiHeatPump()
+def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0):
+    # hw is passed in
     
     # Run final simulation with best params
     simulated_t_in, rmse = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)

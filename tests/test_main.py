@@ -18,7 +18,40 @@ class TestMainIntegration(unittest.TestCase):
         # Create a temporary directory
         self.test_dir = tempfile.mkdtemp()
         self.csv_path = os.path.join(self.test_dir, 'test_data.csv')
+        self.csv_path = os.path.join(self.test_dir, 'test_data.csv')
         self.model_path = os.path.join(self.test_dir, 'test_model.json')
+        self.hp_path = os.path.join(self.test_dir, 'test_hp.json')
+        
+        # Create Dummy Heat Pump Config
+        hp_data = {
+            "description": "Test Heat Pump",
+            "max_capacity": {
+                "x_outdoor_f": [-10, 100],
+                "y_btu_hr": [50000, 50000]
+            },
+            "cop": {
+                "x_outdoor_f": [-10, 100],
+                "y_cop": [3.0, 3.0]
+            }
+        }
+        with open(self.hp_path, 'w') as f:
+            json.dump(hp_data, f)
+        self.hp_path = os.path.join(self.test_dir, 'test_hp.json')
+        
+        # Create Dummy Heat Pump Config
+        hp_data = {
+            "description": "Test Heat Pump",
+            "max_capacity": {
+                "x_outdoor_f": [-10, 100],
+                "y_btu_hr": [50000, 50000]
+            },
+            "cop": {
+                "x_outdoor_f": [-10, 100],
+                "y_cop": [3.0, 3.0]
+            }
+        }
+        with open(self.hp_path, 'w') as f:
+            json.dump(hp_data, f)
         
         # Generate Test Data (Ported from generate_csv.py)
         self.generate_test_data()
@@ -99,7 +132,7 @@ class TestMainIntegration(unittest.TestCase):
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
                 # This should now run regression AND optimization
-                status = main.run_main([self.csv_path, '-r', '-o', self.model_path])
+                status = main.run_main([self.csv_path, '-r', '-o', self.model_path, '--heat-pump', self.hp_path])
         self.assertEqual(status, 0)
         self.assertTrue(os.path.exists(self.model_path))
 
@@ -107,7 +140,7 @@ class TestMainIntegration(unittest.TestCase):
         """Test full optimization run (Defaults, No Regression)"""
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                status = main.run_main([self.csv_path, '-o', self.model_path])
+                status = main.run_main([self.csv_path, '-o', self.model_path, '--heat-pump', self.hp_path])
         
         self.assertEqual(status, 0)
         self.assertTrue(os.path.exists(self.model_path), "Model file should be created")
@@ -123,12 +156,12 @@ class TestMainIntegration(unittest.TestCase):
         # First create a model
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                main.run_main([self.csv_path, '-o', self.model_path])
+                main.run_main([self.csv_path, '-o', self.model_path, '--heat-pump', self.hp_path])
         
         # Now run prediction
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                status = main.run_main([self.csv_path, '-p', self.model_path])
+                status = main.run_main([self.csv_path, '-p', self.model_path, '--heat-pump', self.hp_path])
         
         self.assertEqual(status, 0)
 
@@ -145,12 +178,12 @@ class TestMainIntegration(unittest.TestCase):
         # Create model
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                main.run_main([self.csv_path, '-o', self.model_path])
+                main.run_main([self.csv_path, '-o', self.model_path, '--heat-pump', self.hp_path])
 
         # Run with --start-temp (Should Succeed)
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                status = main.run_main([forecast_csv, '-p', self.model_path, '--start-temp', '68.0'])
+                status = main.run_main([forecast_csv, '-p', self.model_path, '--start-temp', '68.0', '--heat-pump', self.hp_path])
         self.assertEqual(status, 0)
 
     def test_prediction_forecast_missing_start_temp(self):
@@ -166,7 +199,7 @@ class TestMainIntegration(unittest.TestCase):
         # Create model
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                main.run_main([self.csv_path, '-o', self.model_path])
+                main.run_main([self.csv_path, '-o', self.model_path, '--heat-pump', self.hp_path])
 
         # Run WITHOUT --start-temp (Should Fail)
         # We expect ValueError from load_csv, which main.py doesn't catch explicitly, so it crashes.
@@ -174,21 +207,21 @@ class TestMainIntegration(unittest.TestCase):
         with self.assertRaises(ValueError):
              with open(os.devnull, 'w') as devnull:
                 with patch('sys.stdout', new=devnull):
-                    main.run_main([forecast_csv, '-p', self.model_path])
+                    main.run_main([forecast_csv, '-p', self.model_path, '--heat-pump', self.hp_path])
 
     def test_prediction_duration(self):
         """Test prediction with --duration argument"""
         # Create model
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                main.run_main([self.csv_path, '-o', self.model_path])
+                main.run_main([self.csv_path, '-o', self.model_path, '--heat-pump', self.hp_path])
         
         # Run prediction with duration=60 minutes (2 steps)
         # We can't easily check the output length from integration test without capturing stdout or inspecting internals
         # But we can check it runs successfully
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                status = main.run_main([self.csv_path, '-p', self.model_path, '--duration', '60'])
+                status = main.run_main([self.csv_path, '-p', self.model_path, '--duration', '60', '--heat-pump', self.hp_path])
         self.assertEqual(status, 0)
 
     def test_rolling_evaluation(self):
@@ -196,14 +229,14 @@ class TestMainIntegration(unittest.TestCase):
         # Create model
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                main.run_main([self.csv_path, '-o', self.model_path])
+                main.run_main([self.csv_path, '-o', self.model_path, '--heat-pump', self.hp_path])
         
         # Run rolling evaluation
         # We need enough data for at least one 12h window.
         # Our test data is 48 hours, so it should be fine.
         with open(os.devnull, 'w') as devnull:
             with patch('sys.stdout', new=devnull):
-                status = main.run_main([self.csv_path, '-e', self.model_path])
+                status = main.run_main([self.csv_path, '-e', self.model_path, '--heat-pump', self.hp_path])
         self.assertEqual(status, 0)
 
 if __name__ == '__main__':
