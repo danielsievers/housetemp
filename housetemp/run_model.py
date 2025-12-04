@@ -18,7 +18,7 @@ class HeatPump:
     def get_cop(self, t_out_array):
         return np.interp(t_out_array, self.cop_x, self.cop_y)
 
-def run_model(params, data: Measurements, hw: HeatPump, duration_minutes: int = 0):
+def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes: int = 0):
     # --- 1. Unpack Parameters (The things we are optimizing) ---
     C_thermal = params[0]   # Thermal Mass (BTU/F)
     UA = params[1]          # Insulation Leakage (BTU/hr/F)
@@ -28,7 +28,13 @@ def run_model(params, data: Measurements, hw: HeatPump, duration_minutes: int = 
 
     # --- 2. Pre-calculate Limits ---
     # We know the max capacity for every hour based on weather
-    max_caps = hw.get_max_capacity(data.t_out)
+    if hw:
+        max_caps = hw.get_max_capacity(data.t_out)
+    else:
+        # If no hardware model, we assume no active HVAC capability
+        # or infinite? For now, let's assume 0 capacity if no hardware defined.
+        # This effectively forces Passive Mode.
+        max_caps = np.zeros(len(data))
     
     # --- 3. Determine Simulation Steps ---
     total_steps = len(data)
@@ -40,6 +46,7 @@ def run_model(params, data: Measurements, hw: HeatPump, duration_minutes: int = 
 
     # --- 4. Simulation Loop ---
     sim_temps = np.zeros(total_steps)
+    hvac_outputs = np.zeros(total_steps) # Track Q_hvac for energy calc
     current_temp = data.t_in[0] # Start at actual temp
     
     for i in range(total_steps):
@@ -55,7 +62,7 @@ def run_model(params, data: Measurements, hw: HeatPump, duration_minutes: int = 
         # B. Active HVAC Physics (Inverter Logic)
         q_hvac = 0
         
-        if data.hvac_state[i] != 0: # If HVAC is enabled
+        if hw and data.hvac_state[i] != 0: # If HVAC is enabled AND we have hardware
             # Calculate the "Gap" (Error)
             gap = data.setpoint[i] - current_temp
             
@@ -71,6 +78,8 @@ def run_model(params, data: Measurements, hw: HeatPump, duration_minutes: int = 
                 request = 3000 + (H_factor * gap)
                 # Cap cooling ~54k
                 q_hvac = -min(request, 54000)
+        
+        hvac_outputs[i] = q_hvac
 
         # C. Total Energy Balance
         q_total = q_leak + q_solar + Q_int + q_hvac
@@ -96,4 +105,4 @@ def run_model(params, data: Measurements, hw: HeatPump, duration_minutes: int = 
     mse = np.mean((sim_temps - actual_temps)**2)
     rmse = np.sqrt(mse)
 
-    return sim_temps, rmse
+    return sim_temps, rmse, hvac_outputs

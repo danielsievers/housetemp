@@ -15,8 +15,12 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
     # 1. Re-Run Simulation to get the modeled indoor temperatures
     # We use the simulated temps because they reflect the steady-state physics
     # rather than noisy sensor jitter.
-    sim_temps, _ = run_model.run_model(params, data, hw)
+    sim_temps, _, hvac_outputs = run_model.run_model(params, data, hw)
     
+    if hw is None:
+        print("Warning: No Heat Pump model provided. Skipping energy calculation.")
+        return 0.0, 0.0
+
     # Unpack HVAC Aggressiveness (H_factor)
     H_factor = params[4] 
     
@@ -30,32 +34,9 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
     print(f"\nComputing Energy Profile ({len(data)} steps)...")
     
     for i in range(len(data)):
-        # Skip if HVAC is OFF
-        if data.hvac_state[i] == 0:
-            continue
-            
-        # --- A. CALCULATE THERMAL DEMAND (BTU) ---
-        # Re-create the inverter logic from simulation.py
-        current_temp = sim_temps[i]
-        gap = data.setpoint[i] - current_temp
-        
-        q_output = 0
-        
-        # HEATING Logic
-        if data.hvac_state[i] > 0:
-            gap = max(0, gap)
-            # Base Load (12k) + Ramp
-            request = 12000 + (H_factor * gap)
-            # Cap at hardware limit
-            q_output = min(request, max_caps[i])
-            
-        # COOLING Logic (Simplified symmetric model)
-        elif data.hvac_state[i] < 0:
-            gap = max(0, -gap)
-            request = 12000 + (H_factor * gap)
-            q_output = min(request, 54000) # 5-Ton Cool Limit
+        q_output = hvac_outputs[i]
 
-        if q_output <= 0:
+        if q_output == 0:
             continue
 
         # --- B. CALCULATE EFFICIENCY (COP) ---
@@ -64,7 +45,11 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
         
         # 2. Calculate Part-Load Ratio (PLF)
         # How hard is the unit working relative to max capacity?
-        load_ratio = q_output / max_caps[i]
+        # Avoid division by zero if max_caps is 0 (though q_output should be 0 then)
+        if max_caps[i] > 0:
+            load_ratio = abs(q_output) / max_caps[i]
+        else:
+            load_ratio = 1.0 # Fallback
         
         # Mitsubishi Inverter Correction Approximation:
         # Low speed (30% load) is ~40% more efficient than Max speed.
@@ -76,7 +61,7 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
         
         # --- C. CONVERT TO KWH ---
         # Watts = BTU / COP
-        watts_input = q_output / final_cop
+        watts_input = abs(q_output) / final_cop
         
         # kWh = (Watts / 1000) * Time Step Hours
         kwh_step = (watts_input / 1000) * data.dt_hours[i]

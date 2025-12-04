@@ -65,6 +65,7 @@ Once the thermal load ($Q_{hvac}$) is known, we calculate Energy Consumption ($E
 
 $$ E_{kWh} = \frac{Q_{hvac}}{\text{COP} \cdot 3412} \cdot \Delta t_{hours} $$
 
+*   $Q_{hvac}$: **Thermal Output** (BTU). Calculated by the simulation loop and passed to the energy estimator.
 *   $3412$: **Conversion Factor** (BTU per kWh).
 *   The **COP** is dynamic and depends on two factors:
 1.  **Outdoor Temperature**: Lower $T_{out}$ reduces efficiency (lookup table).

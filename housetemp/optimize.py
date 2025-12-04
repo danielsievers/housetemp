@@ -5,7 +5,7 @@ from . import run_model
 
 def loss_function(params, data, hw):
     # 1. Run Simulation with current parameter guess
-    predicted_temps, sim_error = run_model.run_model(params, data, hw)
+    predicted_temps, sim_error, _ = run_model.run_model(params, data, hw)
     
     # 2. Compare to Reality (Root Mean Square Error)
     # We use the error returned by run_model directly, but let's verify:
