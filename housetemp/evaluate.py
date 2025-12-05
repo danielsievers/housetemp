@@ -31,6 +31,8 @@ def run_rolling_evaluation(data: Measurements, params, hw):
     
     errors_6h = []
     errors_12h = []
+    biases_6h = []
+    biases_12h = []
     
     total_steps = len(data)
     
@@ -71,24 +73,28 @@ def run_rolling_evaluation(data: Measurements, params, hw):
         # 6-Hour Point Error
         # We want the error specifically at the 6h mark (index steps_6h - 1)
         idx_6h = steps_6h - 1
-        error_6h = abs(sim_temps[idx_6h] - actual_temps[idx_6h])
-        errors_6h.append(error_6h)
+        diff_6h = sim_temps[idx_6h] - actual_temps[idx_6h]
+        errors_6h.append(abs(diff_6h))
+        biases_6h.append(diff_6h)
         
         # 12-Hour Point Error
         idx_12h = steps_12h - 1
-        error_12h = abs(sim_temps[idx_12h] - actual_temps[idx_12h])
-        errors_12h.append(error_12h)
+        diff_12h = sim_temps[idx_12h] - actual_temps[idx_12h]
+        errors_12h.append(abs(diff_12h))
+        biases_12h.append(diff_12h)
         
     # --- REPORT ---
     avg_rmse_6h = np.mean(errors_6h)
     avg_rmse_12h = np.mean(errors_12h)
     max_error_6h = np.max(errors_6h)
     max_error_12h = np.max(errors_12h)
+    avg_bias_6h = np.mean(biases_6h)
+    avg_bias_12h = np.mean(biases_12h)
     
     print("\n" + "="*40)
     print("ROLLING EVALUATION RESULTS")
     print("="*40)
     print(f"Data Points Evaluated: {len(errors_12h)} windows")
-    print(f"6-Hour Forecast Error (Avg):  {avg_rmse_6h:.3f} F (Max: {max_error_6h:.3f} F)")
-    print(f"12-Hour Forecast Error (Avg): {avg_rmse_12h:.3f} F (Max: {max_error_12h:.3f} F)")
+    print(f"6-Hour Forecast Error (Avg):  {avg_rmse_6h:.3f} F (Max: {max_error_6h:.3f} F, Bias: {avg_bias_6h:+.3f} F)")
+    print(f"12-Hour Forecast Error (Avg): {avg_rmse_12h:.3f} F (Max: {max_error_12h:.3f} F, Bias: {avg_bias_12h:+.3f} F)")
     print("="*40)
