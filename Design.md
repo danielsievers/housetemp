@@ -55,12 +55,16 @@ $$ Q_{request} = Q_{base} + (H_{factor} \cdot |T_{set} - T_{in}|) $$
 *   $H_{factor}$: **Aggressiveness** (BTU/hr per °F error). How hard the unit ramps up to meet demand.
 
 ### 3.1 Constraints
-The requested output is clamped by the hardware's physical limits, which vary with Outdoor Temperature ($T_{out}$):
+The requested output is limited by two real-world factors:
+1.  **Hardware Capacity**: The unit cannot exceed its maximum output at a given outdoor temperature.
+2.  **System Efficiency (Derate)**: Real-world losses (e.g., duct leakage, heat exchanger scaling) reduce the effective output.
 
-$$ Q_{hvac} = \min(Q_{request}, \text{MaxCapacity}(T_{out})) $$
+$$ Q_{hvac} = \eta_{eff} \cdot \min(Q_{request}, \text{MaxCapacity}(T_{out})) $$
+
+*   $\eta_{eff}$: **Efficiency/Derate Factor** (0.0 - 1.0). Accounts for duct leaks and system degradation.
 
 ## 4. Parameter Optimization
-We find the unknown parameters ($C, UA, K_{solar}, Q_{internal}, H_{factor}$) by minimizing the error between the *simulated* temperature and the *actual* historical temperature.
+We find the unknown parameters ($C, UA, K_{solar}, Q_{internal}, H_{factor}, \eta_{eff}$) by minimizing the error between the *simulated* temperature and the *actual* historical temperature.
 
 *   **Algorithm**: L-BFGS-B (Scipy Optimize)
 *   **Loss Function**: Root Mean Square Error (RMSE) of $T_{in}$.

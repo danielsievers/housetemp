@@ -127,7 +127,7 @@ def run_main(args_list=None):
     
     parser.add_argument("--fix-passive", metavar="VACATION_MODEL_JSON",
                         help="Fix passive parameters (C, UA, K, Q) from this file and ONLY optimize active parameters.")
-
+                        
     # --- CUSTOM HELP DISPLAY ---
     # If no args provided (and not called programmatically with empty list), show help
     if args_list is None and len(sys.argv) == 1:

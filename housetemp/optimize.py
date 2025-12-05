@@ -7,14 +7,20 @@ from . import run_model
 def loss_function(active_params, data, hw, fixed_passive_params=None):
     # Construct full params vector
     if fixed_passive_params:
-        # active_params = [H_factor, efficiency_derate]
-        # fixed_passive_params = [C, UA, K, Q]
+        # fixed_passive_params comes in as [C, UA, K, Q]
+        # active_params = [UA, H_factor, efficiency_derate]
         
-        # Ensure we have at least H_factor
-        h_factor = active_params[0]
-        eff_derate = active_params[1] if len(active_params) > 1 else 1.0
+        ua_opt = active_params[0]
+        h_factor = active_params[1]
+        eff_derate = active_params[2] if len(active_params) > 2 else 1.0
         
-        full_params = list(fixed_passive_params) + [h_factor, eff_derate]
+        # Construct using fixed C, K, Q
+        c = fixed_passive_params[0]
+        # ua is optimized
+        k = fixed_passive_params[2]
+        q = fixed_passive_params[3]
+        
+        full_params = [c, ua_opt, k, q, h_factor, eff_derate]
     else:
         # Optimizing EVERYTHING
         # active_params = [C, UA, K_solar, Q_int, H_factor]
@@ -40,16 +46,15 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
     
     if fixed_passive_params:
         print(f"--- ACTIVE PARAMETER OPTIMIZATION MODE ---")
-        print(f"Fixed Passive Params: C={fixed_passive_params[0]:.0f}, UA={fixed_passive_params[1]:.0f}, K={fixed_passive_params[2]:.0f}, Q={fixed_passive_params[3]:.0f}")
+        print("Optimizing Active Parameters + Floating UA (Occupied Infiltration).")
+         # Initial Guess for [UA, H_factor, efficiency_derate]
+         # Start UA at fixed value (189), H at 10k, Eff at 0.9
+        initial_guess = [fixed_passive_params[1], 10000, 0.9]
         
-        # Initial Guess for [H_factor, efficiency_derate]
-        # Default start: H=10000, Eff=0.9
-        initial_guess = [10000, 0.9]
-        
-        # Bounds: H_factor, Efficiency
         bounds = [
+            (200, 600),    # UA (Constrain slightly to help convergence: 200-600)
             (2000, 30000), # H_factor
-            (0.5, 1.2)     # Efficiency (50% to 120%)
+            (0.5, 1.2)     # Efficiency
         ]
     else:
         # Full Optimization
@@ -77,9 +82,17 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
     if fixed_passive_params:
         # Reconstruct full parameter set for return
         best_active = result.x
-        full_params = list(fixed_passive_params) + list(best_active)
-        # If optimization only returned H_factor (1 var), handle it? 
-        # But we set 2 vars in guess/bounds.
+        
+         # best_active = [UA, H, Eff]
+        ua = best_active[0]
+        h = best_active[1]
+        eff = best_active[2]
+         
+        c = fixed_passive_params[0]
+        k = fixed_passive_params[2]
+        q = fixed_passive_params[3]
+         
+        full_params = [c, ua, k, q, h, eff]
         
         # Result type needs to mock the scipy result object or we just modify result.x
         result.x = np.array(full_params)
