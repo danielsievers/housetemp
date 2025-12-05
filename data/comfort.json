@@ -5,33 +5,23 @@
     "schedule": [
         {
             "time": "00:00",
-            "temp": 62,
-            "min": 60,
-            "max": 68
+            "temp": 62
         },
         {
             "time": "07:00",
-            "temp": 67,
-            "min": 64,
-            "max": 69
+            "temp": 67
         },
         {
             "time": "10:00",
-            "temp": 69,
-            "min": 67,
-            "max": 72
+            "temp": 69
         },
         {
             "time": "20:00",
-            "temp": 68,
-            "min": 66,
-            "max": 72
+            "temp": 68
         },
         {
             "time": "22:00",
-            "temp": 62,
-            "min": 60,
-            "max": 70
+            "temp": 62
         }
     ]
 }

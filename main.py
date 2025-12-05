@@ -44,7 +44,7 @@ def load_model(filename):
 
 def export_debug_output(filename, mode, params, measurements, sim_temps, hvac_outputs, 
                         energy_kwh=None, rmse=None, comfort_config=None, 
-                        target_temps=None, min_bounds=None, max_bounds=None):
+                        target_temps=None):
     """Export debug results to JSON for agent/automation use."""
     import datetime
     
@@ -77,9 +77,7 @@ def export_debug_output(filename, mode, params, measurements, sim_temps, hvac_ou
             "setpoint": to_list(measurements.setpoint[:len(sim_temps)]),
             "hvac_output_btu": to_list(hvac_outputs),
             "outdoor_temp": to_list(measurements.t_out[:len(sim_temps)]),
-            "target_temp": to_list(target_temps[:len(sim_temps)] if target_temps is not None else None),
-            "min_bound": to_list(min_bounds[:len(sim_temps)] if min_bounds is not None else None),
-            "max_bound": to_list(max_bounds[:len(sim_temps)] if max_bounds is not None else None)
+            "target_temp": to_list(target_temps[:len(sim_temps)] if target_temps is not None else None)
         }
     }
     
@@ -200,11 +198,11 @@ def run_main(args_list=None):
                     measurements = measurements.slice(0, limit_idx)
             
             # Load Comfort Schedule
-            target_temps, min_bounds, max_bounds, comfort_config = schedule.load_comfort_schedule(args.comfort, measurements.timestamps)
+            target_temps, comfort_config = schedule.load_comfort_schedule(args.comfort, measurements.timestamps)
             
             # Run Optimization
             block_size = 30
-            optimized_setpoints = optimize.optimize_hvac_schedule(measurements, params, hw, target_temps, min_bounds, max_bounds, comfort_config, block_size_minutes=block_size)
+            optimized_setpoints = optimize.optimize_hvac_schedule(measurements, params, hw, target_temps, comfort_config, block_size_minutes=block_size)
             
             # Update Measurements with Optimized Schedule
             measurements.setpoint[:] = optimized_setpoints
@@ -227,10 +225,8 @@ def run_main(args_list=None):
             # In prediction mode, we don't have these loaded yet unless we load them
             # But plot_results handles None gracefully
             target_temps = None
-            min_bounds = None
-            max_bounds = None
 
-        results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps, min_bounds=min_bounds, max_bounds=max_bounds)
+        results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps)
         energy_result = energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
         
         # Debug output (optional)
@@ -246,9 +242,7 @@ def run_main(args_list=None):
                 energy_kwh=energy_result.get('total_kwh') if energy_result else None,
                 rmse=rmse,
                 comfort_config=comfort_config if args.optimize_hvac else None,
-                target_temps=target_temps,
-                min_bounds=min_bounds,
-                max_bounds=max_bounds
+                target_temps=target_temps
             )
         return 0
 

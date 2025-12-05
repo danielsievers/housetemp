@@ -43,7 +43,7 @@ class TestHvacOptimization(unittest.TestCase):
         comfort_data = {
             "schedule": [
                 {"time": "00:00", "temp": 60},
-                {"time": "08:00", "temp": 70, "min": 68, "max": 72},
+                {"time": "08:00", "temp": 70},
                 {"time": "20:00", "temp": 60}
             ]
         }
@@ -51,24 +51,18 @@ class TestHvacOptimization(unittest.TestCase):
             json.dump(comfort_data, f)
             
         timestamps = pd.date_range("2023-01-01 00:00", "2023-01-01 23:59", freq="30T", tz="America/Los_Angeles")
-        targets, min_bounds, max_bounds, config = schedule.load_comfort_schedule("test_comfort.json", timestamps)
+        targets, config = schedule.load_comfort_schedule("test_comfort.json", timestamps)
         
         # Check lengths
         self.assertEqual(len(targets), len(timestamps))
-        self.assertEqual(len(min_bounds), len(timestamps))
-        self.assertEqual(len(max_bounds), len(timestamps))
         
         # Check values at specific times
-        # 00:00 -> 60 (default swing 2 -> min 58, max 62)
+        # 00:00 -> 60
         self.assertEqual(targets[0], 60)
-        self.assertEqual(min_bounds[0], 58)
-        self.assertEqual(max_bounds[0], 62)
         
-        # 08:00 -> 70 (explicit min 68, max 72)
+        # 08:00 -> 70
         idx_8am = 16 # 8 * 2
         self.assertEqual(targets[idx_8am], 70)
-        self.assertEqual(min_bounds[idx_8am], 68)
-        self.assertEqual(max_bounds[idx_8am], 72)
         
         os.remove("test_comfort.json")
 
@@ -86,11 +80,9 @@ class TestHvacOptimization(unittest.TestCase):
         )
         
         target_temps = np.full(24, 70.0)
-        min_bounds = np.full(24, 68.0)
-        max_bounds = np.full(24, 72.0)
         comfort_config = {"center_preference": 1.0, "mode": "heat"}
         
-        optimized_setpoints = optimize.optimize_hvac_schedule(data, self.params, self.hw, target_temps, min_bounds, max_bounds, comfort_config, block_size_minutes=30)
+        optimized_setpoints = optimize.optimize_hvac_schedule(data, self.params, self.hw, target_temps, comfort_config, block_size_minutes=30)
         
         # Check that setpoints are reasonable
         # Since it's cold outside (50F) and target is 70F, it should heat.

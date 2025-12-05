@@ -3,7 +3,7 @@ import numpy as np
 from . import run_model
 from . import run_model
 
-def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0, marker_interval_minutes=None, target_temps=None, min_bounds=None, max_bounds=None):
+def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0, marker_interval_minutes=None, target_temps=None):
     # hw is passed in
     
     # Run final simulation with best params
@@ -47,12 +47,7 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     # Subplot 1: Temperature
     plt.subplot(2, 1, 1)
     
-    # Plot Comfort Band (if provided)
-    if min_bounds is not None and max_bounds is not None:
-        min_b = min_bounds[:sim_len]
-        max_b = max_bounds[:sim_len]
-        plt.fill_between(timestamps, min_b, max_b, color='green', alpha=0.1, label='Comfort Band')
-        
+
     # Plot Ideal Target (if provided)
     if target_temps is not None:
         targets = target_temps[:sim_len]

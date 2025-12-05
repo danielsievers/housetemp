@@ -35,28 +35,18 @@ def load_comfort_schedule(json_path, timestamps):
     default_swing = 2.0
 
     targets = np.zeros(len(timestamps))
-    min_bounds = np.zeros(len(timestamps))
-    max_bounds = np.zeros(len(timestamps))
     
     # Default to last item for wrap-around
     last_item = schedule[-1]
     current_target = last_item['temp']
-    current_min = last_item.get('min', current_target - default_swing)
-    current_max = last_item.get('max', current_target + default_swing)
     
     targets[:] = current_target
-    min_bounds[:] = current_min
-    max_bounds[:] = current_max
     
     for item in schedule:
         t_start = parse_time(item['time'])
         temp = item['temp']
-        t_min = item.get('min', temp - default_swing)
-        t_max = item.get('max', temp + default_swing)
         
         mask = times_of_day >= t_start
         targets[mask] = temp
-        min_bounds[mask] = t_min
-        max_bounds[mask] = t_max
         
-    return targets, min_bounds, max_bounds, config
+    return targets, config
