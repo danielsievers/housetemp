@@ -58,12 +58,17 @@ python3 main.py data.csv -p my_house.json --optimize-hvac --comfort data/comfort
 ```json
 {
     "center_preference": 0.5,
+    "mode": "heat",
     "schedule": [
-        {"time": "08:00", "temp": 70, "min": 68, "max": 72},
+        {"time": "08:00", "temp": 70},
         {"time": "22:00", "temp": 60}
     ]
 }
 ```
+
+### 5. Other Arguments
+- `--heat-pump <json_file>`: Path to Heat Pump configuration file (default: `data/heat_pump.json`). Required for prediction and optimization.
+- `--debug-output <json_file>`: Export detailed debug results to a JSON file (useful for inspection/automation).
 
 ## Testing & Plots
 
