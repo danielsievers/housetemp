@@ -21,21 +21,15 @@ def load_comfort_schedule(json_path, timestamps):
     # Convert timestamps to pandas datetime index for easy access
     ts_index = pd.to_datetime(timestamps)
     
-    # Create target array
-    targets = np.zeros(len(timestamps))
+    # Convert to local timezone if timezone-aware, then extract time of day
+    # This ensures schedule times (e.g., "22:00") match local clock time
+    if ts_index.tz is not None:
+        ts_local = ts_index.tz_convert('America/Los_Angeles')
+    else:
+        # Assume UTC if no timezone, convert to local
+        ts_local = ts_index.tz_localize('UTC').tz_convert('America/Los_Angeles')
     
-    # For each timestamp, find the active schedule item
-    # Since schedule is daily, we just look at the time of day
-    
-    # Optimization: Create a lookup for the day
-    # But simpler: Iterate through the schedule intervals
-    
-    # Default to first item if only one, or last item of previous day
-    # Let's assume the schedule covers the full 24h cycle.
-    # The last item wraps around until the first item of the next day.
-    
-    # We can assign the target for the whole array based on time of day
-    times_of_day = ts_index.time
+    times_of_day = ts_local.time
     
     # Default swing if min/max not provided
     default_swing = 2.0

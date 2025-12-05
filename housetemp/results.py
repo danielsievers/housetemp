@@ -32,7 +32,15 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     
     # Slice data to match simulation length
     sim_len = len(simulated_t_in)
-    timestamps = data.timestamps[:sim_len]
+    timestamps_raw = data.timestamps[:sim_len]
+    
+    # Convert to local timezone for display (naive datetime for matplotlib)
+    import pandas as pd
+    ts_idx = pd.to_datetime(timestamps_raw)
+    if ts_idx.tz is not None:
+        timestamps = ts_idx.tz_convert('America/Los_Angeles').tz_localize(None)
+    else:
+        timestamps = ts_idx.tz_localize('UTC').tz_convert('America/Los_Angeles').tz_localize(None)
     actual_t_in = data.t_in[:sim_len]
     outdoor_t = data.t_out[:sim_len]
     
