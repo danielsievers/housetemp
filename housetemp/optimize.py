@@ -138,9 +138,22 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         kwh = np.sum((watts / 1000) * dt_hours)
         
         # 5. Calculate Comfort Penalty (Squared Error)
-        # Cost = center_preference * (T_sim - T_target)^2
+        # Asymmetric Penalty:
+        # - Heating: No penalty if T_sim > T_target (overshoot is free/good, energy cost limits it)
+        # - Cooling: No penalty if T_sim < T_target (undershoot is free/good)
+        
         errors = sim_temps - target_temps
-        comfort_cost = center_preference * (errors**2)
+        
+        if hvac_mode_val > 0: # Heating
+            # We want simn >= target. Error is negative if sim < target.
+            # If sim > target, error is positive -> clamp to 0 (no penalty)
+            effective_errors = np.minimum(0, errors) 
+        else: # Cooling
+            # We want sim <= target. Error is positive if sim > target.
+            # If sim < target, error is negative -> clamp to 0 (no penalty)
+            effective_errors = np.maximum(0, errors)
+
+        comfort_cost = center_preference * (effective_errors**2)
         
         # Sum and Normalize by Time
         total_penalty = np.sum(comfort_cost * data.dt_hours)

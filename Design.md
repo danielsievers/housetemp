@@ -26,17 +26,22 @@ Where:
 
 #### Leakage ($Q_{leak}$)
 Modeled as linear conduction proportional to the temperature difference:
+
 $$ Q_{leak} = UA \cdot (T_{out} - T_{in}) $$
+
 *   $UA$: **Insulation Factor** (BTU/hr/°F). Lower is better insulation.
 
 #### Solar Gain ($Q_{solar}$)
 Proportional to measured solar radiation:
+
 $$ Q_{solar} = K_{solar} \cdot S_{radiation} $$
+
 *   $K_{solar}$: **Solar Gain Factor** (BTU/hr per kW/m²). Represents effective window area and SHGC.
 *   $S_{radiation}$: Solar irradiance (kW/m²) from weather data.
 
 #### Internal Heat ($Q_{internal}$)
 Modeled as a constant background heat load:
+
 $$ Q_{internal} = \text{Constant} \quad (\text{BTU/hr}) $$
 
 ## 3. HVAC Control Logic
@@ -51,6 +56,7 @@ $$ Q_{request} = Q_{base} + (H_{factor} \cdot |T_{set} - T_{in}|) $$
 
 ### 3.1 Constraints
 The requested output is clamped by the hardware's physical limits, which vary with Outdoor Temperature ($T_{out}$):
+
 $$ Q_{hvac} = \min(Q_{request}, \text{MaxCapacity}(T_{out})) $$
 
 ## 4. Parameter Optimization
@@ -77,20 +83,23 @@ The system can optimize the thermostat schedule to minimize energy consumption w
 
 ### 6.1 Objective Function
 Minimize total cost $J$:
+
 $$ J = \sum_{t=0}^{T} \left( \text{Cost}_{kWh}(t) + \text{Cost}_{comfort}(t) \right) $$
 
-### 6.2 Comfort Penalty (Hybrid Envelope)
-Defined by a target schedule and optional `min`/`max` bounds.
+### 6.2 Asymmetric Comfort Penalty
+Defined by a target schedule and the HVAC mode (Heat/Cool).
 Let $e(t) = T_{in}(t) - T_{target}(t)$.
 
-*   **Inside Envelope** ($Min \le T_{in} \le Max$):
-    The cost is a gentle parabola centered at $T_{target}$.
-    $$ \text{Cost}_{inner} = P_{center} \cdot \left(\frac{e}{\text{DistanceToBound}}\right)^2 $$
-    *   $P_{center}$: **Center Preference** (e.g., 0.5). Controls how much the optimizer prefers the target vs. coasting near the edge.
-    *   $\text{DistanceToBound}$: Distance from Target to Min (if $T < Target$) or Max (if $T > Target$).
+The cost function is asymmetric, penalizing only "bad" deviations while allowing "beneficial" overshooting (which allows the system to bank thermal energy when efficient).
 
-*   **Outside Envelope** (Violation):
-    Steep penalty for violating the comfort bounds.
-    $$ \text{Cost}_{outer} = P_{center} + \text{Slope} \cdot \text{Excess} + P_{outer} \cdot \text{Excess}^2 $$
-    *   $P_{outer}$: Automatically set to $100 \cdot P_{center}$.
-    *   Ensures a smooth ($C^1$) transition at the boundary to help the optimizer.
+*   **Heating Mode**:
+    *   Goal: $T_{in} \ge T_{target}$
+    *   If $T_{in} < T_{target}$: Penalty $\propto (T_{in} - T_{target})^2$
+    *   If $T_{in} \ge T_{target}$: **Zero Penalty** (Overshoot is allowed).
+
+*   **Cooling Mode**:
+    *   Goal: $T_{in} \le T_{target}$
+    *   If $T_{in} > T_{target}$: Penalty $\propto (T_{in} - T_{target})^2$
+    *   If $T_{in} \le T_{target}$: **Zero Penalty** (Undershoot/Overcooling is allowed).
+
+$$ \text{Cost}_{comfort} = P_{center} \cdot \left(\text{EffectiveError}\right)^2 $$
