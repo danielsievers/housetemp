@@ -13,11 +13,21 @@ def run_rolling_evaluation(data: Measurements, params, hw):
     """
     # hw is passed in
     
-    # Assuming 30-minute intervals
-    # TODO: Make dynamic based on dt_hours if possible, but 30min is standard here
-    steps_per_hour = 2
-    steps_6h = 6 * steps_per_hour
-    steps_12h = 12 * steps_per_hour
+    # Calculate average time step in hours
+    avg_dt_hours = np.mean(data.dt_hours)
+    if avg_dt_hours <= 0:
+        raise ValueError("Invalid time step detected (<= 0)")
+
+    # Calculate required steps for 6h and 12h
+    steps_6h = int(6.0 / avg_dt_hours)
+    steps_12h = int(12.0 / avg_dt_hours)
+    
+    # Step increment for the sliding window (e.g. start every 1 hour)
+    steps_per_hour = int(1.0 / avg_dt_hours)
+    if steps_per_hour < 1:
+        steps_per_hour = 1
+    
+    print(f"Detected dt={avg_dt_hours*60:.1f} min. Steps: 6h={steps_6h}, 12h={steps_12h}")
     
     errors_6h = []
     errors_12h = []
