@@ -31,7 +31,9 @@ class TestHvacOptimization(unittest.TestCase):
         # Mock HeatPump
         self.hw = MagicMock()
         self.hw.get_max_capacity.return_value = np.full(24, 20000.0) # 20k BTU max
+        self.hw.get_max_capacity.return_value = np.full(24, 20000.0) # 20k BTU max
         self.hw.get_cop.return_value = np.full(24, 3.0) # COP 3
+        self.hw.defrost_risk_zone = None # Disable defrost for tests
         
         # Params: C, UA, K, Q_int, H_fac
         self.params = [5000, 200, 1000, 0, 5000]
@@ -48,7 +50,7 @@ class TestHvacOptimization(unittest.TestCase):
         with open("test_comfort.json", "w") as f:
             json.dump(comfort_data, f)
             
-        timestamps = pd.date_range("2023-01-01 00:00", "2023-01-01 23:59", freq="30T")
+        timestamps = pd.date_range("2023-01-01 00:00", "2023-01-01 23:59", freq="30T", tz="America/Los_Angeles")
         targets, min_bounds, max_bounds, config = schedule.load_comfort_schedule("test_comfort.json", timestamps)
         
         # Check lengths
@@ -86,7 +88,7 @@ class TestHvacOptimization(unittest.TestCase):
         target_temps = np.full(24, 70.0)
         min_bounds = np.full(24, 68.0)
         max_bounds = np.full(24, 72.0)
-        comfort_config = {"center_preference": 1.0}
+        comfort_config = {"center_preference": 1.0, "mode": "heat"}
         
         optimized_setpoints = optimize.optimize_hvac_schedule(data, self.params, self.hw, target_temps, min_bounds, max_bounds, comfort_config, block_size_minutes=30)
         

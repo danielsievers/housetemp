@@ -210,13 +210,14 @@ def run_main(args_list=None):
             measurements.setpoint[:] = optimized_setpoints
             
             # Set HVAC Mode based on config
-            mode_str = comfort_config.get('mode', 'auto').lower()
+            # Set HVAC Mode based on config
+            mode_str = comfort_config.get('mode', '').lower()
             if mode_str == 'heat':
                 measurements.hvac_state[:] = 1
             elif mode_str == 'cool':
                 measurements.hvac_state[:] = -1
             else:
-                measurements.hvac_state[:] = 2
+                raise ValueError("Comfort config must specify 'mode': 'heat' or 'cool'. Auto mode is no longer supported.")
             
             title_suffix = "Optimized Schedule"
             marker_interval = block_size

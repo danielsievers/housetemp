@@ -81,12 +81,6 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
             
             mode = data.hvac_state[i]
             
-            # AUTO MODE (2) - Decide based on gap
-            if mode == 2:
-                if gap > 0: mode = 1  # Need Heat
-                elif gap < 0: mode = -1 # Need Cool
-                else: mode = 0 # Satisfied
-            
             if mode > 0: # HEATING
                 gap = data.setpoint[i] - current_temp
                 if gap > 0:

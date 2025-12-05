@@ -110,13 +110,14 @@ def optimize_hvac_schedule(data, params, hw, target_temps, min_bounds, max_bound
     dt_hours = data.dt_hours
     
     # Force Mode based on Config
-    mode_str = comfort_config.get('mode', 'auto').lower()
-    hvac_mode_val = 2 # Default Auto
+    mode_str = comfort_config.get('mode', '').lower()
     
     if mode_str == 'heat':
         hvac_mode_val = 1
     elif mode_str == 'cool':
         hvac_mode_val = -1
+    else:
+        raise ValueError("Comfort config must specify 'mode': 'heat' or 'cool'. Auto mode is no longer supported.")
         
     original_hvac_state = data.hvac_state.copy()
     data.hvac_state[:] = hvac_mode_val
