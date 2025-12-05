@@ -82,11 +82,13 @@ def run_rolling_evaluation(data: Measurements, params, hw):
     # --- REPORT ---
     avg_rmse_6h = np.mean(errors_6h)
     avg_rmse_12h = np.mean(errors_12h)
+    max_error_6h = np.max(errors_6h)
+    max_error_12h = np.max(errors_12h)
     
     print("\n" + "="*40)
     print("ROLLING EVALUATION RESULTS")
     print("="*40)
     print(f"Data Points Evaluated: {len(errors_12h)} windows")
-    print(f"6-Hour Forecast Error (Avg):  {avg_rmse_6h:.3f} F")
-    print(f"12-Hour Forecast Error (Avg): {avg_rmse_12h:.3f} F")
+    print(f"6-Hour Forecast Error (Avg):  {avg_rmse_6h:.3f} F (Max: {max_error_6h:.3f} F)")
+    print(f"12-Hour Forecast Error (Avg): {avg_rmse_12h:.3f} F (Max: {max_error_12h:.3f} F)")
     print("="*40)
