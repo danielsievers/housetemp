@@ -81,4 +81,4 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
     print(f"Avg efficiency was improved by Inverter Logic.")
     print("-" * 40)
     
-    return total_kwh, total_cost
+    return {'total_kwh': total_kwh, 'total_cost': total_cost}

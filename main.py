@@ -42,6 +42,51 @@ def load_model(filename):
     print(f" -> C: {data['C_thermal']:.0f}, UA: {data['UA_overall']:.0f}")
     return data['raw_params']
 
+def export_debug_output(filename, mode, params, measurements, sim_temps, hvac_outputs, 
+                        energy_kwh=None, rmse=None, comfort_config=None, 
+                        target_temps=None, min_bounds=None, max_bounds=None):
+    """Export debug results to JSON for agent/automation use."""
+    import datetime
+    
+    # Convert numpy arrays to lists for JSON serialization
+    def to_list(arr):
+        if arr is None:
+            return None
+        return [float(x) if not isinstance(x, (str, np.datetime64)) else str(x) for x in arr]
+    
+    debug_data = {
+        "generated_at": datetime.datetime.now().isoformat(),
+        "mode": mode,
+        "model_params": {
+            "C_thermal": float(params[0]),
+            "UA_overall": float(params[1]),
+            "K_solar": float(params[2]),
+            "Q_int": float(params[3]),
+            "H_factor": float(params[4])
+        },
+        "summary": {
+            "rmse": float(rmse) if rmse else None,
+            "energy_kwh": float(energy_kwh) if energy_kwh else None,
+            "num_steps": len(sim_temps)
+        },
+        "comfort_config": comfort_config,
+        "timeseries": {
+            "timestamps": to_list(measurements.timestamps),
+            "actual_temp": to_list(measurements.t_in[:len(sim_temps)]),
+            "sim_temp": to_list(sim_temps),
+            "setpoint": to_list(measurements.setpoint[:len(sim_temps)]),
+            "hvac_output_btu": to_list(hvac_outputs),
+            "outdoor_temp": to_list(measurements.t_out[:len(sim_temps)]),
+            "target_temp": to_list(target_temps[:len(sim_temps)] if target_temps is not None else None),
+            "min_bound": to_list(min_bounds[:len(sim_temps)] if min_bounds is not None else None),
+            "max_bound": to_list(max_bounds[:len(sim_temps)] if max_bounds is not None else None)
+        }
+    }
+    
+    with open(filename, 'w') as f:
+        json.dump(debug_data, f, indent=2)
+    print(f"Debug output saved to: {filename}")
+
 def run_main(args_list=None):
     parser = argparse.ArgumentParser(
         description="Home Thermal Model Optimizer & Estimator",
@@ -75,6 +120,8 @@ def run_main(args_list=None):
     parser.add_argument("--heat-pump", default="data/heat_pump.json", help="Path to Heat Pump JSON config (default: data/heat_pump.json)")
     parser.add_argument("-o", "--output", default="model.json", 
                         help="Filename to save optimized model parameters (default: model.json)")
+    parser.add_argument("--debug-output", metavar="JSON_FILE",
+                        help="Export debug results to JSON file (for agent/automation use)")
 
     # --- CUSTOM HELP DISPLAY ---
     # If no args provided (and not called programmatically with empty list), show help
@@ -183,7 +230,25 @@ def run_main(args_list=None):
             max_bounds = None
 
         results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps, min_bounds=min_bounds, max_bounds=max_bounds)
-        energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
+        energy_result = energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
+        
+        # Debug output (optional)
+        if args.debug_output:
+            sim_temps, rmse, hvac_outputs = run_model.run_model(params, measurements, hw, duration_minutes=args.duration)
+            export_debug_output(
+                args.debug_output,
+                mode="optimize-hvac" if args.optimize_hvac else "predict",
+                params=params,
+                measurements=measurements,
+                sim_temps=sim_temps,
+                hvac_outputs=hvac_outputs,
+                energy_kwh=energy_result.get('total_kwh') if energy_result else None,
+                rmse=rmse,
+                comfort_config=comfort_config if args.optimize_hvac else None,
+                target_temps=target_temps,
+                min_bounds=min_bounds,
+                max_bounds=max_bounds
+            )
         return 0
 
     # --- MODE 1.5: ROLLING EVALUATION ---
