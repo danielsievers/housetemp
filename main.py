@@ -26,6 +26,9 @@ def save_model(params, filename):
         "H_factor": params[4],
         "raw_params": list(params)
     }
+    # Add optional efficiency if present
+    if len(params) > 5:
+        data["efficiency_derate"] = params[5]
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4)
     print(f"\nModel parameters saved to: {filename}")
@@ -113,6 +116,7 @@ def run_main(args_list=None):
     parser.add_argument("--optimize-hvac", action="store_true", help="Optimize HVAC schedule to minimize energy (requires -p)")
     parser.add_argument("--comfort", metavar="JSON_FILE", help="Path to comfort schedule JSON (required for --optimize-hvac)")
     
+    
     # Output Options
     parser.add_argument("--duration", type=int, default=0, help="Limit simulation duration in minutes (default: 0 = full duration)")
     parser.add_argument("--heat-pump", default="data/heat_pump.json", help="Path to Heat Pump JSON config (default: data/heat_pump.json)")
@@ -120,6 +124,9 @@ def run_main(args_list=None):
                         help="Filename to save optimized model parameters (default: model.json)")
     parser.add_argument("--debug-output", metavar="JSON_FILE",
                         help="Export debug results to JSON file (for agent/automation use)")
+    
+    parser.add_argument("--fix-passive", metavar="VACATION_MODEL_JSON",
+                        help="Fix passive parameters (C, UA, K, Q) from this file and ONLY optimize active parameters.")
 
     # --- CUSTOM HELP DISPLAY ---
     # If no args provided (and not called programmatically with empty list), show help
@@ -136,6 +143,8 @@ def run_main(args_list=None):
         print("     python main.py forecast_data.csv -p my_house.json --start-temp 68.0")
         print("\n  5. Optimize HVAC Schedule:")
         print("     python main.py forecast.csv -p my_house.json --optimize-hvac --comfort comfort.json")
+        print("\n  6. Active-Only Optimization (Fix Passive Params):")
+        print("     python main.py occupied.csv --fix-passive vacation.json -o active.json")
         return 1
 
     args = parser.parse_args(args_list)
@@ -143,13 +152,14 @@ def run_main(args_list=None):
     if not args.csv_file:
         print("Error: You must provide a CSV file.")
         return 1
+        
+    # Validation
+    if args.fix_passive and args.use_regression:
+        print("Error: You cannot use --use-regression with --fix-passive (params are fixed).")
+        return 1
 
     # 1. Load Data
     measurements = load_csv.load_csv(args.csv_file, override_start_temp=args.start_temp)
-    
-    # 2. Load Heat Pump Config (Required for Optimization, Prediction, Evaluation)
-    # It is NOT strictly required for Regression, but we might as well load it if present.
-    # If missing, we error out unless we are ONLY doing regression (which doesn't use it).
     
     # 2. Load Heat Pump Config (Required for Optimization, Prediction, Evaluation)
     # Always load it since all modes now require it (Optimization is the default fall-through).
@@ -180,17 +190,9 @@ def run_main(args_list=None):
             # Slice data if duration is set
             if args.duration > 0:
                 # Find index where accumulated time exceeds duration
-                # Assuming dt_hours is in hours, duration is in minutes
-                # Simpler: just use timestamps
-                start_time = measurements.timestamps[0]
-                end_time = start_time + pd.Timedelta(minutes=args.duration)
-                
-                # Find index
-                # timestamps is numpy array of datetime64
-                # Convert end_time to datetime64
-                end_time_np = np.datetime64(end_time)
-                
-                # Searchsorted finds the index
+                sim_start = measurements.timestamps[0]
+                sim_end = sim_start + pd.Timedelta(minutes=args.duration)
+                end_time_np = np.datetime64(sim_end)
                 limit_idx = np.searchsorted(measurements.timestamps, end_time_np)
                 
                 if limit_idx < len(measurements):
@@ -208,7 +210,6 @@ def run_main(args_list=None):
             measurements.setpoint[:] = optimized_setpoints
             
             # Set HVAC Mode based on config
-            # Set HVAC Mode based on config
             mode_str = comfort_config.get('mode', '').lower()
             if mode_str == 'heat':
                 measurements.hvac_state[:] = 1
@@ -222,8 +223,6 @@ def run_main(args_list=None):
         else:
             title_suffix = "Prediction Mode"
             marker_interval = None
-            # In prediction mode, we don't have these loaded yet unless we load them
-            # But plot_results handles None gracefully
             target_temps = None
 
         results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps)
@@ -255,8 +254,16 @@ def run_main(args_list=None):
 
     # --- MODE 2: INITIALIZATION (Regression or Defaults) ---
     initial_params = None
+    fixed_passive_params = None
     
-    if args.use_regression:
+    if args.fix_passive:
+        # Load Passive params from file
+        full_source_params = load_model(args.fix_passive)
+        # Extract [C, UA, K, Q]
+        fixed_passive_params = full_source_params[:4]
+        print("Passive Parameters FIXED for optimization.")
+    
+    elif args.use_regression:
         print("\n--- RUNNING LINEAR REGRESSION (Initialization) ---")
         initial_params = linear_fit.linear_fit(measurements)
         
@@ -268,10 +275,8 @@ def run_main(args_list=None):
         print(f"Solar Factor (K):      {initial_params[2]:.0f}")
         print(f"Internal Heat (Q_int): {initial_params[3]:.0f} (Fixed)")
         
-        # We don't exit here anymore, we proceed to optimization
-
     # --- MODE 3: FULL OPTIMIZATION (Train Model) ---
-    optimization_result = optimize.run_optimization(measurements, hw, initial_guess=initial_params)
+    optimization_result = optimize.run_optimization(measurements, hw, initial_guess=initial_params, fixed_passive_params=fixed_passive_params)
     
     if optimization_result.success:
         print("\nOptimization converged successfully!")

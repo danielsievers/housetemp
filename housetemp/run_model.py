@@ -36,6 +36,12 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
     K_solar = params[2]     # Solar Gain Factor (BTU/hr per kW)
     Q_int = params[3]       # Internal Heat (BTU/hr)
     H_factor = params[4]    # Inverter Aggressiveness (BTU per degree gap)
+    
+    # Optional: Efficiency Derate (Active Loss Factor)
+    # If params has 6 elements, the 6th is efficiency (default 1.0)
+    eff_derate = 1.0
+    if len(params) > 5:
+        eff_derate = params[5]
 
     # --- 2. Pre-calculate Limits ---
     # We know the max capacity for every hour based on weather
@@ -99,6 +105,13 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
                     q_hvac = -min(request, 54000)
                 else:
                     q_hvac = 0
+                    
+            # Apply Efficiency Derate (Losses)
+            # This represents heat that was generated/consumed but lost to ducts/outside
+            # Note: We apply it to determining DELTA T, but usually energy consumption assumes full draw.
+            # But here q_hvac represents "Heat Added to House".
+            # So if efficiency is 0.8, we only add 80% of what the machine produced.
+            q_hvac *= eff_derate
         
         hvac_outputs[i] = q_hvac
 

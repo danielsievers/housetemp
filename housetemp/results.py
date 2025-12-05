@@ -25,6 +25,8 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     print(f"Solar Factor (K):      {optimized_params[2]:.0f}")
     print(f"Internal Heat (Q_int): {optimized_params[3]:.0f} BTU/hr")
     print(f"Inverter Gain (H_fac): {optimized_params[4]:.0f} BTU/deg")
+    if len(optimized_params) > 5:
+        print(f"Efficiency Derate:     {optimized_params[5]*100:.1f}%")
     print("="*40)
 
     # --- PLOT ---

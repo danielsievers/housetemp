@@ -4,62 +4,86 @@ from scipy.optimize import minimize
 from . import run_model
 from . import run_model
 
-def loss_function(params, data, hw):
-    # 1. Run Simulation with current parameter guess
-    predicted_temps, sim_error, _ = run_model.run_model(params, data, hw)
+def loss_function(active_params, data, hw, fixed_passive_params=None):
+    # Construct full params vector
+    if fixed_passive_params:
+        # active_params = [H_factor, efficiency_derate]
+        # fixed_passive_params = [C, UA, K, Q]
+        
+        # Ensure we have at least H_factor
+        h_factor = active_params[0]
+        eff_derate = active_params[1] if len(active_params) > 1 else 1.0
+        
+        full_params = list(fixed_passive_params) + [h_factor, eff_derate]
+    else:
+        # Optimizing EVERYTHING
+        # active_params = [C, UA, K_solar, Q_int, H_factor]
+        # We need to add a default efficiency_derate for the run_model call
+        full_params = list(active_params) + [1.0] # Default efficiency_derate
+
+    # 1. Run Simulation
+    predicted_temps, sim_error, _ = run_model.run_model(full_params, data, hw)
     
-    # 2. Compare to Reality (Root Mean Square Error)
-    # We use the error returned by run_model directly, but let's verify:
-    manual_error = np.sqrt(np.mean((predicted_temps - data.t_in)**2))
-    
-    # Print both (as requested) - Note: This will spam the console during optimization
-    # print(f"DEBUG: Sim Error={sim_error:.6f}, Manual Error={manual_error:.6f}")
-    
-    # Assert that they match (sanity check)
-    if not np.isclose(sim_error, manual_error, atol=1e-5):
-        raise ValueError(f"Error mismatch! Sim: {sim_error}, Manual: {manual_error}")
-    
+    # 2. Compare to Reality (RMSE)
     error = sim_error
     
     # 3. Penalize Physics Violations (Soft Constraints)
-    if params[0] < 1000: return 1e6 # Mass too low
-    if params[1] < 50: return 1e6   # UA too low
+    # If fixing passive params, we don't check them here (assumed good)
+    if not fixed_passive_params:
+        if full_params[0] < 1000: return 1e6 # Mass too low
+        if full_params[1] < 50: return 1e6   # UA too low
     
     return error
 
-def run_optimization(data, hw, initial_guess=None):
+def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
     # hw is now passed in
     
-    # [C, UA, K_solar, Q_int, H_factor]
-    # If no linear fit provided, fall back to hardcoded defaults
-    if initial_guess is None:
-        initial_guess = [4732, 213, 836, 600, 10000]
-    
-    # Bounds for the solver
-    # (min, max)
-    bounds = [
-# vacation run:
-#        (4000, 20000),  # C (Mass) - Widen this. Let it go higher if it wants.
-#        (150, 800),     # UA (Leakage) - TIGHTEN THIS. Cap at 500 (Reasonable Max).
-#        (700, 2000),  # K_solar (Window Factor) - Lower cap (Low-E glass confirmed).
-#        (200, 2500),    # Q_int (Internal Heat) - TIGHTEN THIS. Cap at 2500 (730 Watts).
-#        (1000, 30000)   # H_factor (Inverter Ramp)
+    if fixed_passive_params:
+        print(f"--- ACTIVE PARAMETER OPTIMIZATION MODE ---")
+        print(f"Fixed Passive Params: C={fixed_passive_params[0]:.0f}, UA={fixed_passive_params[1]:.0f}, K={fixed_passive_params[2]:.0f}, Q={fixed_passive_params[3]:.0f}")
+        
+        # Initial Guess for [H_factor, efficiency_derate]
+        # Default start: H=10000, Eff=0.9
+        initial_guess = [10000, 0.9]
+        
+        # Bounds: H_factor, Efficiency
+        bounds = [
+            (2000, 30000), # H_factor
+            (0.5, 1.2)     # Efficiency (50% to 120%)
+        ]
+    else:
+        # Full Optimization
+        # [C, UA, K_solar, Q_int, H_factor]
+        if initial_guess is None:
+            initial_guess = [4732, 213, 836, 600, 10000]
+        
+        bounds = [
+            (4000, 20000),  # C (Mass)
+            (200, 1500),    # UA (Leakage)
+            (700, 2000),    # K_solar
+            (200, 10000),   # Q_int
+            (5000, 20000)   # H_factor
+        ]   
 
-        (4000, 20000),  # C (Mass) - Widen this. Let it go higher if it wants.
-        (200, 1500),     # UA (Leakage) - TIGHTEN THIS. Cap at 500 (Reasonable Max).
-        (700, 2000),  # K_solar (Window Factor) - Lower cap (Low-E glass confirmed).
-        (200, 10000),    # Q_int (Internal Heat) - TIGHTEN THIS. Cap at 2500 (730 Watts).
-        (5000, 20000)   # H_factor (Inverter Ramp)
-    ]   
-    print("Starting Optimization (this may take a few seconds)...")
+    print("Starting Optimization...")
     result = minimize(
         loss_function, 
         initial_guess, 
-        args=(data, hw), 
+        args=(data, hw, fixed_passive_params), 
         bounds=bounds, 
         method='L-BFGS-B'
     )
     
+    if fixed_passive_params:
+        # Reconstruct full parameter set for return
+        best_active = result.x
+        full_params = list(fixed_passive_params) + list(best_active)
+        # If optimization only returned H_factor (1 var), handle it? 
+        # But we set 2 vars in guess/bounds.
+        
+        # Result type needs to mock the scipy result object or we just modify result.x
+        result.x = np.array(full_params)
+        
     return result
 
 def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block_size_minutes=30):
