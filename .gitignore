@@ -24,3 +24,7 @@ htmlcov/
 /*.json
 # Generated plots
 /*.png
+
+# Ignore all hidden files in root
+/.*
+!.gitignore
