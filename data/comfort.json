@@ -4,24 +4,37 @@
     "avoid_defrost": true,
     "schedule": [
         {
-            "time": "00:00",
-            "temp": 62
-        },
-        {
-            "time": "07:00",
-            "temp": 67
-        },
-        {
-            "time": "10:00",
-            "temp": 69
-        },
-        {
-            "time": "20:00",
-            "temp": 68
-        },
-        {
-            "time": "22:00",
-            "temp": 62
+            "weekdays": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 62
+                },
+                {
+                    "time": "07:00",
+                    "temp": 67
+                },
+                {
+                    "time": "10:00",
+                    "temp": 69
+                },
+                {
+                    "time": "20:00",
+                    "temp": 68
+                },
+                {
+                    "time": "22:00",
+                    "temp": 62
+                }
+            ]
         }
     ]
 }

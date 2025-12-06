@@ -1,0 +1,33 @@
+{
+    "center_preference": 0.5,
+    "mode": "heat",
+    "schedule": [
+        {
+            "weekdays": [
+                "saturday",
+                "sunday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 55
+                }
+            ]
+        },
+        {
+            "weekdays": [
+                "monday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 55
+                },
+                {
+                    "time": "10:00",
+                    "temp": 66
+                }
+            ]
+        }
+    ]
+}

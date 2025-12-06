@@ -42,9 +42,14 @@ class TestHvacOptimization(unittest.TestCase):
         # Create a dummy comfort.json
         comfort_data = {
             "schedule": [
-                {"time": "00:00", "temp": 60},
-                {"time": "08:00", "temp": 70},
-                {"time": "20:00", "temp": 60}
+                {
+                    "weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+                    "daily_schedule": [
+                        {"time": "00:00", "temp": 60},
+                        {"time": "08:00", "temp": 70},
+                        {"time": "20:00", "temp": 60}
+                    ]
+                }
             ]
         }
         with open("test_comfort.json", "w") as f:
