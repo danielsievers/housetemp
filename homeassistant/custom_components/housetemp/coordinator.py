@@ -178,12 +178,29 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              forecast = []
 
         # 4. Get Solar Forecast
-        # Expecting a sensor that has a 'forecast' attribute (like Forecast.Solar)
+        # Expecting sensors that have a 'forecast' attribute (like Forecast.Solar or Solcast)
+        # Config might be a single string or a list of strings (if multiple=True)
         solar_forecast_data = []
-        if solar_entity:
-            solar_state = self.hass.states.get(solar_entity)
-            if solar_state:
-                solar_forecast_data = solar_state.attributes.get("forecast", [])
+        
+        solar_entities = solar_entity
+        if solar_entities:
+            # Normalize to list
+            if isinstance(solar_entities, str):
+                solar_entities = [solar_entities]
+            
+            for entity_id in solar_entities:
+                s_state = self.hass.states.get(entity_id)
+                if s_state:
+                     # Get forecast (list of dicts)
+                     # Standard is 'forecast', Solcast uses 'detailedForecast'
+                     partial_forecast = s_state.attributes.get("forecast")
+                     if not partial_forecast:
+                         partial_forecast = s_state.attributes.get("detailedForecast", [])
+                     
+                     if partial_forecast:
+                         solar_forecast_data.extend(partial_forecast)
+                else:
+                    _LOGGER.warning("Solar entity %s not found", entity_id)
 
         # 5. Prepare Simulation Data using Shared Upsampling Logic
         # Construct a DataFrame with the sparse forecast points
@@ -227,7 +244,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # 'pv_estimate' (Solcast, kW/W)
         # 'watts' (Forecast.Solar, W)
         # 'wh_hours' (Forecast.Solar, Wh -> W if 1h block)
-        solar_pts = parse_points(solar_forecast_data, ['datetime', 'period_end'], ['pv_estimate', 'watts', 'wh_hours', 'value'])
+        # 'period_start' (Solcast detailedForecast)
+        solar_pts = parse_points(solar_forecast_data, 
+                                 ['datetime', 'period_end', 'period_start'], 
+                                 ['pv_estimate', 'watts', 'wh_hours', 'value'])
         if not solar_pts:
              solar_pts = [{'time': dt_util.now(), 'value': 0.0}]
              

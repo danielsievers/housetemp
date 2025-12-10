@@ -25,88 +25,62 @@ from custom_components.housetemp.const import *
 # Data provided by user
 INDOOR_TEMP = 67
 
-# Real Weather Forecast (Tomorrow)
-WEATHER_FORECAST = [
-    {"datetime": "2025-12-10T20:00:00+00:00", "temperature": 55},
-    {"datetime": "2025-12-10T21:00:00+00:00", "temperature": 58},
-    {"datetime": "2025-12-10T22:00:00+00:00", "temperature": 61},
-    {"datetime": "2025-12-10T23:00:00+00:00", "temperature": 61},
-    {"datetime": "2025-12-11T00:00:00+00:00", "temperature": 59},
-    {"datetime": "2025-12-11T01:00:00+00:00", "temperature": 54},
-    {"datetime": "2025-12-11T02:00:00+00:00", "temperature": 53},
-    {"datetime": "2025-12-11T03:00:00+00:00", "temperature": 52},
-    {"datetime": "2025-12-11T04:00:00+00:00", "temperature": 52},
-    {"datetime": "2025-12-11T05:00:00+00:00", "temperature": 52},
-    {"datetime": "2025-12-11T06:00:00+00:00", "temperature": 52},
-    {"datetime": "2025-12-11T07:00:00+00:00", "temperature": 51},
-    {"datetime": "2025-12-11T08:00:00+00:00", "temperature": 51},
-    {"datetime": "2025-12-11T09:00:00+00:00", "temperature": 50},
-    {"datetime": "2025-12-11T10:00:00+00:00", "temperature": 49},
-    {"datetime": "2025-12-11T11:00:00+00:00", "temperature": 48},
-    {"datetime": "2025-12-11T12:00:00+00:00", "temperature": 48},
-    {"datetime": "2025-12-11T13:00:00+00:00", "temperature": 47},
-    {"datetime": "2025-12-11T14:00:00+00:00", "temperature": 46},
-    {"datetime": "2025-12-11T15:00:00+00:00", "temperature": 46},
-    {"datetime": "2025-12-11T16:00:00+00:00", "temperature": 46},
-    {"datetime": "2025-12-11T17:00:00+00:00", "temperature": 52},
-    {"datetime": "2025-12-11T18:00:00+00:00", "temperature": 55},
-    {"datetime": "2025-12-11T19:00:00+00:00", "temperature": 59}
+# User-Provided Data (Solcast)
+SOLCAST_TODAY = [
+    {'period_start': '2025-12-10T00:00:00-08:00', 'pv_estimate': 0},
+    {'period_start': '2025-12-10T01:00:00-08:00', 'pv_estimate': 0},
+    {'period_start': '2025-12-10T02:00:00-08:00', 'pv_estimate': 0},
+    {'period_start': '2025-12-10T03:00:00-08:00', 'pv_estimate': 0},
+    {'period_start': '2025-12-10T04:00:00-08:00', 'pv_estimate': 0},
+    {'period_start': '2025-12-10T05:00:00-08:00', 'pv_estimate': 0},
+    {'period_start': '2025-12-10T06:00:00-08:00', 'pv_estimate': 0},
+    {'period_start': '2025-12-10T07:00:00-08:00', 'pv_estimate': 0.0667},
+    {'period_start': '2025-12-10T07:30:00-08:00', 'pv_estimate': 1.0239},
+    {'period_start': '2025-12-10T08:00:00-08:00', 'pv_estimate': 1.4821},
+    {'period_start': '2025-12-10T08:30:00-08:00', 'pv_estimate': 2.1149},
+    {'period_start': '2025-12-10T09:00:00-08:00', 'pv_estimate': 2.6393},
+    {'period_start': '2025-12-10T09:30:00-08:00', 'pv_estimate': 2.7362},
+    {'period_start': '2025-12-10T10:00:00-08:00', 'pv_estimate': 2.6279},
+    {'period_start': '2025-12-10T10:30:00-08:00', 'pv_estimate': 3.0628},
+    {'period_start': '2025-12-10T11:00:00-08:00', 'pv_estimate': 2.9983},
+    {'period_start': '2025-12-10T11:30:00-08:00', 'pv_estimate': 2.827},
+    {'period_start': '2025-12-10T12:00:00-08:00', 'pv_estimate': 2.6133},
+    {'period_start': '2025-12-10T12:30:00-08:00', 'pv_estimate': 2.2645},
+    {'period_start': '2025-12-10T13:00:00-08:00', 'pv_estimate': 1.7979},
+    {'period_start': '2025-12-10T13:30:00-08:00', 'pv_estimate': 1.3416},
+    {'period_start': '2025-12-10T14:00:00-08:00', 'pv_estimate': 0.7981},
+    {'period_start': '2025-12-10T14:30:00-08:00', 'pv_estimate': 0.3005},
+    {'period_start': '2025-12-10T15:00:00-08:00', 'pv_estimate': 0.1081},
+    {'period_start': '2025-12-10T15:30:00-08:00', 'pv_estimate': 0.0975},
+    {'period_start': '2025-12-10T16:00:00-08:00', 'pv_estimate': 0.0752},
+    {'period_start': '2025-12-10T16:30:00-08:00', 'pv_estimate': 0.0214},
+    {'period_start': '2025-12-10T17:00:00-08:00', 'pv_estimate': 0},
+]
+SOLCAST_TOMORROW = [
+    {'period_start': '2025-12-11T07:30:00-08:00', 'pv_estimate': 1.0637},
+    {'period_start': '2025-12-11T08:00:00-08:00', 'pv_estimate': 1.8742},
+    {'period_start': '2025-12-11T08:30:00-08:00', 'pv_estimate': 2.3208},
+    {'period_start': '2025-12-11T09:00:00-08:00', 'pv_estimate': 2.6829},
+    {'period_start': '2025-12-11T09:30:00-08:00', 'pv_estimate': 2.9219},
+    {'period_start': '2025-12-11T10:00:00-08:00', 'pv_estimate': 3.0597},
+    {'period_start': '2025-12-11T12:00:00-08:00', 'pv_estimate': 2.6265},
+    {'period_start': '2025-12-11T14:00:00-08:00', 'pv_estimate': 0.7877},
 ]
 
-# Real Solar Forecast (Solcast)
-# Note: Format is slightly different in coordinator (it looks for 'datetime' or 'period_end' and 'value')
-# Coordinator logic: dt_str = item.get('datetime') or item.get('period_end')
-# val = item.get('value') or item.get('pv_estimate')
-SOLAR_FORECAST = [
-    {"period_end": "2025-12-10T00:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T00:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T01:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T01:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T02:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T02:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T03:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T03:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T04:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T04:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T05:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T05:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T06:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T06:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T07:00:00-08:00", "pv_estimate": 0.0667},
-    {"period_end": "2025-12-10T07:30:00-08:00", "pv_estimate": 1.0239},
-    {"period_end": "2025-12-10T08:00:00-08:00", "pv_estimate": 1.4821},
-    {"period_end": "2025-12-10T08:30:00-08:00", "pv_estimate": 2.1149},
-    {"period_end": "2025-12-10T09:00:00-08:00", "pv_estimate": 2.6393},
-    {"period_end": "2025-12-10T09:30:00-08:00", "pv_estimate": 2.7362},
-    {"period_end": "2025-12-10T10:00:00-08:00", "pv_estimate": 2.6279},
-    {"period_end": "2025-12-10T10:30:00-08:00", "pv_estimate": 3.0628},
-    {"period_end": "2025-12-10T11:00:00-08:00", "pv_estimate": 2.9983},
-    {"period_end": "2025-12-10T11:30:00-08:00", "pv_estimate": 2.827},
-    {"period_end": "2025-12-10T12:00:00-08:00", "pv_estimate": 2.6133},
-    {"period_end": "2025-12-10T12:30:00-08:00", "pv_estimate": 2.2645},
-    {"period_end": "2025-12-10T13:00:00-08:00", "pv_estimate": 1.7979},
-    {"period_end": "2025-12-10T13:30:00-08:00", "pv_estimate": 1.3416},
-    {"period_end": "2025-12-10T14:00:00-08:00", "pv_estimate": 0.7981},
-    {"period_end": "2025-12-10T14:30:00-08:00", "pv_estimate": 0.3005},
-    {"period_end": "2025-12-10T15:00:00-08:00", "pv_estimate": 0.1088},
-    {"period_end": "2025-12-10T15:30:00-08:00", "pv_estimate": 0.0975},
-    {"period_end": "2025-12-10T16:00:00-08:00", "pv_estimate": 0.0752},
-    {"period_end": "2025-12-10T16:30:00-08:00", "pv_estimate": 0.0214},
-    {"period_end": "2025-12-10T17:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T17:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T18:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T18:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T19:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T19:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T20:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T20:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T21:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T21:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T22:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T22:30:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T23:00:00-08:00", "pv_estimate": 0},
-    {"period_end": "2025-12-10T23:30:00-08:00", "pv_estimate": 0}
-]
+# Synthetic Hourly Weather (matching ~58F range)
+# Current time 2025-12-10, so forecast should cover 12-10 and 12-11
+WEATHER_FORECAST_SERVICE_RESPONSE = []
+for hour in range(48):
+    # Determine basic day cycle
+    import datetime
+    import numpy as np
+    base = datetime.datetime(2025, 12, 10, 0, 0, 0) + datetime.timedelta(hours=hour)
+    # Simple curve: 50F low + 10 * sin(...)
+    temp = 55.0 + 5.0 * np.sin((hour - 9) * 2 * np.pi / 24)
+    WEATHER_FORECAST_SERVICE_RESPONSE.append({
+        'datetime': base.isoformat(),
+        'temperature': round(temp, 1)
+    })
 
 # Real Configs loaded from files
 with open("data/heat_pump.json") as f:
@@ -120,17 +94,17 @@ with open("data/occupied.json") as f:
     
 CONFIG_DATA = {
     CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
-    CONF_WEATHER_ENTITY: "weather.home",
-    CONF_SOLAR_ENTITY: "sensor.solar", # If used
+    CONF_WEATHER_ENTITY: "weather.tomorrow_io_home_daily",
+    CONF_SOLAR_ENTITY: ["sensor.solcast_pv_forecast_forecast_today", "sensor.solcast_pv_forecast_forecast_tomorrow"],
     CONF_C_THERMAL: params["C_thermal"],
     CONF_UA: params["UA_overall"],
     CONF_K_SOLAR: params["K_solar"],
     CONF_Q_INT: params["Q_int"],
     CONF_H_FACTOR: params["H_factor"],
+    CONF_SCHEDULE_CONFIG: COMFORT_CONFIG,
     CONF_HEAT_PUMP_CONFIG: HEAT_PUMP_CONFIG,
-    CONF_SCHEDULE_CONFIG: COMFORT_CONFIG, # Note: Currently coordinator expects this raw
-    CONF_FORECAST_DURATION: 24,
-    CONF_UPDATE_INTERVAL: 15,
+    CONF_FORECAST_DURATION: 24, # hours
+    CONF_UPDATE_INTERVAL: 60,
 }
 
 OPTIONS_DATA = {
@@ -175,17 +149,30 @@ async def main():
         m = MagicMock()
         if entity_id == "sensor.indoor":
             m.state = str(INDOOR_TEMP)
-        elif entity_id == "weather.home":
-            m.state = "50.0" # Current outdoor
-            m.attributes = {"forecast": WEATHER_FORECAST}
-        elif entity_id == "sensor.solar":
-            m.state = "0.0"
-            m.attributes = {"forecast": SOLAR_FORECAST}
+        elif entity_id == "weather.tomorrow_io_home_daily":
+            m.state = "58.0" # Current outdoor
+            # No 'forecast' attribute implies it needs service call
+            m.attributes = {} 
+        elif entity_id == "sensor.solcast_pv_forecast_forecast_today":
+            m.state = "15.4"
+            m.attributes = {"detailedForecast": SOLCAST_TODAY}
+        elif entity_id == "sensor.solcast_pv_forecast_forecast_tomorrow":
+            m.state = "16.1"
+            m.attributes = {"detailedForecast": SOLCAST_TOMORROW}
         else:
             return None
         return m
     
     hass.states.get.side_effect = get_state
+    
+    # Mock Service Call Response for Weather
+    async def mock_service_call(domain, service, data, blocking, return_response):
+        if domain == "weather" and service == "get_forecasts":
+             # Return valid forecast for our entity
+             return {"weather.tomorrow_io_home_daily": {"forecast": WEATHER_FORECAST_SERVICE_RESPONSE}}
+        return {}
+
+    hass.services.async_call = MagicMock(side_effect=mock_service_call)
     
     # Mock Executor for Optimization (so it actually runs synchronously for this script)
     async def async_add_executor_job(func, *args):
