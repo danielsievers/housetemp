@@ -203,7 +203,11 @@ async def main():
             logging.info("-" * 60)
             
             for i in range(len(ts)):
-                t_str = ts[i].strftime("%H:%M")
+                # Convert to Local Time for display
+                # Note: ts[i] is likely UTC. dt_util.as_local() handles conversion to system local time.
+                ts_local = dt_util.as_local(ts[i])
+                t_str = ts_local.strftime("%H:%M")
+                
                 logging.info(f"{t_str:<20} | {pred[i]:<8.1f} | {setp[i]:<8.1f} | {int(hvac[i]):<5} | {out[i]:<8.1f}")
                 
             logging.info(f"\nTotal Steps: {len(ts)}")
