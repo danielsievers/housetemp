@@ -100,6 +100,12 @@ def run_main(args_list=None):
     # Optional Start Temp (for forecast data)
     parser.add_argument("--start-temp", type=float, help="Override starting indoor temperature (F). Useful for forecast data.")
 
+    # Upsampling
+    parser.add_argument("--upsample", nargs='?', const='1min', 
+                        help="Upsample data to higher resolution (e.g. '1min', '5min').\n"
+                             "Defaults to '1min' if flag is present without value.\n"
+                             "Recommended for forecast data to ensure physics stability.")
+
     # Mode Flags
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-r", "--use-regression", action="store_true", 
@@ -159,7 +165,7 @@ def run_main(args_list=None):
         return 1
 
     # 1. Load Data
-    measurements = load_csv.load_csv(args.csv_file, override_start_temp=args.start_temp)
+    measurements = load_csv.load_csv(args.csv_file, override_start_temp=args.start_temp, upsample_freq=args.upsample)
     
     # 2. Load Heat Pump Config (Required for Optimization, Prediction, Evaluation)
     # Always load it since all modes now require it (Optimization is the default fall-through).
@@ -225,7 +231,8 @@ def run_main(args_list=None):
             marker_interval = None
             target_temps = None
 
-        results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps)
+        if not args.debug_output:
+            results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps)
         energy_result = energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
         
         # Debug output (optional)

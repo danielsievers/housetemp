@@ -230,8 +230,18 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         initial_guess,
         bounds=bounds,
         method='L-BFGS-B',
-        options={'disp': True, 'maxiter': 1000}
+        options={'disp': False, 'maxiter': 1000}
     )
+
+    if not result.success:
+        # Check for specific "Abnormal Termination" which is often acceptable in L-BFGS-B on non-smooth functions
+        msg = result.message.decode('utf-8') if isinstance(result.message, bytes) else str(result.message)
+        if "ABNORMAL_TERMINATION_IN_LNSRCH" in msg:
+             print(f"Optimization Finished with Warning: {msg} (Result is likely usable)")
+        else:
+             print(f"Optimization Failed: {msg}")
+    else:
+        print(f"Optimization Converged Successfully (Cost: {result.fun:.4f})")
     
     # Return the upsampled full-resolution schedule
     # 1. Round to nearest integer (thermostats don't do floats)
