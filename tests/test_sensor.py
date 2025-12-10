@@ -82,3 +82,71 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         assert "forecast" in attrs
         assert len(attrs["forecast"]) == steps
         assert attrs["forecast"][0]["temperature"] == 72.5
+        
+    # 5. Verify Unload
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+@pytest.mark.asyncio
+async def test_sensor_initially_unavailable(hass: HomeAssistant):
+    """Test sensor state when coordinator has no data."""
+    # Setup Config Entry
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_WEATHER_ENTITY: "weather.home",
+        CONF_SOLAR_ENTITY: "sensor.solar",
+        CONF_C_THERMAL: 1000.0,
+        CONF_UA: 100.0,
+        CONF_K_SOLAR: 10.0,
+        CONF_Q_INT: 100.0,
+        CONF_H_FACTOR: 100.0,
+        CONF_HEAT_PUMP_CONFIG: "{}",
+        CONF_SCHEDULE_CONFIG: "[]",
+    }
+    
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    # Mock data to return None initially or empty
+    with patch("custom_components.housetemp.coordinator.HouseTempCoordinator._async_update_data", side_effect=lambda: None):
+        # We need update to succeed but data to be empty? 
+        # Easier: Setup with successful init, but then clear data?
+        pass
+
+    # Actually, easiest way to test "no data" path in sensor is to catch it before first update?
+    # Or just mock coordinator data directly
+    
+    # Let's use a simpler approach: Instantiate sensor manually or mock coordinator
+    
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    
+    mock_coord = MagicMock()
+    mock_coord.data = None
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes == {}
+
+@pytest.mark.asyncio
+async def test_sensor_empty_prediction(hass):
+    """Test sensor with data but empty prediction array."""
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_C_THERMAL: 1000.0,
+        # Minimal required
+    }
+    
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    
+    mock_coord = MagicMock()
+    mock_coord.data = {
+        "predicted_temp": [], # Empty
+        "timestamps": []
+    }
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    assert sensor.native_value is None
+

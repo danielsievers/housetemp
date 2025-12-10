@@ -54,6 +54,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(minutes=update_interval_min),
         )
+        self.config_entry = config_entry
 
         self.heat_pump = None
         self._setup_heat_pump()
@@ -279,6 +280,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         except:
             _LOGGER.error("Invalid Schedule JSON")
             return np.zeros(len(timestamps)), np.full(len(timestamps), 70.0)
+
+        if not schedule:
+             return np.zeros(len(timestamps)), np.full(len(timestamps), 70.0)
 
         hvac_arr = []
         setpoint_arr = []
