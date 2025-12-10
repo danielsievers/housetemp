@@ -144,6 +144,10 @@ async def main():
     # 1. Mock Home Assistant
     hass = MagicMock(spec=HomeAssistant)
     hass.config = MagicMock() # Needs explicit creation if spec=HomeAssistant doesn't include it (it should, but safety first)
+    hass.services = MagicMock()
+    hass.services.async_call = MagicMock(side_effect=lambda *args, **kwargs: asyncio.Future())
+    hass.services.async_call.return_value.set_result({}) # Return empty dict by default
+    
     hass.config.path = lambda *x: os.path.join(os.getcwd(), *x)
     
     # Configure Timezone for dt_util

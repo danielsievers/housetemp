@@ -134,21 +134,47 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         if not weather_state:
             raise UpdateFailed(f"Weather entity {weather_entity} not found")
         
+        # 3. Get Weather Forecast
+        weather_state = self.hass.states.get(weather_entity)
+        if not weather_state:
+            raise UpdateFailed(f"Weather entity {weather_entity} not found")
+        
+        # Try Attribute first (Legacy)
         forecast = weather_state.attributes.get("forecast")
-        if not forecast:
-             # Try to get forecast from the new service response approach if attribute is missing?
-             # For now, assume attribute exists (legacy/standard way for many).
-             # If using the new `weather.get_forecast` service, we'd need to call it.
-             # But `weather` entities usually still have attributes or we can't easily await service calls here without more complex logic.
-             # Let's assume attribute for now or `forecast` property.
-             pass
+        
+        # Try modern service call if attribute missing
+        if forecast is None:
+             try:
+                 # Support both 'hourly' and 'daily' - prefer hourly for simulation
+                 response = await self.hass.services.async_call(
+                     "weather", 
+                     "get_forecasts", 
+                     {"type": "hourly", "entity_id": weather_entity}, 
+                     blocking=True, 
+                     return_response=True
+                 )
+                 if response and weather_entity in response:
+                     forecast = response[weather_entity].get("forecast")
+             except Exception as e:
+                 _LOGGER.debug("Failed to get hourly forecast via service: %s", e)
+                 
+             # Fallback to daily if hourly failed or returned nothing
+             if forecast is None:
+                 try:
+                     response = await self.hass.services.async_call(
+                         "weather", 
+                         "get_forecasts", 
+                         {"type": "daily", "entity_id": weather_entity}, 
+                         blocking=True, 
+                         return_response=True
+                     )
+                     if response and weather_entity in response:
+                         forecast = response[weather_entity].get("forecast")
+                 except Exception as e:
+                     _LOGGER.debug("Failed to get daily forecast via service: %s", e)
 
         if not forecast:
-             # Fallback or error
-             # Some integrations don't have forecast attribute anymore.
-             # We might need to handle this. But let's proceed assuming it exists or user selected a compatible one.
-             _LOGGER.warning("No forecast attribute found on %s", weather_entity)
-             # Create dummy forecast for testing?
+             _LOGGER.warning("No forecast data found for %s (tried attribute and service calls)", weather_entity)
              forecast = []
 
         # 4. Get Solar Forecast
@@ -169,11 +195,25 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             pts = []
             for item in forecast_list:
                 dt_str = next((item.get(k) for k in dt_key_opts if item.get(k)), None)
-                val = next((item.get(k) for k in val_key_opts if item.get(k) is not None), None)
+                key_found = next((k for k in val_key_opts if item.get(k) is not None), None)
+                val = item.get(key_found) if key_found else None
+                
                 if dt_str and val is not None:
                     dt = dt_util.parse_datetime(dt_str)
                     if dt:
-                        pts.append({'time': dt, 'value': float(val)})
+                        val_float = float(val)
+                        # Auto-detect units
+                        if key_found in ['watts', 'wh_hours']: 
+                             # Forecast.Solar often uses 'watts' (power) or 'wh_hours' (energy/hour -> power)
+                             # Convert W to kW
+                             val_float /= 1000.0
+                        elif key_found == 'pv_estimate':
+                             # Solcast usually returns kW, but let's sanity check
+                             # If value > 100, it's probably Watts (unless user has 100kW+ array)
+                             if val_float > 50: 
+                                 val_float /= 1000.0
+                        
+                        pts.append({'time': dt, 'value': val_float})
             return pts
 
         # Parse Weather
@@ -183,7 +223,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              weather_pts = [{'time': dt_util.now(), 'value': 50.0}] 
 
         # Parse Solar
-        solar_pts = parse_points(solar_forecast_data, ['datetime', 'period_end'], ['value', 'pv_estimate', 'watts'])
+        # Support common keys: 
+        # 'pv_estimate' (Solcast, kW/W)
+        # 'watts' (Forecast.Solar, W)
+        # 'wh_hours' (Forecast.Solar, Wh -> W if 1h block)
+        solar_pts = parse_points(solar_forecast_data, ['datetime', 'period_end'], ['pv_estimate', 'watts', 'wh_hours', 'value'])
         if not solar_pts:
              solar_pts = [{'time': dt_util.now(), 'value': 0.0}]
              
