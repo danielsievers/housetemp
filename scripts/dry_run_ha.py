@@ -202,18 +202,19 @@ async def main():
     # 3. Run Update
     print("Running Update (Prediction & Optimization)...")
     try:
-        data = await coordinator._async_update_data()
+        result = await coordinator._async_update_data()
         print("Update Successful!")
         
         # In a real coordinator, this is set automatically by the update wrapper, 
         # but calling the internal method directly returns the data.
         # data = coordinator.data # This is None because we bypassed the wrapper
-        if data:
-            ts = data['timestamps']
-            pred = data['predicted_temp']
-            setp = data['setpoint']
-            hvac = data['hvac_state']
-            out = data['outdoor']
+        if result:
+            timestamps = result.get("timestamps")
+            temps = result.get("predicted_temp")
+            setpoints = result.get("setpoint") # This is the optimized setpoint used
+            hvac_state = result.get("hvac_state")
+            outdoor_temps = result.get("outdoor")
+            solar_power = result.get("solar")
             
             # Parse Schedule for Comparison
             try:
@@ -243,30 +244,47 @@ async def main():
                 print(f"Error parsing comparisons: {e}")
                 get_sched_temp = lambda x: 0.0
 
-            logging.info(f"\nResults (Full Duration: {len(ts)} steps):")
-            logging.info(f"{'Time':<20} | {'Pred T':<8} | {'Opt Set':<8} | {'Sched T':<8} | {'HVAC':<5} | {'Outdoor':<8}")
-            logging.info("-" * 80)
+            logging.info(f"\nResults (Full Duration: {len(timestamps)} steps):")
+            logging.info(f"{'Time':<20} | {'Pred T':<8} | {'Opt Set':<8} | {'Sched T':<8} | {'HVAC':<5} | {'Outdoor':<8} | {'Solar kW':<8}")
+            logging.info("-" * 90)
             
-            prev_sched = None
+            # Re-parse scheduled setpoints to show comparison (approximate, since we don't have the schedule logic exposed here easily unless we dup code)
+            # Actually, let's just show what we have. 
+            # The 'setpoint' in result IS the one used by the model. If optimization ran, it's the optimized one.
+            
+            # Let's verify against original schedule if we want, but user just wants table.
+            # The 'setpoints' array returned by coordinator IS the final target temp array.
 
-            for i in range(len(ts)):
+            for i in range(len(timestamps)):
+                dt_str = timestamps[i].strftime("%m-%d %H:%M")
+                t_pred = temps[i]
+                t_set = setpoints[i]
+                h_state = hvac_state[i]
+                t_out = outdoor_temps[i] if outdoor_temps is not None and i < len(outdoor_temps) else 0.0
+                sol = solar_power[i] if solar_power is not None and i < len(solar_power) else 0.0
+                
+                # Check if setpoint differs from standard schedule? 
+                # We don't have standard schedule handy here easily. 
+                # Just mark if HVAC is ON?
+                
+                # Highlight if HVAC is active
+                hvac_str = f"{int(h_state)}"
+                
+                # Check for optimized vs base? We don't have base here.
+                # Just print.
+                
                 # Convert to Local Time for display
                 # Note: ts[i] is likely UTC. dt_util.as_local() handles conversion to system local time.
-                ts_local = dt_util.as_local(ts[i])
-                t_str = ts_local.strftime("%m-%d %H:%M")
+                ts_local = dt_util.as_local(timestamps[i])
                 
                 sched_val = get_sched_temp(ts_local)
                 
                 # Mark changes in Schedule
                 sched_marker = f"{sched_val:.1f}"
-                if prev_sched is not None and sched_val != prev_sched:
-                    sched_marker += " *" # Highlight change
                 
-                logging.info(f"{t_str:<20} | {pred[i]:<8.1f} | {setp[i]:<8.1f} | {sched_marker:<8} | {int(hvac[i]):<5} | {out[i]:<8.1f}")
+                logging.info(f"{dt_str:<20} | {t_pred:<8.1f} | {t_set:<8.1f} | {sched_marker:<8} | {hvac_str:<5} | {t_out:<8.1f} | {sol:<8.2f}")
                 
-                prev_sched = sched_val
-                
-            logging.info(f"\nTotal Steps: {len(ts)}")
+            logging.info(f"\nTotal Steps: {len(timestamps)}")
         else:
              logging.error("Coordinator Data is None!")
             
