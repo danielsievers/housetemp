@@ -7,13 +7,12 @@ import os
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
-# Add root to python path to allow imports
-sys.path.append(os.getcwd())
-# Also add homeassistant/custom_components to path to find the module directly if needed,
-# or better yet, import as if we are inside homeassistant.
-# The issue is 'custom_components' is not a package in root.
-# It is inside 'homeassistant/'.
-sys.path.append(os.path.join(os.getcwd(), 'homeassistant'))
+# Add root and homeassistant to python path
+import pathlib
+script_dir = pathlib.Path(__file__).parent.absolute()
+root_dir = script_dir.parent
+sys.path.append(str(root_dir))
+sys.path.append(str(root_dir / 'homeassistant'))
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
