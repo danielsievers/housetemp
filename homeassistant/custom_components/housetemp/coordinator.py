@@ -229,6 +229,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 if dt_str and val is not None:
                     dt = dt_util.parse_datetime(dt_str)
                     if dt:
+                        # Enforce Timezone Awareness
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
+                        
                         val_float = float(val)
                         # Auto-detect units
                         if key_found in ['watts', 'wh_hours']: 
@@ -259,7 +263,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                                  ['datetime', 'period_end', 'period_start'], 
                                  ['pv_estimate', 'watts', 'wh_hours', 'value'])
         if not solar_pts:
-             solar_pts = [{'time': dt_util.now(), 'value': 0.0}]
+             now = dt_util.now()
+             if now.tzinfo is None:
+                 now = now.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
+             solar_pts = [{'time': now, 'value': 0.0}]
              
         _LOGGER.debug("Fetched %d weather points and %d solar points", len(weather_pts), len(solar_pts))
              
@@ -413,7 +420,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 dt_str = item.get('datetime')
                 val = item.get('temperature')
                 if dt_str and val is not None:
-                dt = dt_util.parse_datetime(dt_str)
+                    dt = dt_util.parse_datetime(dt_str)
                     if dt:
                         # Enforce Timezone Awareness
                         if dt.tzinfo is None:

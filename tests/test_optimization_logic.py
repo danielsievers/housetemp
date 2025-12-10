@@ -120,7 +120,7 @@ async def test_optimization_throttling(hass, coordinator):
         assert t1 == t2 # Unchanged
         
         # 3. Third run after 61 minutes: Should run
-        future_time = datetime.now() + timedelta(minutes=61)
+        future_time = datetime.now(timezone.utc) + timedelta(minutes=61)
         with patch("custom_components.housetemp.coordinator.dt_util.now", return_value=future_time):
              await coordinator._async_update_data()
              assert mock_opt.call_count == 2 # Now 2

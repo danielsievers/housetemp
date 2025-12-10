@@ -80,8 +80,10 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         # Verify Attributes
         attrs = state.attributes
         assert "forecast" in attrs
-        assert len(attrs["forecast"]) == steps
+        # Default timestep 5 min -> 12 per hour * 8 hours = 96 steps
+        assert len(attrs["forecast"]) == 96
         assert attrs["forecast"][0]["temperature"] == 72.5
+        pass # mock return is repeated or real model runs with constant inputs
         
     # 5. Verify Unload
     assert await hass.config_entries.async_unload(entry.entry_id)
