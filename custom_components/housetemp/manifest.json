@@ -1,7 +1,9 @@
 {
     "domain": "housetemp",
     "name": "House Temp Prediction",
-    "codeowners": [],
+    "codeowners": [
+        "@danielsievers"
+    ],
     "config_flow": true,
     "dependencies": [],
     "documentation": "https://github.com/danielsievers/housetemp",
@@ -9,7 +11,7 @@
     "requirements": [
         "numpy",
         "pandas",
-        "housetemp==0.1.0"
+        "scipy"
     ],
     "version": "0.1.0"
 }
