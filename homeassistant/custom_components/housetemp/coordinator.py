@@ -41,9 +41,9 @@ from .const import (
 )
 
 # Import from the installed package
-from housetemp.run_model import run_model, HeatPump
-from housetemp.measurements import Measurements
-from housetemp.optimize import optimize_hvac_schedule
+from .housetemp.run_model import run_model, HeatPump
+from .housetemp.measurements import Measurements
+from .housetemp.optimize import optimize_hvac_schedule
 
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -216,7 +216,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # 5. Prepare Simulation Data using Shared Upsampling Logic
         # Construct a DataFrame with the sparse forecast points
         import pandas as pd
-        from housetemp.utils import upsample_dataframe
+        from .housetemp.utils import upsample_dataframe
         
         # Helper to parse forecast points into a list of dicts
         def parse_points(forecast_list, dt_key_opts, val_key_opts):

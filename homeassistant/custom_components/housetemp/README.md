@@ -12,16 +12,11 @@ This custom component integrates the HouseTemp thermal model into Home Assistant
 5.  Click **Add** and then **Download**.
 6.  Restart Home Assistant.
 
-*Note: The component will automatically install the required `housetemp` library from PyPI.*
+*Note: The core logic is now included with the component, so no external library installation is required.*
 
 ### Manual Installation
 1.  Copy the `housetemp` directory from `homeassistant/custom_components/` to your Home Assistant's `custom_components` directory.
-2.  **Install Library**: You must also install the `housetemp` library into your Home Assistant's Python environment.
-    *   If you haven't published to PyPI yet, navigate to the root of this repository and run:
-        ```bash
-        pip install .
-        ```
-3.  Restart Home Assistant.
+2.  Restart Home Assistant.
 
 ## Configuration
 
