@@ -34,6 +34,10 @@ from .const import (
     CONF_OPTIMIZATION_ENABLED,
     CONF_OPTIMIZATION_INTERVAL,
     DEFAULT_OPTIMIZATION_INTERVAL,
+    CONF_MODEL_TIMESTEP,
+    DEFAULT_MODEL_TIMESTEP,
+    CONF_CONTROL_TIMESTEP,
+    DEFAULT_CONTROL_TIMESTEP,
 )
 
 # Import from the installed package
@@ -155,62 +159,116 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             if solar_state:
                 solar_forecast_data = solar_state.attributes.get("forecast", [])
 
-        # 5. Prepare Simulation Data
-        # We need to generate arrays for the duration
-        # Time step = 30 mins (0.5 hours)
-        dt_hours = 0.5
-        steps = int(duration_hours / dt_hours)
+        # 5. Prepare Simulation Data using Shared Upsampling Logic
+        # Construct a DataFrame with the sparse forecast points
+        import pandas as pd
+        from housetemp.utils import upsample_dataframe
         
+        # Helper to parse forecast points into a list of dicts
+        def parse_points(forecast_list, dt_key_opts, val_key_opts):
+            pts = []
+            for item in forecast_list:
+                dt_str = next((item.get(k) for k in dt_key_opts if item.get(k)), None)
+                val = next((item.get(k) for k in val_key_opts if item.get(k) is not None), None)
+                if dt_str and val is not None:
+                    dt = dt_util.parse_datetime(dt_str)
+                    if dt:
+                        pts.append({'time': dt, 'value': float(val)})
+            return pts
+
+        # Parse Weather
+        weather_pts = parse_points(forecast, ['datetime'], ['temperature'])
+        if not weather_pts:
+             # Fallback if no forecast: current timestamp + current outdoor
+             weather_pts = [{'time': dt_util.now(), 'value': 50.0}] 
+
+        # Parse Solar
+        solar_pts = parse_points(solar_forecast_data, ['datetime', 'period_end'], ['value', 'pv_estimate', 'watts'])
+        if not solar_pts:
+             solar_pts = [{'time': dt_util.now(), 'value': 0.0}]
+             
+        # Create DataFrames
+        df_w = pd.DataFrame(weather_pts).set_index('time').rename(columns={'value': 'outdoor_temp'})
+        df_s = pd.DataFrame(solar_pts).set_index('time').rename(columns={'value': 'solar_kw'})
+        
+        # Merge (Outer Join to keep all points)
+        df_raw = df_w.join(df_s, how='outer').sort_index()
+        
+        # Ensure we cover the full duration requsted
         now = dt_util.now()
-        timestamps = [now + timedelta(minutes=30 * i) for i in range(steps)]
+        start_time = now
+        end_time = start_time + timedelta(hours=duration_hours)
         
-        # Interpolate Outdoor Temp
-        t_out_arr = self._get_interpolated_weather(timestamps, forecast, current_temp) # Use current temp? No, current outdoor.
-        # We need current outdoor temp for the first step?
-        # The weather entity state is usually current condition.
-        try:
-            current_outdoor = float(weather_state.state)
-        except ValueError:
-            current_outdoor = t_out_arr[0] if len(t_out_arr) > 0 else 50.0 # Fallback
-
-        # Fix: t_out_arr should start with current outdoor?
-        # The model simulation loop:
-        # q_leak = UA * (data.t_out[i] - current_temp)
-        # So t_out[i] is the outdoor temp at step i.
+        # Clip/Extend DataFrame index to cover start_time to end_time
+        # We add dummy rows at start and end if missing, so interpolation covers the range
+        if df_raw.index.min() > start_time:
+             # Prepend start row (use existing first values or defaults)
+             # Better: concatenation
+             row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[0]], 'solar_kw': [0]}, index=[start_time])
+             df_raw = pd.concat([row, df_raw])
+             
+        if df_raw.index.max() < end_time:
+             row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[-1]], 'solar_kw': [0]}, index=[end_time])
+             df_raw = pd.concat([df_raw, row])
+             
+        # Reset index for upsampling utility
+        df_raw = df_raw.reset_index().rename(columns={'index': 'time'})
         
-        # Interpolate Solar
-        solar_arr = self._get_interpolated_solar(timestamps, solar_forecast_data)
+        # Get Configured Timesteps
+        model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
+        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
+        
+        # Upsample to configured resolution
+        freq_str = f"{model_timestep}min"
+        
+        df_sim = upsample_dataframe(
+            df_raw, 
+            freq=freq_str, 
+            cols_linear=['outdoor_temp', 'solar_kw'],
+            cols_ffill=[] 
+        )
+        
+        # Filter to exactly the duration requested (from start_time)
+        df_sim = df_sim[(df_sim['time'] >= start_time) & (df_sim['time'] <= end_time)]
+        
+        # If empty after slice (shouldn't happen with logic above), fail safe
+        if df_sim.empty:
+            _LOGGER.warning("Simulation DataFrame empty after slice! Using fallback.")
+            # ... fallback logic logic or minimal DF
 
+        # Extract Arrays
+        timestamps = df_sim['time'].tolist() # pydatetime objects
+        t_out_arr = df_sim['outdoor_temp'].fillna(method='ffill').fillna(50).values
+        solar_arr = df_sim['solar_kw'].fillna(0).values
+        dt_values = df_sim['dt'].values # Should be ~0.25 (15 min) or whatever configured
+        
+        # Create Result Arrays
+        steps = len(timestamps)
+        
         # Schedule Processing
         schedule_json = data.get(CONF_SCHEDULE_CONFIG)
         hvac_state_arr, setpoint_arr = self._process_schedule(timestamps, schedule_json)
 
-        # Indoor Temp Array (Initial state is known, rest is 0/placeholder)
+        # Indoor Temp Array
         t_in_arr = np.zeros(steps)
-        t_in_arr[0] = current_temp
+        t_in_arr[0] = current_temp # Start temp
 
-        # Construct Measurements
-        # Note: timestamps in Measurements are expected to be numpy array?
-        # The original code uses `len(data)` so list is fine, but type hint says np.array.
-        
         measurements = Measurements(
             timestamps=np.array(timestamps),
             t_in=t_in_arr,
-            t_out=np.array(t_out_arr),
-            solar_kw=np.array(solar_arr),
+            t_out=t_out_arr,
+            solar_kw=solar_arr,
             hvac_state=np.array(hvac_state_arr),
             setpoint=np.array(setpoint_arr),
-            dt_hours=np.full(steps, dt_hours)
+            dt_hours=dt_values
         )
 
         # 6. Run Optimization (Optional & Throttled)
-        # Check options first, then fallback to config? Options are best for runtime.
         opt_enabled = self.config_entry.options.get(CONF_OPTIMIZATION_ENABLED, False)
         opt_interval = self.config_entry.options.get(CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL)
         
         run_opt = False
         if opt_enabled:
-            # Check throttling
             now_ts = now.timestamp()
             if self.last_optimization_time is None:
                 run_opt = True
@@ -220,20 +278,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     run_opt = True
                     
         if run_opt:
-            _LOGGER.info("Running HVAC Optimization...")
-            # We need target temps. In fixed mode, 'setpoint' IS the target temp.
+            _LOGGER.info(f"Running HVAC Optimization (Model: {model_timestep}m, Control: {control_timestep}m)...")
             target_temps = setpoint_arr.copy()
+            comfort_config = {"mode": "heat", "center_preference": 0.5}
             
-            # Simple Comfort Config for now
-            # TODO: Expose these as options?
-            comfort_config = {
-                "mode": "heat", # Assume heat for winter
-                "center_preference": 0.5
-            }
-            
-            # Run Optimization (Blocking call - might need executor if slow, but L-BFGS-B is fastish)
-            # Home Assistant warns on blocking I/O. If this takes < 0.1s it's fine.
-            # If complex, run in executor:
             try:
                 optimized_setpoints = await self.hass.async_add_executor_job(
                     optimize_hvac_schedule,
@@ -241,37 +289,29 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     params,
                     self.heat_pump,
                     target_temps,
-                    comfort_config
+                    comfort_config,
+                    control_timestep # block_size_minutes
                 )
                 
-                # Apply optimization results
                 measurements.setpoint = optimized_setpoints
-                
-                # We also need to update hvac_state in measurements?
-                # optimize_hvac_schedule modifies hvac_state in place inside!
-                # But let's be sure.
-                # Actually optimize_hvac_schedule sets data.hvac_state[:] = hvac_mode_val
-                # So measurements.hvac_state is already updated to the correct mode (1 or -1).
-                
-                # Result arrays for sensor need to be updated too
-                setpoint_arr = optimized_setpoints.tolist() if hasattr(optimized_setpoints, "tolist") else optimized_setpoints
-                hvac_state_arr = measurements.hvac_state.tolist() if hasattr(measurements.hvac_state, "tolist") else measurements.hvac_state
+                setpoint_arr = optimized_setpoints
+                # hvac_state_arr = measurements.hvac_state # Optimization updates this too
                 
                 self.last_optimization_time = now.timestamp()
                 
             except Exception as e:
                 _LOGGER.error("Optimization failed: %s", e)
-                # Fallback to fixed schedule (do nothing, continue with original measurements)
+                import traceback
+                _LOGGER.error(traceback.format_exc())
 
         # 7. Run Model
-        # run_model returns (sim_temps, rmse, hvac_outputs)
         sim_temps, _, _ = run_model(params, measurements, self.heat_pump, duration_minutes=duration_hours*60)
 
         # 7. Return Result
         return {
             "timestamps": timestamps,
             "predicted_temp": sim_temps,
-            "hvac_state": hvac_state_arr,
+            "hvac_state": measurements.hvac_state, # Use measuring array as it might change
             "setpoint": setpoint_arr,
             "solar": solar_arr,
             "outdoor": t_out_arr

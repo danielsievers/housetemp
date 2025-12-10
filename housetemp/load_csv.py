@@ -23,48 +23,18 @@ def load_csv(filepath: str, override_start_temp: float = None, upsample_freq: st
     # Upsampling Logic
     if upsample_freq:
         print(f"Upsampling data to {upsample_freq} resolution...")
+        from .utils import upsample_dataframe
         
-        # Set index for resampling
-        df = df.set_index('time')
-        
-        # Define interpolation strategies
-        # Continuous variables: Linear (Smooth physics)
         cols_linear = ['outdoor_temp', 'solar_kw', 'indoor_temp']
-        # Continuous cols that exist in df
-        cols_linear = [c for c in cols_linear if c in df.columns]
-        
-        # Discrete variables: Forward Fill (Step function)
         cols_ffill = ['hvac_mode', 'target_temp']
-        cols_ffill = [c for c in cols_ffill if c in df.columns]
         
-        # Resample
-        # 1. Resample index
-        resampler = df.resample(upsample_freq)
-        
-        # Resample
-        # 1. Create a full index with gaps (asfreq puts NaNs in the gaps)
-        df_resampled = resampler.asfreq()
-        
-        # 2. Interpolate Continuous variables
-        if cols_linear:
-            df_resampled[cols_linear] = df_resampled[cols_linear].interpolate(method='time')
-            
-        # 3. Fill Discrete variables
-        if cols_ffill:
-            df_resampled[cols_ffill] = df_resampled[cols_ffill].ffill()
-        
-        # Reset index
-        df = df_resampled.reset_index()
+        df = upsample_dataframe(df, upsample_freq, cols_linear, cols_ffill)
         
         print(f"Upsampled to {len(df)} rows.")
-
-    # Convert time (ensure sorted)
-    df = df.sort_values('time').reset_index(drop=True)
-
-    # Calculate time deltas in hours (for physics integration)
-    # We shift to align dt with the interval duration
-    time_diffs = df['time'].diff().dt.total_seconds() / 3600
-    df['dt'] = time_diffs.bfill() # Fill first row
+    else:
+        # Calculate dt if not upsampled (upsample_dataframe handles it otherwise)
+        time_diffs = df['time'].diff().dt.total_seconds() / 3600
+        df['dt'] = time_diffs.bfill()
 
     # Clean data (drop NaNs)
     # TODO

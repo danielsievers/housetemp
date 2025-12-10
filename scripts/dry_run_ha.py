@@ -144,7 +144,24 @@ async def main():
     # 1. Mock Home Assistant
     hass = MagicMock(spec=HomeAssistant)
     hass.config = MagicMock() # Needs explicit creation if spec=HomeAssistant doesn't include it (it should, but safety first)
-    hass.config.path = MagicMock(side_effect=lambda *args: os.path.join(os.getcwd(), *args))
+    hass.config.path = lambda *x: os.path.join(os.getcwd(), *x)
+    
+    # Configure Timezone for dt_util
+    # This is critical for dt_util.as_local() to work correctly in the script
+    import homeassistant.util.dt as dt_util
+    
+    # Attempt to use system local timezone
+    try:
+        import tzlocal
+        local_tz = tzlocal.get_localzone()
+    except ImportError:
+        # Fallback to America/Los_Angeles given user metadata, or UTC
+        print("Warning: tzlocal not found, defaulting to America/Los_Angeles for dry run.")
+        import zoneinfo
+        local_tz = zoneinfo.ZoneInfo("America/Los_Angeles")
+
+    dt_util.set_default_time_zone(local_tz)
+    hass.config.time_zone = str(local_tz)
     
     # Mock States
     hass.states = MagicMock()
@@ -176,8 +193,14 @@ async def main():
     # 2. Setup Coordinator
     config_entry = MagicMock()
     config_entry.data = CONFIG_DATA
-    config_entry.options = OPTIONS_DATA
-    config_entry.entry_id = "test_entry"
+    config_entry.options = { 
+        CONF_OPTIMIZATION_ENABLED: True,
+        CONF_OPTIMIZATION_INTERVAL: 0, # Force run immediately
+        # Use defaults for new settings
+        CONF_MODEL_TIMESTEP: DEFAULT_MODEL_TIMESTEP,
+        CONF_CONTROL_TIMESTEP: DEFAULT_CONTROL_TIMESTEP,
+    }
+    config_entry.entry_id = "test_entry_123"
     
     print("Initializing Coordinator...")
     coordinator = HouseTempCoordinator(hass, config_entry)

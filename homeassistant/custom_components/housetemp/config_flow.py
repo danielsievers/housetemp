@@ -33,6 +33,12 @@ from .const import (
     CONF_OPTIMIZATION_INTERVAL,
     DEFAULT_OPTIMIZATION_INTERVAL,
     MIN_OPTIMIZATION_INTERVAL,
+    CONF_MODEL_TIMESTEP,
+    DEFAULT_MODEL_TIMESTEP,
+    MIN_MODEL_TIMESTEP,
+    CONF_CONTROL_TIMESTEP,
+    DEFAULT_CONTROL_TIMESTEP,
+    MIN_CONTROL_TIMESTEP,
 )
 from homeassistant.core import callback
 
@@ -140,22 +146,37 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_OPTIMIZATION_ENABLED,
-                        default=self.config_entry.options.get(
-                            CONF_OPTIMIZATION_ENABLED, False
-                        ),
-                    ): bool,
-                    vol.Required(
-                        CONF_OPTIMIZATION_INTERVAL,
-                        default=self.config_entry.options.get(
-                            CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL
-                        ),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_OPTIMIZATION_INTERVAL)),
-                }
-            ),
+        # Schema for options
+        # We can add more advanced options here
+        options_schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_OPTIMIZATION_ENABLED,
+                    default=self.config_entry.options.get(
+                        CONF_OPTIMIZATION_ENABLED, False
+                    ),
+                ): bool,
+                vol.Optional(
+                    CONF_OPTIMIZATION_INTERVAL,
+                    default=self.config_entry.options.get(
+                        CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_OPTIMIZATION_INTERVAL)),
+                
+                vol.Optional(
+                    CONF_MODEL_TIMESTEP,
+                    default=self.config_entry.options.get(
+                        CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_MODEL_TIMESTEP)),
+                
+                vol.Optional(
+                    CONF_CONTROL_TIMESTEP,
+                    default=self.config_entry.options.get(
+                        CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CONTROL_TIMESTEP)),
+            }
         )
+
+        return self.async_show_form(step_id="init", data_schema=options_schema)

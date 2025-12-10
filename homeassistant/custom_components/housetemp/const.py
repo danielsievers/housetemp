@@ -25,3 +25,12 @@ CONF_OPTIMIZATION_ENABLED = "optimization_enabled"
 CONF_OPTIMIZATION_INTERVAL = "optimization_interval"
 DEFAULT_OPTIMIZATION_INTERVAL = 60
 MIN_OPTIMIZATION_INTERVAL = 30
+
+# Advanced Physics/Control Settings
+CONF_MODEL_TIMESTEP = "model_timestep"       # Physics resolution (minutes)
+DEFAULT_MODEL_TIMESTEP = 5
+MIN_MODEL_TIMESTEP = 1
+
+CONF_CONTROL_TIMESTEP = "control_timestep"   # Control block size (minutes)
+DEFAULT_CONTROL_TIMESTEP = 30
+MIN_CONTROL_TIMESTEP = 30
