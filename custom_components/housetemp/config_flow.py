@@ -54,18 +54,18 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
             selector.EntitySelectorConfig(domain="weather")
         ),
         vol.Optional(CONF_SOLAR_ENTITY): selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+            selector.EntitySelectorConfig(domain="sensor", device_class=["power", "energy"], multiple=True)
         ),
     }
 )
 
 STEP_PARAMS_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_C_THERMAL, default=10000.0): float,
-        vol.Required(CONF_UA, default=500.0): float,
-        vol.Required(CONF_K_SOLAR, default=50.0): float,
-        vol.Required(CONF_Q_INT, default=500.0): float,
-        vol.Required(CONF_H_FACTOR, default=1000.0): float,
+        vol.Required(CONF_C_THERMAL, default=10000.0): vol.Coerce(float),
+        vol.Required(CONF_UA, default=500.0): vol.Coerce(float),
+        vol.Required(CONF_K_SOLAR, default=50.0): vol.Coerce(float),
+        vol.Required(CONF_Q_INT, default=500.0): vol.Coerce(float),
+        vol.Required(CONF_H_FACTOR, default=1000.0): vol.Coerce(float),
     }
 )
 
