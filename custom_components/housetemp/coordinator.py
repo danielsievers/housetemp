@@ -87,9 +87,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # Validate JSON first
             try:
                 data = json.loads(hp_config_str)
-                # Basic validation
-                if "cop_curve" not in data and "hvac_power" not in data:
-                     _LOGGER.warning("Heat Pump Config might be missing required keys (cop_curve, hvac_power)")
+                # Basic validation - check for expected keys from heat_pump.json format
+                if "cop" not in data or "max_capacity" not in data:
+                     _LOGGER.warning("Heat Pump Config might be missing required keys (cop, max_capacity)")
             except Exception as e:
                 raise ValueError(f"Invalid Heat Pump JSON: {e}")
             
@@ -222,12 +222,18 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         def parse_points(forecast_list, dt_key_opts, val_key_opts):
             pts = []
             for item in forecast_list:
-                dt_str = next((item.get(k) for k in dt_key_opts if item.get(k)), None)
+                dt_val = next((item.get(k) for k in dt_key_opts if item.get(k)), None)
                 key_found = next((k for k in val_key_opts if item.get(k) is not None), None)
                 val = item.get(key_found) if key_found else None
                 
-                if dt_str and val is not None:
-                    dt = dt_util.parse_datetime(dt_str)
+                if dt_val and val is not None:
+                    # Handle both string and datetime inputs (Solcast uses datetime objects)
+                    if isinstance(dt_val, str):
+                        dt = dt_util.parse_datetime(dt_val)
+                    else:
+                        # Already a datetime object
+                        dt = dt_val
+                    
                     if dt:
                         # Enforce Timezone Awareness
                         if dt.tzinfo is None:
@@ -449,21 +455,23 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         points = []
         for item in forecast:
             try:
-                # Try common keys
-                dt_str = item.get('datetime') or item.get('period_end')
+                # Try common keys (including period_start for Solcast)
+                dt_val = item.get('datetime') or item.get('period_end') or item.get('period_start')
                 val = item.get('value') or item.get('pv_estimate')
                 
-                if dt_str and val is not None:
-                    dt = dt_util.parse_datetime(dt_str)
+                if dt_val and val is not None:
+                    # Handle both string and datetime inputs (Solcast uses datetime objects)
+                    if isinstance(dt_val, str):
+                        dt = dt_util.parse_datetime(dt_val)
+                    else:
+                        # Already a datetime object
+                        dt = dt_val
+                    
                     if dt:
                         # Enforce Timezone Awareness
                         if dt.tzinfo is None:
                             dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
                         
-                        # Convert Watts to kW if needed? 
-                        # Assuming value is kW if it says 'solar_kw' in our model.
-                        # Forecast.Solar uses Watts usually? 'wh_watts'?
-                        # Let's assume the user provides a sensor that gives kW or we might be off by 1000x.
                         # For now, take raw value.
                         points.append((dt.timestamp(), float(val)))
             except:

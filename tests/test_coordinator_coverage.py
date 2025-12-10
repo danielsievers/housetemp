@@ -216,3 +216,15 @@ async def test_solar_interpolation_valid(hass, coordinator):
     res = coordinator._get_interpolated_solar(timestamps, forecast)
     assert len(res) == 1
     assert res[0] == 5.0
+
+@pytest.mark.asyncio
+async def test_solar_interpolation_datetime_object(hass, coordinator):
+    """Test solar interpolation with datetime objects (Solcast format)."""
+    # Solcast uses datetime objects for period_start, not strings
+    from datetime import timezone
+    dt_obj = datetime.now(timezone.utc)
+    forecast = [{"period_start": dt_obj, "pv_estimate": 3.5}]
+    timestamps = [datetime.now()]
+    res = coordinator._get_interpolated_solar(timestamps, forecast)
+    assert len(res) == 1
+    assert res[0] == 3.5
