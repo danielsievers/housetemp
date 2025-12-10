@@ -1,7 +1,7 @@
 """Tests for optimization logic in the coordinator."""
 import pytest
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -49,7 +49,9 @@ def coordinator(hass):
 async def test_optimization_disabled_by_default(hass, coordinator):
     """Test optimization does not run by default."""
     hass.states.async_set("sensor.indoor", "70.0")
-    hass.states.async_set("weather.home", "50.0", {"forecast": []})
+    today = datetime.now(timezone.utc).isoformat()
+    mock_forecast = [{"datetime": today, "temperature": 60.0}]
+    hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
 
     with patch("custom_components.housetemp.coordinator.run_model") as mock_run:
         mock_run.return_value = ([], 0.0, [])
@@ -63,7 +65,9 @@ async def test_optimization_disabled_by_default(hass, coordinator):
 async def test_optimization_enabled_runs(hass, coordinator):
     """Test optimization runs when enabled."""
     hass.states.async_set("sensor.indoor", "70.0")
-    hass.states.async_set("weather.home", "50.0", {"forecast": []})
+    today = datetime.now(timezone.utc).isoformat()
+    mock_forecast = [{"datetime": today, "temperature": 60.0}]
+    hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
     
     # Enable optimization in options
     coordinator.config_entry.options = {
@@ -88,7 +92,9 @@ async def test_optimization_enabled_runs(hass, coordinator):
 async def test_optimization_throttling(hass, coordinator):
     """Test optimization respects the interval."""
     hass.states.async_set("sensor.indoor", "70.0")
-    hass.states.async_set("weather.home", "50.0", {"forecast": []})
+    today = datetime.now(timezone.utc).isoformat()
+    mock_forecast = [{"datetime": today, "temperature": 60.0}]
+    hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
     
     # Enable optimization, 60 min interval
     coordinator.config_entry.options = {

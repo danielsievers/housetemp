@@ -37,7 +37,7 @@ VALID_CONFIG = {
     CONF_K_SOLAR: 10.0,
     CONF_Q_INT: 100.0,
     CONF_H_FACTOR: 100.0,
-    CONF_HEAT_PUMP_CONFIG: "{}",
+    CONF_HEAT_PUMP_CONFIG: '{"max_capacity": 10000, "cop_curve": [[-10, 3], [10, 4]], "hvac_power": 1000}',
     CONF_SCHEDULE_CONFIG: "[]",
     CONF_FORECAST_DURATION: 1,
     CONF_UPDATE_INTERVAL: 60,
@@ -53,8 +53,8 @@ def coordinator(hass):
         # We need to make sure the instance is not None
         mock_hp.return_value = MagicMock()
         coord = HouseTempCoordinator(hass, entry)
-        # Ensure heat_pump is set (it should be if mock works)
-        # But setup catches exception. If Mock is successful, it sets self.heat_pump = mock_hp()
+        # Ensure heat_pump is set to Mock to bypass lazy setup logic during update tests
+        coord.heat_pump = mock_hp.return_value
         return coord
 
 @pytest.mark.asyncio
@@ -120,10 +120,8 @@ async def test_update_weather_no_forecast_attribute(hass, coordinator):
     # We need to mock run_model to avoid actually running it on empty data causing other issues?
     # Or let it run and see if it handles empty arrays (it might fallback to defaults in interpolation)
     
-    with patch("custom_components.housetemp.coordinator.run_model") as mock_run:
-        mock_run.return_value = (np.array([70.0, 70.0]), 0.0, np.array([0, 0]))
-        res = await coordinator._async_update_data()
-        assert res["outdoor"][0] == 70.0 # Fallback to passed current_temp (indoor) as per code logic
+    with pytest.raises(UpdateFailed, match="No forecast data available"):
+        await coordinator._async_update_data()
 
 @pytest.mark.asyncio
 async def test_update_weather_invalid_current(hass, coordinator):
@@ -131,11 +129,8 @@ async def test_update_weather_invalid_current(hass, coordinator):
     hass.states.async_set("sensor.indoor", "70.0")
     hass.states.async_set("weather.home", "unknown") # Invalid float
     
-    with patch("custom_components.housetemp.coordinator.run_model") as mock_run:
-        mock_run.return_value = (np.array([70.0, 70.0]), 0.0, np.array([0, 0]))
-        res = await coordinator._async_update_data()
-        # Should fallback to default 50.0 if interpolation also fails/empty
-        assert len(res["outdoor"]) > 0
+    with pytest.raises(UpdateFailed, match="No forecast data available"):
+        await coordinator._async_update_data()
 
 @pytest.mark.asyncio
 async def test_interpolation_malformed_items(hass, coordinator):
