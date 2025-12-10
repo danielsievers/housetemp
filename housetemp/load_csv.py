@@ -85,8 +85,7 @@ def load_csv(filepath: str, override_start_temp: float = None, upsample_freq: st
             print(f"Warning: 'indoor_temp' missing/NaN. Using provided start temp: {override_start_temp} F.")
             df['indoor_temp'] = override_start_temp
         else:
-            print("Warning: 'indoor_temp' missing and no --start-temp provided. Defaulting to 70.0 F.")
-            df['indoor_temp'] = 70.0
+            raise ValueError("Indoor temperature data is missing/NaN and no --start-temp was provided.")
         
     if 'hvac_mode' not in df.columns:
         print("Warning: 'hvac_mode' missing. Assuming 0 (OFF).")
