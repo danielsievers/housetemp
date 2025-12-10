@@ -247,8 +247,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Parse Weather
         weather_pts = parse_points(forecast, ['datetime'], ['temperature'])
         if not weather_pts:
-             # Fallback if no forecast: current timestamp + current outdoor
-             weather_pts = [{'time': dt_util.now(), 'value': 50.0}] 
+             raise UpdateFailed(f"No forecast data available from {weather_entity}") 
 
         # Parse Solar
         # Support common keys: 
