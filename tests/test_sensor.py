@@ -80,9 +80,11 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         # Verify Attributes
         attrs = state.attributes
         assert "forecast" in attrs
-        # Default timestep 5 min -> 12 per hour * 8 hours = 96 steps
-        assert len(attrs["forecast"]) == 96
+        # Now resampled to 15-min intervals: 8 hours * 4 per hour = 32 points
+        assert len(attrs["forecast"]) == 32
         assert attrs["forecast"][0]["temperature"] == 72.5
+        assert attrs["forecast"][0]["target_temp"] == 70.0  # Renamed from setpoint
+        assert "forecast_points" in attrs  # Original resolution count
         pass # mock return is repeated or real model runs with constant inputs
         
     # 5. Verify Unload

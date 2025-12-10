@@ -60,24 +60,52 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         data = self.coordinator.data
         timestamps = data.get("timestamps", [])
         temps = data.get("predicted_temp", [])
-        hvac = data.get("hvac_state", [])
-        setpoints = data.get("setpoint", [])
+        setpoints = data.get("setpoint", [])  # Schedule setpoint (target_temp)
+        optimized_setpoints = data.get("optimized_setpoint", [])  # From HVAC optimization
 
+        if not timestamps:
+            return {}
 
-        forecast = []
         from homeassistant.util import dt as dt_util
+        from datetime import timedelta
+
+        # Resample to 15-minute intervals
+        # Find start time rounded to nearest 15 min
+        start_dt = timestamps[0]
+        start_minute = (start_dt.minute // 15) * 15
+        current_dt = start_dt.replace(minute=start_minute, second=0, microsecond=0)
+        if current_dt < start_dt:
+            current_dt += timedelta(minutes=15)
+
+        end_dt = timestamps[-1]
         
-        for i in range(len(timestamps)):
-            local_dt = dt_util.as_local(timestamps[i])
+        forecast = []
+        while current_dt <= end_dt:
+            # Find nearest data point (or interpolate)
+            # Simple nearest-neighbor for temperature, last-value for setpoints
+            best_idx = 0
+            min_diff = abs((timestamps[0] - current_dt).total_seconds())
+            for i, ts in enumerate(timestamps):
+                diff = abs((ts - current_dt).total_seconds())
+                if diff < min_diff:
+                    min_diff = diff
+                    best_idx = i
+            
+            local_dt = dt_util.as_local(current_dt)
             item = {
                 "datetime": local_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                "temperature": round(temps[i], 1) if i < len(temps) else None,
-                "hvac_state": int(hvac[i]) if i < len(hvac) else None,
-                "setpoint": float(setpoints[i]) if i < len(setpoints) else None,
+                "temperature": round(temps[best_idx], 1) if best_idx < len(temps) else None,
+                "target_temp": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
             }
+            
+            # ideal_setpoint only if optimization was run
+            if optimized_setpoints and best_idx < len(optimized_setpoints):
+                item["ideal_setpoint"] = float(optimized_setpoints[best_idx])
+            
             forecast.append(item)
+            current_dt += timedelta(minutes=15)
 
         return {
             "forecast": forecast,
-            # "total_energy_kwh": ... # Need to extract from model or re-calculate
+            "forecast_points": len(timestamps),  # Original resolution count
         }
