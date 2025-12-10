@@ -1,0 +1,47 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "House Temp Sensors",
+                "description": "Configure the sensors for temperature prediction",
+                "data": {
+                    "sensor_indoor_temp": "Indoor Temperature Sensor",
+                    "weather_entity": "Weather Entity",
+                    "solar_entity": "Solar Forecast Sensors"
+                }
+            },
+            "params": {
+                "title": "Model Parameters",
+                "description": "Configure the thermal model parameters",
+                "data": {
+                    "c_thermal": "Thermal Mass (C)",
+                    "ua": "Heat Loss (UA)",
+                    "k_solar": "Solar Gain Factor",
+                    "q_int": "Internal Heat",
+                    "h_factor": "HVAC Factor"
+                }
+            },
+            "configs": {
+                "title": "HVAC Configuration",
+                "description": "Configure heat pump and schedule",
+                "data": {
+                    "heat_pump_config": "Heat Pump JSON",
+                    "schedule_config": "Schedule JSON",
+                    "forecast_duration": "Forecast Duration (hours)",
+                    "update_interval": "Update Interval (minutes)"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "House Temp Options",
+                "data": {
+                    "optimization_enabled": "Determine optimized HVAC schedule",
+                    "optimization_interval": "Optimization interval (minutes)"
+                }
+            }
+        }
+    }
+}
