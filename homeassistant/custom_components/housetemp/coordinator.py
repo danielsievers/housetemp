@@ -1,6 +1,7 @@
 """DataUpdateCoordinator for House Temp Prediction."""
 from datetime import timedelta, datetime
 import json
+import time
 import logging
 import os
 import tempfile
@@ -44,7 +45,7 @@ from housetemp.run_model import run_model, HeatPump
 from housetemp.measurements import Measurements
 from housetemp.optimize import optimize_hvac_schedule
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(DOMAIN)
 
 class HouseTempCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data and running the model."""
@@ -65,32 +66,40 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         self.config_entry = config_entry
 
         self.heat_pump = None
-        self._setup_heat_pump()
+        # self._setup_heat_pump() # Will be called in async_update_data or first refresh
         
         # State for optimization
         self.last_optimization_time = None
 
-    def _setup_heat_pump(self):
+    async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
         hp_config_str = self.config_entry.data.get(CONF_HEAT_PUMP_CONFIG)
         if not hp_config_str:
             return
 
-        # The HeatPump class expects a file path.
-        # We will write the config to a file in the storage directory.
-        # Using a stable path so we don't create infinite temp files.
-        storage_dir = self.hass.config.path(".storage", DOMAIN)
-        os.makedirs(storage_dir, exist_ok=True)
-        hp_config_path = os.path.join(storage_dir, f"heat_pump_{self.config_entry.entry_id}.json")
-        
-        try:
+        # Run file I/O in executor
+        def save_and_init():
+            # Storage dir
+            storage_dir = self.hass.config.path(".storage", DOMAIN)
+            os.makedirs(storage_dir, exist_ok=True)
+            hp_config_path = os.path.join(storage_dir, f"heat_pump_{self.config_entry.entry_id}.json")
+            
             # Validate JSON first
-            json.loads(hp_config_str)
+            try:
+                data = json.loads(hp_config_str)
+                # Basic validation
+                if "cop_curve" not in data and "hvac_power" not in data:
+                     _LOGGER.warning("Heat Pump Config might be missing required keys (cop_curve, hvac_power)")
+            except Exception as e:
+                raise ValueError(f"Invalid Heat Pump JSON: {e}")
             
             with open(hp_config_path, "w") as f:
                 f.write(hp_config_str)
             
-            self.heat_pump = HeatPump(hp_config_path)
+            return HeatPump(hp_config_path)
+
+        try:
+            self.heat_pump = await self.hass.async_add_executor_job(save_and_init)
         except Exception as e:
             _LOGGER.error("Failed to setup Heat Pump: %s", e)
             self.heat_pump = None
@@ -98,7 +107,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Fetch data and run the model."""
         if not self.heat_pump:
-            self._setup_heat_pump()
+            await self._setup_heat_pump()
             if not self.heat_pump:
                 raise UpdateFailed("Heat Pump not configured correctly")
 
@@ -117,6 +126,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             data.get(CONF_Q_INT),
             data.get(CONF_H_FACTOR),
         ]
+        
+        _LOGGER.debug("Coordinator update with params (C, UA, K_Solar, Q_Int, H_Factor): %s", params)
 
         # 2. Get Current State
         indoor_state = self.hass.states.get(sensor_indoor)
@@ -125,6 +136,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         try:
             current_temp = float(indoor_state.state)
+            _LOGGER.debug("Current indoor temp read from %s: %s", sensor_indoor, current_temp)
         except ValueError:
             raise UpdateFailed(f"Invalid indoor temp: {indoor_state.state}")
 
@@ -250,6 +262,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         if not solar_pts:
              solar_pts = [{'time': dt_util.now(), 'value': 0.0}]
              
+        _LOGGER.debug("Fetched %d weather points and %d solar points", len(weather_pts), len(solar_pts))
+             
         # Create DataFrames
         df_w = pd.DataFrame(weather_pts).set_index('time').rename(columns={'value': 'outdoor_temp'})
         df_s = pd.DataFrame(solar_pts).set_index('time').rename(columns={'value': 'solar_kw'})
@@ -261,6 +275,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         now = dt_util.now()
         start_time = now
         end_time = start_time + timedelta(hours=duration_hours)
+        _LOGGER.info("Starting simulation from %s to %s (%d hours)", start_time, end_time, duration_hours)
         
         # Clip/Extend DataFrame index to cover start_time to end_time
         # We add dummy rows at start and end if missing, so interpolation covers the range
@@ -339,9 +354,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 elapsed_min = (now_ts - self.last_optimization_time) / 60.0
                 if elapsed_min >= opt_interval:
                     run_opt = True
+                else:
+                    _LOGGER.debug("Skipping optimization: %.1f min elapsed (interval: %s)", elapsed_min, opt_interval)
                     
         if run_opt:
             _LOGGER.info(f"Running HVAC Optimization (Model: {model_timestep}m, Control: {control_timestep}m)...")
+            opt_start_time = time.time()
             target_temps = setpoint_arr.copy()
             comfort_config = {"mode": "heat", "center_preference": 0.5}
             
@@ -361,6 +379,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 # hvac_state_arr = measurements.hvac_state # Optimization updates this too
                 
                 self.last_optimization_time = now.timestamp()
+                opt_duration = time.time() - opt_start_time
+                _LOGGER.info("Optimization completed in %.2f seconds", opt_duration)
                 
             except Exception as e:
                 _LOGGER.error("Optimization failed: %s", e)
@@ -369,6 +389,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # 7. Run Model
         sim_temps, _, _ = run_model(params, measurements, self.heat_pump, duration_minutes=duration_hours*60)
+        
+        if len(sim_temps) > 0:
+            _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
 
         # 7. Return Result
         return {
@@ -391,8 +414,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 dt_str = item.get('datetime')
                 val = item.get('temperature')
                 if dt_str and val is not None:
-                    dt = dt_util.parse_datetime(dt_str)
+                dt = dt_util.parse_datetime(dt_str)
                     if dt:
+                        # Enforce Timezone Awareness
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
                         points.append((dt.timestamp(), float(val)))
             except:
                 continue
@@ -424,6 +450,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 if dt_str and val is not None:
                     dt = dt_util.parse_datetime(dt_str)
                     if dt:
+                        # Enforce Timezone Awareness
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
+                        
                         # Convert Watts to kW if needed? 
                         # Assuming value is kW if it says 'solar_kw' in our model.
                         # Forecast.Solar uses Watts usually? 'wh_watts'?
@@ -445,11 +475,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
     def _process_schedule(self, timestamps, schedule_json):
         """Generate HVAC state and setpoint arrays from schedule."""
+        _LOGGER.debug("Processing schedule for %d timestamps", len(timestamps))
         # Schedule can be old list or new nested dict
         try:
             schedule_data = json.loads(schedule_json)
-        except:
-            _LOGGER.error("Invalid Schedule JSON")
+            # Basic Schema Validation
+            if isinstance(schedule_data, dict):
+                 if "schedule" not in schedule_data or not isinstance(schedule_data["schedule"], list):
+                      _LOGGER.error("Schedule JSON missing 'schedule' list")
+                      return np.zeros(len(timestamps)), np.full(len(timestamps), 70.0)
+        except Exception as e:
+            _LOGGER.error("Invalid Schedule JSON: %s", e)
             return np.zeros(len(timestamps)), np.full(len(timestamps), 70.0)
 
         if not schedule_data:

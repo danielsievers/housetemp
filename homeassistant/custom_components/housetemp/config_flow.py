@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from typing import Any
 
 import voluptuous as vol
@@ -42,7 +43,7 @@ from .const import (
 )
 from homeassistant.core import callback
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(DOMAIN)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -121,13 +122,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the configs step."""
-        if user_input is None:
-            return self.async_show_form(
-                step_id="configs", data_schema=STEP_CONFIGS_SCHEMA
-            )
+        errors = {}
 
-        self._data.update(user_input)
-        return self.async_create_entry(title="House Temp Prediction", data=self._data)
+        if user_input is not None:
+             # Validate JSON
+             try:
+                 json.loads(user_input[CONF_HEAT_PUMP_CONFIG])
+             except ValueError:
+                 errors[CONF_HEAT_PUMP_CONFIG] = "invalid_json"
+                 
+             try:
+                 json.loads(user_input[CONF_SCHEDULE_CONFIG])
+             except ValueError:
+                 errors[CONF_SCHEDULE_CONFIG] = "invalid_json"
+
+             if not errors:
+                 self._data.update(user_input)
+                 return self.async_create_entry(title="House Temp Prediction", data=self._data)
+
+        return self.async_show_form(
+             step_id="configs", 
+             data_schema=STEP_CONFIGS_SCHEMA,
+             errors=errors
+        )
 
     @staticmethod
     @callback
