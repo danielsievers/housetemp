@@ -74,7 +74,11 @@ for hour in range(48):
     # Determine basic day cycle
     import datetime
     import numpy as np
-    base = datetime.datetime(2025, 12, 10, 0, 0, 0) + datetime.timedelta(hours=hour)
+    # Make it timezone-aware (matching user's -08:00)
+    # Using fixed offset for simplicity in dry run to match Solcast data properties
+    tz = datetime.timezone(datetime.timedelta(hours=-8)) 
+    base = datetime.datetime(2025, 12, 10, 0, 0, 0, tzinfo=tz) + datetime.timedelta(hours=hour)
+    
     # Simple curve: 50F low + 10 * sin(...)
     temp = 55.0 + 5.0 * np.sin((hour - 9) * 2 * np.pi / 24)
     WEATHER_FORECAST_SERVICE_RESPONSE.append({
