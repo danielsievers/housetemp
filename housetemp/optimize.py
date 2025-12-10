@@ -127,8 +127,16 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     
     num_blocks = len(control_times)
     
-    # Map simulation timestamps to "minutes from start"
-    sim_minutes = (data.timestamps - data.timestamps[0]) / np.timedelta64(1, 'm')
+    # Map simulation timestamps to "minutes from start" 
+    # data.timestamps might be list of python datetimes or np array of objects?
+    # Ensure it is converted to pandas index or compatible type for vectorized ops
+    sim_ts_series = pd.to_datetime(data.timestamps)
+    sim_minutes = (sim_ts_series - start_ts).total_seconds() / 60.0
+    # Note: total_seconds() works on TimedeltaIndex.
+    # If sim_ts_series - start_ts returns object array, we need to handle it.
+    # Direct subtraction of datetime objects in numpy might produce object array of timedeltas if not careful.
+    # explicit conversion:
+    # sim_minutes = np.array([(t - start_ts).total_seconds() / 60.0 for t in sim_ts_series])
     
     # Initial Guess: Downsample target_temps to blocks
     initial_guess = np.interp(control_times, sim_minutes, target_temps)
