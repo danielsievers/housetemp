@@ -62,18 +62,8 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         temps = data.get("predicted_temp", [])
         hvac = data.get("hvac_state", [])
         setpoints = data.get("setpoint", [])
-        solar = data.get("solar", [])
-        outdoor = data.get("outdoor", [])
 
         forecast = []
-        total_energy_kwh = 0.0
-        
-        # Calculate energy for each step
-        # We need to know the power consumption logic.
-        # It's inside run_model but not returned directly as array.
-        # We can estimate it or modify run_model to return it.
-        # For now, we don't have energy array.
-        # We can just output the other fields.
         
         for i in range(len(timestamps)):
             item = {
@@ -81,8 +71,6 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
                 "temperature": round(temps[i], 1) if i < len(temps) else None,
                 "hvac_state": int(hvac[i]) if i < len(hvac) else None,
                 "setpoint": float(setpoints[i]) if i < len(setpoints) else None,
-                "solar_kw": round(solar[i], 2) if i < len(solar) else None,
-                "outdoor_temp": round(outdoor[i], 1) if i < len(outdoor) else None,
             }
             forecast.append(item)
 
