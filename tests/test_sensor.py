@@ -66,7 +66,7 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         # run_model returns (sim_temps, rmse)
         # sim_temps should be array of length steps
         steps = 8 * 2 # 8 hours * 2 per hour
-        mock_run_model.return_value = (np.full(steps, 72.5), 0.0)
+        mock_run_model.return_value = (np.full(steps, 72.5), 0.0, np.zeros(steps))
         
         # 3. Setup Integration
         await hass.config_entries.async_setup(entry.entry_id)

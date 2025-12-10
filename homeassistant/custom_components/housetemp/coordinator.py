@@ -196,7 +196,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # 6. Run Model
         # run_model returns (sim_temps, rmse)
-        sim_temps, _ = run_model(params, measurements, self.heat_pump, duration_minutes=duration_hours*60)
+        sim_temps, _, _ = run_model(params, measurements, self.heat_pump, duration_minutes=duration_hours*60)
 
         # 7. Return Result
         return {
