@@ -198,17 +198,56 @@ async def main():
             hvac = data['hvac_state']
             out = data['outdoor']
             
-            logging.info(f"\nResults (First {len(ts)} steps):")
-            logging.info(f"{'Time':<20} | {'Pred T':<8} | {'Set T':<8} | {'HVAC':<5} | {'Outdoor':<8}")
-            logging.info("-" * 60)
+            # Parse Schedule for Comparison
+            try:
+                sched_data = json.loads(COMFORT_CONFIG)
+                # Helper to look up scheduled temp for a given LOCAL time
+                def get_sched_temp(dt_local):
+                    # Finds the rule active for this time
+                    t_str = dt_local.strftime("%H:%M")
+                    # Assuming today is weekday, find relevant daily schedule
+                    # ... simplified lookup for dry run ...
+                    # Just flatten the first available schedule for now
+                    daily = sched_data['schedule'][0]['daily_schedule']
+                    daily = sorted(daily, key=lambda x: x['time'])
+                    
+                    val = 70 # Default
+                    # Last rule of previous day
+                    val = daily[-1]['temp']
+                    
+                    for item in daily:
+                        if item['time'] <= t_str:
+                            val = item['temp']
+                        else:
+                            break
+                    return float(val)
+
+            except Exception as e:
+                print(f"Error parsing comparisons: {e}")
+                get_sched_temp = lambda x: 0.0
+
+            logging.info(f"\nResults (Full Duration: {len(ts)} steps):")
+            logging.info(f"{'Time':<20} | {'Pred T':<8} | {'Opt Set':<8} | {'Sched T':<8} | {'HVAC':<5} | {'Outdoor':<8}")
+            logging.info("-" * 80)
             
+            prev_sched = None
+
             for i in range(len(ts)):
                 # Convert to Local Time for display
                 # Note: ts[i] is likely UTC. dt_util.as_local() handles conversion to system local time.
                 ts_local = dt_util.as_local(ts[i])
-                t_str = ts_local.strftime("%H:%M")
+                t_str = ts_local.strftime("%m-%d %H:%M")
                 
-                logging.info(f"{t_str:<20} | {pred[i]:<8.1f} | {setp[i]:<8.1f} | {int(hvac[i]):<5} | {out[i]:<8.1f}")
+                sched_val = get_sched_temp(ts_local)
+                
+                # Mark changes in Schedule
+                sched_marker = f"{sched_val:.1f}"
+                if prev_sched is not None and sched_val != prev_sched:
+                    sched_marker += " *" # Highlight change
+                
+                logging.info(f"{t_str:<20} | {pred[i]:<8.1f} | {setp[i]:<8.1f} | {sched_marker:<8} | {int(hvac[i]):<5} | {out[i]:<8.1f}")
+                
+                prev_sched = sched_val
                 
             logging.info(f"\nTotal Steps: {len(ts)}")
         else:
