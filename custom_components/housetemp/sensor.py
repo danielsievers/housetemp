@@ -63,11 +63,14 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         hvac = data.get("hvac_state", [])
         setpoints = data.get("setpoint", [])
 
+
         forecast = []
+        from homeassistant.util import dt as dt_util
         
         for i in range(len(timestamps)):
+            local_dt = dt_util.as_local(timestamps[i])
             item = {
-                "datetime": timestamps[i].isoformat(),
+                "datetime": local_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                 "temperature": round(temps[i], 1) if i < len(temps) else None,
                 "hvac_state": int(hvac[i]) if i < len(hvac) else None,
                 "setpoint": float(setpoints[i]) if i < len(setpoints) else None,
