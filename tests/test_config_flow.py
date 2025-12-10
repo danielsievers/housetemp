@@ -39,7 +39,7 @@ async def test_flow_full_path(hass: HomeAssistant):
     user_input = {
         CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
         CONF_WEATHER_ENTITY: "weather.home",
-        CONF_SOLAR_ENTITY: "sensor.solar",
+        CONF_SOLAR_ENTITY: ["sensor.solar"],
     }
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input=user_input

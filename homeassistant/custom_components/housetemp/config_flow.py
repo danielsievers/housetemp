@@ -53,7 +53,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
             selector.EntitySelectorConfig(domain="weather")
         ),
         vol.Optional(CONF_SOLAR_ENTITY): selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="sensor")
+            selector.EntitySelectorConfig(domain="sensor", device_class=["power", "energy"], multiple=True)
         ),
     }
 )
