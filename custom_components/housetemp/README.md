@@ -15,7 +15,7 @@ This custom component integrates the HouseTemp thermal model into Home Assistant
 *Note: The core logic is now included with the component, so no external library installation is required.*
 
 ### Manual Installation
-1.  Copy the `housetemp` directory from `homeassistant/custom_components/` to your Home Assistant's `custom_components` directory.
+1.  Copy the `housetemp` directory from `custom_components/` to your Home Assistant's `custom_components` directory.
 2.  Restart Home Assistant.
 
 ## Configuration

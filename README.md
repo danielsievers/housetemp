@@ -5,7 +5,7 @@ A physics-based thermal model for estimating home insulation (UA), thermal mass 
 
 ## Home Assistant Integration
 This repository includes a custom component for Home Assistant.
-See [homeassistant/custom_components/housetemp/README.md](homeassistant/custom_components/housetemp/README.md) for installation and usage instructions.
+See [custom_components/housetemp/README.md](custom_components/housetemp/README.md) for installation and usage instructions.
 
 ## Usage
 
