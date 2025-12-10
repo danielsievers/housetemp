@@ -148,8 +148,11 @@ class TestMainIntegration(unittest.TestCase):
         # Verify model content
         with open(self.model_path, 'r') as f:
             data = json.load(f)
-            self.assertIn('raw_params', data)
-            self.assertEqual(len(data['raw_params']), 5)
+            self.assertIn('C_thermal', data)
+            self.assertIn('UA_overall', data)
+            self.assertIn('K_solar', data)
+            self.assertIn('Q_int', data)
+            self.assertIn('H_factor', data)
 
     def test_prediction(self):
         """Test prediction with -p flag"""

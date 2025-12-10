@@ -23,8 +23,7 @@ def save_model(params, filename):
         "UA_overall": params[1],
         "K_solar": params[2],
         "Q_int": params[3],
-        "H_factor": params[4],
-        "raw_params": list(params)
+        "H_factor": params[4]
     }
     # Add optional efficiency if present
     if len(params) > 5:
@@ -41,9 +40,33 @@ def load_model(filename):
     with open(filename, 'r') as f:
         data = json.load(f)
     
-    print(f"Loaded model from {filename}")
-    print(f" -> C: {data['C_thermal']:.0f}, UA: {data['UA_overall']:.0f}")
-    return data['raw_params']
+    # Reconstruct params list from named keys
+    # Order: [C, UA, K, Q, H, [efficiency_derate]]
+    try:
+        params = [
+            data['C_thermal'],
+            data['UA_overall'],
+            data['K_solar'],
+            data['Q_int'],
+            data['H_factor']
+        ]
+        
+        if 'efficiency_derate' in data:
+            params.append(data['efficiency_derate'])
+        else:
+            # Default to 1.0 if not present, but only if we need it? 
+            # Actually, run_model logic handles if it's missing (len 5 vs 6).
+            # But let's append it if we want to be explicit, or just leave it as 5 items.
+            # existing run_model handles len > 5 check.
+            pass
+            
+        print(f"Loaded model from {filename}")
+        print(f" -> C: {data['C_thermal']:.0f}, UA: {data['UA_overall']:.0f}")
+        return params
+        
+    except KeyError as e:
+        print(f"Error: Missing required parameter in {filename}: {e}")
+        sys.exit(1)
 
 def export_debug_output(filename, mode, params, measurements, sim_temps, hvac_outputs, 
                         energy_kwh=None, rmse=None, comfort_config=None, 
