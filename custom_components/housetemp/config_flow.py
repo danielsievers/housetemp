@@ -155,39 +155,93 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options."""
 
     async def async_step_init(self, user_input=None):
-        """Manage the options."""
+        """Manage the options - main menu."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # Schema for options
-        # We can add more advanced options here
+        # Get current values from both data and options
+        data = self.config_entry.data
+        opts = self.config_entry.options
+
         options_schema = vol.Schema(
             {
+                # Sensors
+                vol.Required(
+                    CONF_SENSOR_INDOOR_TEMP,
+                    default=data.get(CONF_SENSOR_INDOOR_TEMP, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(
+                    CONF_WEATHER_ENTITY,
+                    default=data.get(CONF_WEATHER_ENTITY, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="weather")
+                ),
+                vol.Optional(
+                    CONF_SOLAR_ENTITY,
+                    default=data.get(CONF_SOLAR_ENTITY, []),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", multiple=True)
+                ),
+                # Model Parameters
+                vol.Required(
+                    CONF_C_THERMAL,
+                    default=data.get(CONF_C_THERMAL, 10000.0),
+                ): vol.Coerce(float),
+                vol.Required(
+                    CONF_UA,
+                    default=data.get(CONF_UA, 500.0),
+                ): vol.Coerce(float),
+                vol.Required(
+                    CONF_K_SOLAR,
+                    default=data.get(CONF_K_SOLAR, 50.0),
+                ): vol.Coerce(float),
+                vol.Required(
+                    CONF_Q_INT,
+                    default=data.get(CONF_Q_INT, 500.0),
+                ): vol.Coerce(float),
+                vol.Required(
+                    CONF_H_FACTOR,
+                    default=data.get(CONF_H_FACTOR, 1000.0),
+                ): vol.Coerce(float),
+                # HVAC configs
+                vol.Required(
+                    CONF_HEAT_PUMP_CONFIG,
+                    default=data.get(CONF_HEAT_PUMP_CONFIG, "{}"),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(multiline=True)
+                ),
+                vol.Required(
+                    CONF_SCHEDULE_CONFIG,
+                    default=data.get(CONF_SCHEDULE_CONFIG, "[]"),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(multiline=True)
+                ),
+                vol.Required(
+                    CONF_FORECAST_DURATION,
+                    default=data.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=24)),
+                vol.Required(
+                    CONF_UPDATE_INTERVAL,
+                    default=data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1)),
+                # Optimization options
                 vol.Optional(
                     CONF_OPTIMIZATION_ENABLED,
-                    default=self.config_entry.options.get(
-                        CONF_OPTIMIZATION_ENABLED, False
-                    ),
+                    default=opts.get(CONF_OPTIMIZATION_ENABLED, False),
                 ): bool,
                 vol.Optional(
                     CONF_OPTIMIZATION_INTERVAL,
-                    default=self.config_entry.options.get(
-                        CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL
-                    ),
+                    default=opts.get(CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_OPTIMIZATION_INTERVAL)),
-                
                 vol.Optional(
                     CONF_MODEL_TIMESTEP,
-                    default=self.config_entry.options.get(
-                        CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP
-                    ),
+                    default=opts.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_MODEL_TIMESTEP)),
-                
                 vol.Optional(
                     CONF_CONTROL_TIMESTEP,
-                    default=self.config_entry.options.get(
-                        CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP
-                    ),
+                    default=opts.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CONTROL_TIMESTEP)),
             }
         )

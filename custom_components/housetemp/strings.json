@@ -36,10 +36,25 @@
     "options": {
         "step": {
             "init": {
-                "title": "House Temp Options",
+                "title": "House Temp Configuration",
+                "description": "Configure all settings for House Temp Prediction",
                 "data": {
+                    "sensor_indoor_temp": "Indoor Temperature Sensor",
+                    "weather_entity": "Weather Entity",
+                    "solar_entity": "Solar Forecast Sensors",
+                    "c_thermal": "Thermal Mass (C)",
+                    "ua": "Heat Loss (UA)",
+                    "k_solar": "Solar Gain Factor",
+                    "q_int": "Internal Heat",
+                    "h_factor": "HVAC Factor",
+                    "heat_pump_config": "Heat Pump JSON",
+                    "schedule_config": "Schedule JSON",
+                    "forecast_duration": "Forecast Duration (hours)",
+                    "update_interval": "Update Interval (minutes)",
                     "optimization_enabled": "Determine optimized HVAC schedule",
-                    "optimization_interval": "Optimization interval (minutes)"
+                    "optimization_interval": "Optimization interval (minutes)",
+                    "model_timestep": "Model timestep (minutes)",
+                    "control_timestep": "Control timestep (minutes)"
                 }
             }
         }
