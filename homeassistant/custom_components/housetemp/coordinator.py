@@ -29,12 +29,17 @@ from .const import (
     CONF_FORECAST_DURATION,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FORECAST_DURATION,
+    DEFAULT_FORECAST_DURATION,
     DEFAULT_UPDATE_INTERVAL,
+    CONF_OPTIMIZATION_ENABLED,
+    CONF_OPTIMIZATION_INTERVAL,
+    DEFAULT_OPTIMIZATION_INTERVAL,
 )
 
 # Import from the installed package
 from housetemp.run_model import run_model, HeatPump
 from housetemp.measurements import Measurements
+from housetemp.optimize import optimize_hvac_schedule
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +63,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         self.heat_pump = None
         self._setup_heat_pump()
+        
+        # State for optimization
+        self.last_optimization_time = None
 
     def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
@@ -195,8 +203,68 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             dt_hours=np.full(steps, dt_hours)
         )
 
-        # 6. Run Model
-        # run_model returns (sim_temps, rmse)
+        # 6. Run Optimization (Optional & Throttled)
+        # Check options first, then fallback to config? Options are best for runtime.
+        opt_enabled = self.config_entry.options.get(CONF_OPTIMIZATION_ENABLED, False)
+        opt_interval = self.config_entry.options.get(CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL)
+        
+        run_opt = False
+        if opt_enabled:
+            # Check throttling
+            now_ts = now.timestamp()
+            if self.last_optimization_time is None:
+                run_opt = True
+            else:
+                elapsed_min = (now_ts - self.last_optimization_time) / 60.0
+                if elapsed_min >= opt_interval:
+                    run_opt = True
+                    
+        if run_opt:
+            _LOGGER.info("Running HVAC Optimization...")
+            # We need target temps. In fixed mode, 'setpoint' IS the target temp.
+            target_temps = setpoint_arr.copy()
+            
+            # Simple Comfort Config for now
+            # TODO: Expose these as options?
+            comfort_config = {
+                "mode": "heat", # Assume heat for winter
+                "center_preference": 0.5
+            }
+            
+            # Run Optimization (Blocking call - might need executor if slow, but L-BFGS-B is fastish)
+            # Home Assistant warns on blocking I/O. If this takes < 0.1s it's fine.
+            # If complex, run in executor:
+            try:
+                optimized_setpoints = await self.hass.async_add_executor_job(
+                    optimize_hvac_schedule,
+                    measurements,
+                    params,
+                    self.heat_pump,
+                    target_temps,
+                    comfort_config
+                )
+                
+                # Apply optimization results
+                measurements.setpoint = optimized_setpoints
+                
+                # We also need to update hvac_state in measurements?
+                # optimize_hvac_schedule modifies hvac_state in place inside!
+                # But let's be sure.
+                # Actually optimize_hvac_schedule sets data.hvac_state[:] = hvac_mode_val
+                # So measurements.hvac_state is already updated to the correct mode (1 or -1).
+                
+                # Result arrays for sensor need to be updated too
+                setpoint_arr = optimized_setpoints.tolist() if hasattr(optimized_setpoints, "tolist") else optimized_setpoints
+                hvac_state_arr = measurements.hvac_state.tolist() if hasattr(measurements.hvac_state, "tolist") else measurements.hvac_state
+                
+                self.last_optimization_time = now.timestamp()
+                
+            except Exception as e:
+                _LOGGER.error("Optimization failed: %s", e)
+                # Fallback to fixed schedule (do nothing, continue with original measurements)
+
+        # 7. Run Model
+        # run_model returns (sim_temps, rmse, hvac_outputs)
         sim_temps, _, _ = run_model(params, measurements, self.heat_pump, duration_minutes=duration_hours*60)
 
         # 7. Return Result

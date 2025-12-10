@@ -27,8 +27,14 @@ from .const import (
     CONF_FORECAST_DURATION,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FORECAST_DURATION,
+    DEFAULT_FORECAST_DURATION,
     DEFAULT_UPDATE_INTERVAL,
+    CONF_OPTIMIZATION_ENABLED,
+    CONF_OPTIMIZATION_INTERVAL,
+    DEFAULT_OPTIMIZATION_INTERVAL,
+    MIN_OPTIMIZATION_INTERVAL,
 )
+from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -116,3 +122,40 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         self._data.update(user_input)
         return self.async_create_entry(title="House Temp Prediction", data=self._data)
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return OptionsFlowHandler(config_entry)
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options."""
+
+    def __init__(self, config_entry):
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_OPTIMIZATION_ENABLED,
+                        default=self.config_entry.options.get(
+                            CONF_OPTIMIZATION_ENABLED, False
+                        ),
+                    ): bool,
+                    vol.Required(
+                        CONF_OPTIMIZATION_INTERVAL,
+                        default=self.config_entry.options.get(
+                            CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_OPTIMIZATION_INTERVAL)),
+                }
+            ),
+        )
