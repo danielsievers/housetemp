@@ -70,18 +70,30 @@ python3 main.py data.csv -p my_house.json --optimize-hvac --comfort data/comfort
 - `--heat-pump <json_file>`: Path to Heat Pump configuration file (default: `data/heat_pump.json`). Required for prediction and optimization.
 - `--debug-output <json_file>`: Export detailed debug results to a JSON file (useful for inspection/automation).
 
-## Testing & Plots
+## Development Setup
 
-Unit tests are located in `tests/`.
+Requires **Python 3.13+** (Home Assistant 2025.11+ requirement).
 
 ```bash
-python3 -m unittest tests/test_main.py
+# Quick setup with make
+make setup
+source .venv/bin/activate
+
+# Run tests
+make test
+```
+
+Or manually:
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest tests/ -v
 ```
 
 ### Controlling Plots
-By default, tests run silently without showing plots. To enable plots during tests (useful for debugging visual regressions), set the `SHOW_PLOTS` environment variable.
+By default, tests run silently without showing plots. To enable plots during tests:
 
 ```bash
-# Run tests with plots enabled
-SHOW_PLOTS=1 python3 -m unittest tests/test_main.py
+SHOW_PLOTS=1 pytest tests/
 ```

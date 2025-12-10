@@ -11,7 +11,10 @@ import os
 # We insert at 0 to take precedence over site-packages (which might have a custom_components namespace)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Configure pytest-asyncio mode
+pytest_plugins = ["pytest_homeassistant_custom_component"]
+
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
+async def auto_enable_custom_integrations(enable_custom_integrations):
     """Enable custom integrations defined in the test directory."""
-    yield
+    return

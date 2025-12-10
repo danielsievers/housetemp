@@ -82,7 +82,10 @@ async def test_update_heat_pump_not_configured(hass, coordinator):
     # Force heat_pump to None
     c.heat_pump = None
     # Ensure it tries to setup but fails (e.g. by making config invalid now)
-    c.config_entry.data = {**VALID_CONFIG, CONF_HEAT_PUMP_CONFIG: "{invalid"}
+    hass.config_entries.async_update_entry(
+        c.config_entry,
+        data={**VALID_CONFIG, CONF_HEAT_PUMP_CONFIG: "{invalid"}
+    )
     
     with pytest.raises(UpdateFailed):
         await c._async_update_data()

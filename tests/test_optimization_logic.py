@@ -69,11 +69,14 @@ async def test_optimization_enabled_runs(hass, coordinator):
     mock_forecast = [{"datetime": today, "temperature": 60.0}]
     hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
     
-    # Enable optimization in options
-    coordinator.config_entry.options = {
-        CONF_OPTIMIZATION_ENABLED: True,
-        CONF_OPTIMIZATION_INTERVAL: 60
-    }
+    # Enable optimization in options using async_update_entry
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={
+            CONF_OPTIMIZATION_ENABLED: True,
+            CONF_OPTIMIZATION_INTERVAL: 60
+        }
+    )
 
     with patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule") as mock_opt:
@@ -97,10 +100,13 @@ async def test_optimization_throttling(hass, coordinator):
     hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
     
     # Enable optimization, 60 min interval
-    coordinator.config_entry.options = {
-        CONF_OPTIMIZATION_ENABLED: True,
-        CONF_OPTIMIZATION_INTERVAL: 60
-    }
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={
+            CONF_OPTIMIZATION_ENABLED: True,
+            CONF_OPTIMIZATION_INTERVAL: 60
+        }
+    )
 
     with patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule") as mock_opt:

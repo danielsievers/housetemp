@@ -17,7 +17,6 @@ from custom_components.housetemp.const import (
 )
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="EntitySelectorConfig device_class list not supported in test HA version")
 async def test_flow_user_init(hass: HomeAssistant):
     """Test the initialization of the user step."""
     result = await hass.config_entries.flow.async_init(
@@ -28,7 +27,6 @@ async def test_flow_user_init(hass: HomeAssistant):
     assert result["step_id"] == "user"
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="EntitySelectorConfig device_class list not supported in test HA version")
 async def test_flow_full_path(hass: HomeAssistant):
     """Test the full config flow path."""
     # 1. User Step
