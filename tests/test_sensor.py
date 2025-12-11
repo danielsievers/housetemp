@@ -74,8 +74,12 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
 
         # 4. Verify Sensor State
         state = hass.states.get("sensor.indoor_temperature_forecast")
+        if state is None:
+             # print("Available entities:", [s.entity_id for s in hass.states.async_all()])
+             pass
         assert state is not None
-        assert state.state == "72.5"
+        # Now returns current target temp (70.0 from schedule), not predicted (72.5)
+        assert state.state == "70.0"
         
         # Verify Attributes
         attrs = state.attributes
@@ -226,3 +230,34 @@ async def test_sensor_without_optimized_setpoint(hass):
     assert "ideal_setpoint" not in attrs["forecast"][0]
     # But should have setpoint (renamed to target_temp)
     assert attrs["forecast"][0]["target_temp"] == 68.0
+
+@pytest.mark.asyncio
+async def test_sensor_preference_optimized_over_schedule(hass: HomeAssistant):
+    """Test that sensor prefers optimized_setpoint over schedule setpoint."""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    from datetime import datetime, timedelta, timezone
+    
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_C_THERMAL: 1000.0,
+    }
+    
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    now = datetime.now(timezone.utc)
+    timestamps = [now + timedelta(minutes=i*5) for i in range(24)]
+    
+    mock_coord = MagicMock()
+    mock_coord.data = {
+        "timestamps": timestamps,
+        "predicted_temp": np.array([72.5] * 24),
+        "setpoint": np.array([65.0] * 24),            # Schedule says 65
+        "optimized_setpoint": np.array([68.0] * 24),  # Optimization says 68
+    }
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    
+    # helper to check state
+    val = sensor.native_value
+    assert val == 68.0  # Should pick optimized (68) over schedule (65)

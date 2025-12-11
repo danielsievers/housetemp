@@ -42,13 +42,19 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self):
         """Return the state of the sensor."""
-        # State is the predicted temp at the end of the simulation
+        # State is the current target temp (optimized or schedule)
+        # We use index 0 which corresponds to the current time block
         if not self.coordinator.data:
             return None
         
-        predicted_temps = self.coordinator.data.get("predicted_temp")
-        if predicted_temps is not None and len(predicted_temps) > 0:
-            return round(predicted_temps[-1], 1)
+        optimized_setpoints = self.coordinator.data.get("optimized_setpoint")
+        if optimized_setpoints is not None and len(optimized_setpoints) > 0:
+            return round(float(optimized_setpoints[0]), 1)
+            
+        setpoints = self.coordinator.data.get("setpoint")
+        if setpoints is not None and len(setpoints) > 0:
+            return round(float(setpoints[0]), 1)
+            
         return None
 
     @property
