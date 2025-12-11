@@ -1,0 +1,16 @@
+run_hvac_optimization:
+  name: Run HVAC Optimization
+  description: Manually triggers the HVAC cost and comfort optimization process.
+  fields:
+    duration:
+      name: Duration (Hours)
+      description: Duration of the forecast optimization in hours. Defaults to configured forecast duration.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 168
+          unit_of_measurement: hours
+          mode: box
+  return_response: true Re-calculates the ideal setpoints based on the latest forecast and parameters.
+  fields: {}

@@ -21,10 +21,7 @@ DEFAULT_FORECAST_DURATION = 8
 DEFAULT_UPDATE_INTERVAL = 15
 
 # Optimization
-CONF_OPTIMIZATION_ENABLED = "optimization_enabled"
-CONF_OPTIMIZATION_INTERVAL = "optimization_interval"
-DEFAULT_OPTIMIZATION_INTERVAL = 60
-MIN_OPTIMIZATION_INTERVAL = 30
+
 
 # Advanced Physics/Control Settings
 CONF_MODEL_TIMESTEP = "model_timestep"       # Physics resolution (minutes)

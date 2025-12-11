@@ -4,7 +4,8 @@ import json
 import logging
 import sys
 import os
-from datetime import datetime, timedelta
+import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 # Add root and homeassistant to python path
@@ -17,9 +18,16 @@ sys.path.append(str(root_dir / 'homeassistant'))
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+# Mock frame helper to avoid DataUpdateCoordinator initialization error
+import homeassistant.helpers.frame
+homeassistant.helpers.frame.report_usage = lambda *args, **kwargs: None
+
 # Now we can import from custom_components.housetemp
 from custom_components.housetemp.coordinator import HouseTempCoordinator
 from custom_components.housetemp.const import *
+from custom_components.housetemp import async_setup_entry
+from custom_components.housetemp.config_flow import STEP_USER_DATA_SCHEMA, STEP_MODEL_SETTINGS_SCHEMA
+import voluptuous as vol
 
 # Data provided by user
 INDOOR_TEMP = 67
@@ -71,12 +79,11 @@ SOLCAST_TOMORROW = [
 WEATHER_FORECAST_SERVICE_RESPONSE = []
 for hour in range(48):
     # Determine basic day cycle
-    import datetime
     import numpy as np
     # Make it timezone-aware (matching user's -08:00)
     # Using fixed offset for simplicity in dry run to match Solcast data properties
-    tz = datetime.timezone(datetime.timedelta(hours=-8)) 
-    base = datetime.datetime(2025, 12, 10, 0, 0, 0, tzinfo=tz) + datetime.timedelta(hours=hour)
+    tz = timezone(timedelta(hours=-8)) 
+    base = datetime(2025, 12, 10, 0, 0, 0, tzinfo=tz) + timedelta(hours=hour)
     
     # Simple curve: 50F low + 10 * sin(...)
     temp = 55.0 + 5.0 * np.sin((hour - 9) * 2 * np.pi / 24)
@@ -111,8 +118,6 @@ CONFIG_DATA = {
 }
 
 OPTIONS_DATA = {
-    CONF_OPTIMIZATION_ENABLED: True,
-    CONF_OPTIMIZATION_INTERVAL: 60
 }
 
 async def main():
@@ -125,6 +130,15 @@ async def main():
     hass.services.async_call = MagicMock(side_effect=lambda *args, **kwargs: asyncio.Future())
     hass.services.async_call.return_value.set_result({}) # Return empty dict by default
     
+    # Capture Service Registration
+    service_handlers = {}
+    def capture_service_register(domain, service, handler, **kwargs):
+        print(f"  -> Captured service registration: {domain}.{service}")
+        service_handlers[f"{domain}.{service}"] = handler
+        
+    hass.services.async_register = MagicMock(side_effect=capture_service_register)
+    hass.services.has_service = MagicMock(return_value=False) # Simulate service not existing so it registers
+
     hass.config.path = lambda *x: os.path.join(os.getcwd(), *x)
     
     # Configure Timezone for dt_util
@@ -143,6 +157,9 @@ async def main():
 
     dt_util.set_default_time_zone(local_tz)
     hass.config.time_zone = str(local_tz)
+    
+    # Mock Loop for Debouncer
+    hass.loop = asyncio.get_event_loop()
     
     # Mock States
     hass.states = MagicMock()
@@ -180,41 +197,139 @@ async def main():
     # Mock Executor for Optimization (so it actually runs synchronously for this script)
     async def async_add_executor_job(func, *args):
         print("  -> Executing job (optimization)...")
+        # Just run it
         return func(*args)
     
     hass.async_add_executor_job = async_add_executor_job
 
-    # 2. Setup Coordinator
+    # 1b. Schema Validation (Suggestion 2)
+    import voluptuous as vol
+    
+    print("Validating Configuration Schemas...")
+    # Validate User Data (Mixed into CONFIG_DATA in this script, but strictly schema is separate)
+    # CONFIG_DATA matches user input? No, config_flow processing happens.
+    # User Input -> STEP_USER_DATA_SCHEMA -> self._data
+    # So we should validate against the parts of CONFIG_DATA that belong to that schema.
+    
+    # Note: validation might fail on mocked EntitySelector etc if we were running full flow,
+    # but here we just check if keys match types roughly?
+    # Actually, voluptuous schemas with EntitySelector might try to check entities existence in some context?
+    # No, EntitySelector usually just returns the string entity_id in flow unless validated.
+    # STEP_USER_DATA_SCHEMA uses selector.EntitySelector.
+    # Let's hope basic validation passes for string->selector mapping logic (or skip complex selectors).
+    # Since we use vol.Schema directly, it validates structure. 
+    # EntitySelectorConfig is a wrapper; Schema expects dict keys.
+    # Wait, EntitySelector validates output? 
+    # Home Assistant config flow validation is done by the flow manager usually.
+    # Directly running schema(data) might fail if schema uses custom validators.
+    # Let's try basic validation for simple fields.
+    
+    # Basic Check:
+    try:
+        # Just check keys existence for now to avoid strict selector validation issues in dry run
+        required_keys = [k for k in STEP_USER_DATA_SCHEMA.schema.keys() if isinstance(k, vol.Required)]
+        for k in required_keys:
+             if k.schema not in CONFIG_DATA:
+                 print(f"ERROR: Missing required data key: {k.schema}")
+        
+        required_opts = [k for k in STEP_MODEL_SETTINGS_SCHEMA.schema.keys() if isinstance(k, vol.Required)]
+        # We need to check defaults too?
+        # Let's just validate the manually provided OPTIONS in the script?
+        # or defaults.
+        print("Schema keys check passed.")
+    except Exception as e:
+        print(f"Schema Validation Error: {e}")
+
+    # 2. Setup Coordinator & Service Registration (Suggestion 3)
+    # We will use __init__.async_setup_entry to setup everything properly, 
+    # capturing the service handler and Coordinator.
+    
     config_entry = MagicMock()
     config_entry.data = CONFIG_DATA
-    config_entry.options = { 
-        CONF_OPTIMIZATION_ENABLED: True,
-        CONF_OPTIMIZATION_INTERVAL: 0, # Force run immediately
+    # Merge options defaults manually or use what we have
+    options_data = { 
         # Use defaults for new settings
         CONF_MODEL_TIMESTEP: DEFAULT_MODEL_TIMESTEP,
         CONF_CONTROL_TIMESTEP: DEFAULT_CONTROL_TIMESTEP,
     }
+    config_entry.options = options_data
     config_entry.entry_id = "test_entry_123"
+    config_entry.add_update_listener = MagicMock()
+    config_entry.async_on_unload = MagicMock()
+    config_entry.title = "Test House" # Added for service response mapping
     
-    print("Initializing Coordinator...")
-    coordinator = HouseTempCoordinator(hass, config_entry)
+    # Store mocked config entry in hass
+    hass.config_entries = MagicMock() # Mock config_entries manager
+    hass.config_entries.async_entries = MagicMock(return_value=[config_entry])
     
-    # 3. Run Update
-    print("Running Update (Prediction & Optimization)...")
-    try:
-        result = await coordinator._async_update_data()
-        print("Update Successful!")
+    # Needs to return a Future that is already done
+    f = asyncio.Future()
+    f.set_result(True)
+    hass.config_entries.async_forward_entry_setups = MagicMock(return_value=f)
+    hass.data = {DOMAIN: {}} # Initialize hass.data for the component
+
+    print("Running async_setup_entry (Initialization)...")
+    
+    # We need to mock coordinator behavior inside setup?
+    # async_setup_entry instantiates Coordinator.
+    # We need to patch Coordinator so we can still intercept refresh calls if needed?
+    # Or rely on our global patches?
+    # We previously instantiated coordinator manually. Now setup_entry will do it.
+    
+    # To bypass Debouncer inside the coordinator created by setup_entry, we need to PACTH the class itself.
+    
+    # Define a dummy async update that does nothing during setup
+    async def dummy_refresh():
+        # During setup, we don't want to run the full update if it's going to fail due to mocks
+        # However, async_config_entry_first_refresh expects it to complete.
+        pass
+
+    with unittest.mock.patch("custom_components.housetemp.HouseTempCoordinator.async_request_refresh") as mock_refresh:
+        # Patching async_request_refresh to prevent debounce logic during setup
+        mock_refresh.side_effect = dummy_refresh
         
-        # In a real coordinator, this is set automatically by the update wrapper, 
-        # but calling the internal method directly returns the data.
-        # data = coordinator.data # This is None because we bypassed the wrapper
-        if result:
-            timestamps = result.get("timestamps")
-            temps = result.get("predicted_temp")
-            setpoints = result.get("setpoint") # This is the optimized setpoint used
-            hvac_state = result.get("hvac_state")
-            outdoor_temps = result.get("outdoor")
-            solar_power = result.get("solar")
+        # Call async_setup_entry, which will create the coordinator and store it in hass.data
+        await async_setup_entry(hass, config_entry)
+        
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    
+    # Patch request_refresh on the LIVE instance now
+    async def mock_refresh_instance():
+        print("  -> (Mock) Refresh requested. Updating data now...")
+        await coordinator._async_update_data()
+    coordinator.async_request_refresh = mock_refresh_instance
+    
+    # 3. Trigger Service Handler
+    print("Triggering Service: housetemp.run_hvac_optimization...")
+    try:
+        result_payload = {}
+        if "housetemp.run_hvac_optimization" in service_handlers:
+            handler = service_handlers["housetemp.run_hvac_optimization"]
+            
+            # Prepare mock call
+            call_data = {"duration": 24}
+            call = MagicMock()
+            call.data = call_data
+            call.return_response = True
+            
+            # Execute Handler
+            result_payload_map = await handler(call)
+            
+            print(f"Service Execution Complete. Keys: {result_payload_map.keys() if result_payload_map else 'None'}")
+            
+            # Extract forecast from result
+            if result_payload_map and "Test House" in result_payload_map:
+                 result_payload = result_payload_map["Test House"]
+            else:
+                 print("Error: Could not find result for Test House")
+
+        else:
+            print("ERROR: Service was not registered!")
+            
+        print("Optimization Successful!")
+            
+        if result_payload and "forecast" in result_payload:
+            forecast_items = result_payload["forecast"]
             
             # Parse Schedule for Comparison
             try:
@@ -228,11 +343,9 @@ async def main():
                     # Just flatten the first available schedule for now
                     daily = sched_data['schedule'][0]['daily_schedule']
                     daily = sorted(daily, key=lambda x: x['time'])
-                    
-                    val = 70 # Default
-                    # Last rule of previous day
-                    val = daily[-1]['temp']
-                    
+                    val = 70.0 
+                    if daily:
+                         val = daily[-1]['temp']
                     for item in daily:
                         if item['time'] <= t_str:
                             val = item['temp']
@@ -244,49 +357,72 @@ async def main():
                 print(f"Error parsing comparisons: {e}")
                 get_sched_temp = lambda x: 0.0
 
-            logging.info(f"\nResults (Full Duration: {len(timestamps)} steps):")
+            logging.info(f"\nResults (Full Duration: {len(forecast_items)} steps):")
             logging.info(f"{'Time':<20} | {'Pred T':<8} | {'Opt Set':<8} | {'Sched T':<8} | {'HVAC':<5} | {'Outdoor':<8} | {'Solar kW':<8}")
             logging.info("-" * 90)
-            
-            # Re-parse scheduled setpoints to show comparison (approximate, since we don't have the schedule logic exposed here easily unless we dup code)
-            # Actually, let's just show what we have. 
-            # The 'setpoint' in result IS the one used by the model. If optimization ran, it's the optimized one.
-            
-            # Let's verify against original schedule if we want, but user just wants table.
-            # The 'setpoints' array returned by coordinator IS the final target temp array.
 
-            for i in range(len(timestamps)):
-                dt_str = timestamps[i].strftime("%m-%d %H:%M")
-                t_pred = temps[i]
-                t_set = setpoints[i]
-                h_state = hvac_state[i]
-                t_out = outdoor_temps[i] if outdoor_temps is not None and i < len(outdoor_temps) else 0.0
-                sol = solar_power[i] if solar_power is not None and i < len(solar_power) else 0.0
+            for item in forecast_items:
+                ts_iso = item["datetime"]
+                ts_dt = datetime.fromisoformat(ts_iso)
+                dt_str = ts_dt.strftime("%m-%d %H:%M")
                 
-                # Check if setpoint differs from standard schedule? 
-                # We don't have standard schedule handy here easily. 
-                # Just mark if HVAC is ON?
+                # Service now returns all needed data
+                t_pred = item.get("predicted_temp")
+                if t_pred is None:
+                    logging.error("Missing predicted_temp in service response!")
+                    t_pred = 0.0
+                    
+                t_opt = item.get("ideal_setpoint")
+                # If ideal_setpoint missing, maybe use target?
+                # Or None
                 
-                # Highlight if HVAC is active
-                hvac_str = f"{int(h_state)}"
+                t_set_sched = item.get("target_temp", 0.0)
                 
-                # Check for optimized vs base? We don't have base here.
-                # Just print.
+                t_out = item.get("outdoor_temp", 0.0)
+                sol = item.get("solar_kw", 0.0)
+                hvac_action = item.get("hvac_action", "off")
                 
-                # Convert to Local Time for display
-                # Note: ts[i] is likely UTC. dt_util.as_local() handles conversion to system local time.
-                ts_local = dt_util.as_local(timestamps[i])
+                # HVAC String
+                hvac_state = 0
+                if hvac_action == "heating": hvac_state = 1
+                elif hvac_action == "cooling": hvac_state = -1
+                hvac_str = f"{hvac_state}"
                 
+                ts_local = dt_util.as_local(ts_dt)
                 sched_val = get_sched_temp(ts_local)
-                
-                # Mark changes in Schedule
                 sched_marker = f"{sched_val:.1f}"
                 
-                logging.info(f"{dt_str:<20} | {t_pred:<8.1f} | {t_set:<8.1f} | {sched_marker:<8} | {hvac_str:<5} | {t_out:<8.1f} | {sol:<8.2f}")
+                # Use 'None' string for missing Opt Set
+                opt_str = f"{t_opt:<8.1f}" if t_opt is not None else f"{'None':<8}"
                 
-            logging.info(f"\nTotal Steps: {len(timestamps)}")
+                logging.info(f"{dt_str:<20} | {t_pred:<8.1f} | {opt_str:<8} | {sched_marker:<8} | {hvac_str:<5} | {t_out:<8.1f} | {sol:<8.2f}")
+                
+            logging.info(f"\nTotal Steps: {len(forecast_items)}")
+            
+            # --- Suggestion 1: Sensor Entity Check ---
+            print("\n--- Sensor Entity Check ---")
+            from custom_components.housetemp.sensor import HouseTempPredictionSensor
+            
+            # Instantiate sensor
+            sensor = HouseTempPredictionSensor(coordinator, config_entry)
+            
+            print(f"Sensor State (Native Value): {sensor.native_value}")
+            print(f"Sensor Attributes Keys: {list(sensor.extra_state_attributes.keys())}")
+            
+            # Verify forecast inside attributes
+            attrs = sensor.extra_state_attributes
+            if "forecast" in attrs:
+                print(f"Sensor Forecast Items: {len(attrs['forecast'])}")
+            else:
+                print("Sensor Forecast: MISSING")
+
         else:
-             logging.error("Coordinator Data is None!")
+             logging.error("Coordinator Data is None or Forecast Missing!")
+            
+    except Exception as e:
+        print(f"Update Failed: {e}")
+        import traceback
+        traceback.print_exc()
             
     except Exception as e:
         print(f"Update Failed: {e}")

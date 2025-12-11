@@ -30,10 +30,7 @@ from .const import (
     DEFAULT_FORECAST_DURATION,
     DEFAULT_FORECAST_DURATION,
     DEFAULT_UPDATE_INTERVAL,
-    CONF_OPTIMIZATION_ENABLED,
-    CONF_OPTIMIZATION_INTERVAL,
-    DEFAULT_OPTIMIZATION_INTERVAL,
-    MIN_OPTIMIZATION_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
     CONF_MODEL_TIMESTEP,
     DEFAULT_MODEL_TIMESTEP,
     MIN_MODEL_TIMESTEP,
@@ -211,14 +208,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ): vol.All(vol.Coerce(int), vol.Range(min=1)),
                 
                 # Advanced Optimization Toggles (Keep specific optimization flags if they were there)
-                vol.Optional(
-                    CONF_OPTIMIZATION_ENABLED,
-                    default=opts.get(CONF_OPTIMIZATION_ENABLED, False),
-                ): bool,
-                vol.Optional(
-                    CONF_OPTIMIZATION_INTERVAL,
-                    default=opts.get(CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL),
-                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_OPTIMIZATION_INTERVAL)),
                 vol.Optional(
                     CONF_MODEL_TIMESTEP,
                     default=opts.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP),

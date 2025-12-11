@@ -69,7 +69,7 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         setpoints = data.get("setpoint", [])  # Schedule setpoint (target_temp)
         optimized_setpoints = data.get("optimized_setpoint", [])  # From HVAC optimization
 
-        if not timestamps:
+        if timestamps is None or len(timestamps) == 0:
             return {}
 
         from homeassistant.util import dt as dt_util
@@ -104,9 +104,11 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
                 "target_temp": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
             }
             
-            # ideal_setpoint only if optimization was run
+            # ideal_setpoint only if optimization was run AND covers this time slot
             if len(optimized_setpoints) > 0 and best_idx < len(optimized_setpoints):
-                item["ideal_setpoint"] = float(optimized_setpoints[best_idx])
+                val = optimized_setpoints[best_idx]
+                if val is not None:
+                    item["ideal_setpoint"] = float(val)
             
             forecast.append(item)
             current_dt += timedelta(minutes=15)

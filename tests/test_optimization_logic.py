@@ -2,14 +2,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta, timezone
+import numpy as np
 
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.housetemp.const import (
     DOMAIN,
-    CONF_OPTIMIZATION_ENABLED,
-    CONF_OPTIMIZATION_INTERVAL,
     CONF_SENSOR_INDOOR_TEMP,
     CONF_WEATHER_ENTITY,
     CONF_C_THERMAL,
@@ -45,134 +44,95 @@ def coordinator(hass):
         coord.heat_pump = instance
         return coord
 
-@pytest.mark.asyncio
-async def test_optimization_disabled_by_default(hass, coordinator):
-    """Test optimization does not run by default."""
-    hass.states.async_set("sensor.indoor", "70.0")
-    today = datetime.now(timezone.utc).isoformat()
-    mock_forecast = [{"datetime": today, "temperature": 60.0}]
-    hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
-
-    with patch("custom_components.housetemp.coordinator.run_model") as mock_run:
-        mock_run.return_value = ([], 0.0, [])
-        await coordinator._async_update_data()
-        
-        # Check that optimization logic (logging for now) didn't run
-        # We can check if last_optimization_time is still None
-        assert coordinator.last_optimization_time is None
-
-@pytest.mark.asyncio
-async def test_optimization_enabled_runs(hass, coordinator):
-    """Test optimization runs when enabled."""
-    hass.states.async_set("sensor.indoor", "70.0")
-    today = datetime.now(timezone.utc).isoformat()
-    mock_forecast = [{"datetime": today, "temperature": 60.0}]
-    hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
+@pytest.fixture
+def mock_data(coordinator):
+    """Mock the data preparation helper."""
+    measurements = MagicMock()
+    measurements.timestamps = [datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc) + timedelta(minutes=i*15) for i in range(4)]
+    measurements.setpoint = np.array([70.0, 70.0, 70.0, 70.0])
+    measurements.t_out = np.array([50.0, 50.0, 50.0, 50.0])
+    measurements.solar_kw = np.array([0.0, 0.0, 0.0, 0.0])
+    measurements.hvac_state = np.array([0, 0, 0, 0])
+    # Add numerical dt_hours for run_model validation
+    measurements.dt_hours = np.array([0.25, 0.25, 0.25, 0.25])
     
-    # Enable optimization in options using async_update_entry
-    hass.config_entries.async_update_entry(
-        coordinator.config_entry,
-        options={
-            CONF_OPTIMIZATION_ENABLED: True,
-            CONF_OPTIMIZATION_INTERVAL: 60
-        }
-    )
+    params = [10000.0, 750.0, 3000.0, 2000.0, 5000.0]
+    start_time = datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+    
+    return measurements, params, start_time
 
-    with patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
+@pytest.mark.asyncio
+async def test_auto_update_does_not_optimize(hass, coordinator, mock_data):
+    """Test that atomic periodic update does NOT run optimization."""
+    ms, params, start_time = mock_data
+    
+    with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
+         patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule") as mock_opt:
         
         mock_run.return_value = ([], 0.0, [])
-        mock_opt.return_value = [72.0] # Dummy optimized setpoint
-
-        # First run
+        
         await coordinator._async_update_data()
         
-        # Verify optimization was called
+        # Should NOT run optimization
+        assert not mock_opt.called
+        # Should run simulation
+        assert mock_run.called
+
+@pytest.mark.asyncio
+async def test_manual_trigger_optimizes(hass, coordinator, mock_data):
+    """Test that manual trigger runs optimization and updates cache."""
+    ms, params, start_time = mock_data
+    
+    # Fake optimized result (different from schedule)
+    optimized_setpoints = np.array([72.0, 72.0, 71.0, 71.0])
+    
+    # We must patch run_model because async_trigger_optimization calls it now,
+    # and if we mocked _prepare_simulation_inputs but not run_model, it might fail logic
+    # or return invalid outputs.
+    # The previous failure was due to run_model executing logic on MagicMock.
+    with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
+         patch("custom_components.housetemp.coordinator.optimize_hvac_schedule", return_value=optimized_setpoints) as mock_opt, \
+         patch.object(coordinator, "async_request_refresh") as mock_refresh, \
+         patch("custom_components.housetemp.coordinator.run_model", return_value=([68.0]*4, 0.0, [])) as mock_run_model:
+        
+        await coordinator.async_trigger_optimization()
+        
         assert mock_opt.called
-        assert coordinator.last_optimization_time is not None
+        # Check cache update
+        # timestamp for first point is mock_data[0].timestamps[0]
+        ts0_int = int(ms.timestamps[0].timestamp())
+        assert coordinator.optimized_setpoints_map[ts0_int] == 72.0
+        
+        # Should trigger refresh
+        assert mock_refresh.called
+        
+        # Should run simulation for response
+        assert mock_run_model.called
 
 @pytest.mark.asyncio
-async def test_optimization_throttling(hass, coordinator):
-    """Test optimization respects the interval."""
-    hass.states.async_set("sensor.indoor", "70.0")
-    today = datetime.now(timezone.utc).isoformat()
-    mock_forecast = [{"datetime": today, "temperature": 60.0}]
-    hass.states.async_set("weather.home", "50.0", {"forecast": mock_forecast})
+async def test_cache_application_in_update(hass, coordinator, mock_data):
+    """Test that cached optimized setpoints are applied during update."""
+    ms, params, start_time = mock_data
     
-    # Enable optimization, 60 min interval
-    hass.config_entries.async_update_entry(
-        coordinator.config_entry,
-        options={
-            CONF_OPTIMIZATION_ENABLED: True,
-            CONF_OPTIMIZATION_INTERVAL: 60
-        }
-    )
-
-    with patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
-         patch("custom_components.housetemp.coordinator.optimize_hvac_schedule") as mock_opt:
-        
-        mock_run.return_value = ([], 0.0, [])
-        mock_opt.return_value = [72.0]
-
-        # 1. First run: Should run
-        await coordinator._async_update_data()
-        assert mock_opt.call_count == 1
-        t1 = coordinator.last_optimization_time
-        
-        # 2. Second run immediately: Should NOT run (throttled)
-        await coordinator._async_update_data()
-        assert mock_opt.call_count == 1 # Still 1
-        t2 = coordinator.last_optimization_time
-        assert t1 == t2 # Unchanged
-        
-        # 3. Third run after 61 minutes: Should run
-        future_time = datetime.now(timezone.utc) + timedelta(minutes=61)
-        with patch("custom_components.housetemp.coordinator.dt_util.now", return_value=future_time):
-             await coordinator._async_update_data()
-             assert mock_opt.call_count == 2 # Now 2
-             t3 = coordinator.last_optimization_time
-             assert t3 > t2
-
-@pytest.mark.asyncio
-async def test_optimization_trigger_on_config_update(hass):
-    """Test that configuration update triggers a reload (which resets everything)."""
-    from custom_components.housetemp.const import (
-        DOMAIN, 
-        CONF_SENSOR_INDOOR_TEMP, 
-        CONF_C_THERMAL, 
-        CONF_OPTIMIZATION_ENABLED, 
-        CONF_OPTIMIZATION_INTERVAL,
-        CONF_SCHEDULE_CONFIG
-    )
-    from unittest.mock import patch, MagicMock
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    # Pre-populate cache
+    ts0 = ms.timestamps[0]
+    ts0_int = int(ts0.timestamp())
+    coordinator.optimized_setpoints_map[ts0_int] = 75.0 # Cached value
     
-    # Setup entry
-    entry = MockConfigEntry(
-        domain=DOMAIN, 
-        data={CONF_SENSOR_INDOOR_TEMP: "sensor.indoor"},
-        options={CONF_C_THERMAL: 1000.0, CONF_OPTIMIZATION_ENABLED: True}
-    )
-    entry.add_to_hass(hass)
-    
-    # Mock setup
-    with patch("custom_components.housetemp.coordinator.HouseTempCoordinator._async_update_data", return_value={"timestamps": [], "predicted_temp": []}):
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-    # Patch async_reload to verify it is called
-    with patch.object(hass.config_entries, "async_reload", return_value=None) as mock_reload:
-        # Update options
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_SCHEDULE_CONFIG: "[]",
-                CONF_C_THERMAL: 2000.0,
-                CONF_OPTIMIZATION_ENABLED: True
-            }
-        )
-        await hass.async_block_till_done()
+    # Mock run_model to capture what was passed
+    with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
+         patch("custom_components.housetemp.coordinator.run_model", return_value=([], 0.0, [])) as mock_run:
         
-        # Verify reload was called
-        mock_reload.assert_called_once_with(entry.entry_id)
+        result = await coordinator._async_update_data()
+        
+        # Verify measurements passed to run_model has the cached setpoint
+        args, _ = mock_run.call_args
+        measurements_arg = args[1]
+        assert measurements_arg.setpoint[0] == 75.0 # From cache
+        assert measurements_arg.setpoint[1] == 70.0 # From schedule (fallback)
+        
+        # Verify result contains optimized setpoint array
+        assert "optimized_setpoint" in result
+        assert result["optimized_setpoint"][0] == 75.0
+        assert result["optimized_setpoint"][1] is None

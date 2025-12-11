@@ -31,9 +31,6 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     DEFAULT_FORECAST_DURATION,
     DEFAULT_UPDATE_INTERVAL,
-    CONF_OPTIMIZATION_ENABLED,
-    CONF_OPTIMIZATION_INTERVAL,
-    DEFAULT_OPTIMIZATION_INTERVAL,
     CONF_MODEL_TIMESTEP,
     DEFAULT_MODEL_TIMESTEP,
     CONF_CONTROL_TIMESTEP,
@@ -69,8 +66,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # self._setup_heat_pump() # Will be called in async_update_data or first refresh
         
         # State for optimization
-        self.last_optimization_time = None
-        self.last_optimized_setpoints = None  # Cache for optimization results
+        # Change to dict: timestamp -> setpoint
+        self.optimized_setpoints_map = {} 
 
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
@@ -113,6 +110,224 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             if not self.heat_pump:
                 raise UpdateFailed("Heat Pump not configured correctly")
 
+        # 1. Get Inputs & Prepare Simulation Data
+        try:
+            measurements, params, start_time = await self._prepare_simulation_inputs()
+        except Exception as e:
+            _LOGGER.error("Error preparing simulation inputs: %s", e)
+            raise UpdateFailed(f"Error preparing simulation inputs: {e}")
+
+        # Unpack for local usage if needed, or just use measurements object
+        timestamps = measurements.timestamps
+        setpoint_arr = measurements.setpoint
+        t_out_arr = measurements.t_out
+        solar_arr = measurements.solar_kw
+        
+        duration_hours = self.config_entry.options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
+
+        # 6. Apply Cached Optimization Results (if available)
+        # We do NOT run optimization here. We strictly lookup the cache.
+        
+        # optimized_setpoints_map is {timestamp (float): setpoint (float)}
+        # We need to build an array aligned with 'timestamps'
+        optimized_setpoint_arr = []
+        has_optimized_data = False
+        
+        if self.optimized_setpoints_map:
+            # We must be careful with floating point timestamps.
+            # Let's assume exact match since they come from the same generation process,
+            # BUT if the main loop has slightly different timestamps (due to weather update time shifting),
+            # we need to likely use nearest neighbour or just map by ISO string if possible.
+            # However, usually simulation starts at 'now' upsampled.
+            
+            # Robust approach: Find value for each timestamp if it exists in map
+            # We can use a small tolerance or just round to minute.
+            
+            # Better: When we run optimization, we store result keyed by int(timestamp) (seconds)
+            # Here we lookup by int(timestamp).
+            
+            # Let's try to populate
+            found_count = 0
+            for ts in timestamps:
+                ts_int = int(ts.timestamp())
+                # Try exact match first
+                val = self.optimized_setpoints_map.get(ts_int)
+                
+                # If not found, maybe try +- 30 seconds? 
+                # (Upsampling is usually aligned to model_timestep minutes)
+                if val is None:
+                     # fallback logic if needed, but for now simple lookup
+                     pass
+                
+                if val is not None:
+                    optimized_setpoint_arr.append(val)
+                    found_count += 1
+                else:
+                    optimized_setpoint_arr.append(None)
+            
+            if found_count > 0:
+                has_optimized_data = True
+                _LOGGER.debug(f"Found {found_count} cached optimized setpoints for current window.")
+
+        # 7. Run Model (in executor to avoid blocking)
+        # Use the optimized setpoints for simulation IF we have them, otherwise use schedule
+        # The 'measurements' object currently has 'setpoint' from schedule.
+        # If we have optimized setpoints, we should use them for the simulation to show the prediction *if* the plan were followed.
+        
+        if has_optimized_data:
+            # fill Nones with schedule as fallback for simulation
+            sim_setpoints = []
+            for i, opt_val in enumerate(optimized_setpoint_arr):
+                if opt_val is not None:
+                    sim_setpoints.append(opt_val)
+                else:
+                    sim_setpoints.append(setpoint_arr[i])
+            measurements.setpoint = np.array(sim_setpoints)
+        
+        sim_temps, _, _ = await self.hass.async_add_executor_job(
+            run_model, params, measurements, self.heat_pump, duration_hours*60
+        )
+        
+        if len(sim_temps) > 0:
+            _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
+
+        # 8. Return Result
+        result = {
+            "timestamps": timestamps,
+            "predicted_temp": sim_temps,
+            "hvac_state": measurements.hvac_state,
+            "setpoint": setpoint_arr, # Return original schedule for comparison
+            "solar": solar_arr,
+            "outdoor": t_out_arr
+        }
+        
+        if has_optimized_data:
+            result["optimized_setpoint"] = optimized_setpoint_arr
+        
+        return result
+
+    async def async_trigger_optimization(self, duration_hours=None):
+        """Manually trigger the HVAC optimization process."""
+        _LOGGER.info("Manual optimization triggered. Duration override: %s", duration_hours)
+        
+        # 1. Ensure heat pump is ready
+        if not self.heat_pump:
+            await self._setup_heat_pump()
+        
+        try:
+            # Pass duration override if provided
+            measurements, params, start_time = await self._prepare_simulation_inputs(duration_override=duration_hours)
+        except Exception as e:
+            _LOGGER.error("Could not prepare data for optimization: %s", e)
+            raise e # Raise to caller for Service handling
+
+        # Optimization Parameters
+        model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
+        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
+        
+        _LOGGER.info(f"Running HVAC Optimization (Model: {model_timestep}m, Control: {control_timestep}m)...")
+        opt_start_time = time.time()
+        
+        # Target Temps (Schedule)
+        target_temps = measurements.setpoint.copy()
+        comfort_config = {"mode": "heat", "center_preference": 0.5}
+        
+        try:
+            optimized_setpoints = await self.hass.async_add_executor_job(
+                optimize_hvac_schedule,
+                measurements,
+                params,
+                self.heat_pump,
+                target_temps,
+                comfort_config,
+                control_timestep
+            )
+            
+            opt_duration = time.time() - opt_start_time
+            _LOGGER.info("Optimization completed in %.2f seconds", opt_duration)
+            
+            # Map optimized setpoints to timestamps
+            timestamps = measurements.timestamps
+            new_cache = {}
+            if len(optimized_setpoints) == len(timestamps):
+                 for i, ts in enumerate(timestamps):
+                     ts_int = int(ts.timestamp())
+                     new_cache[ts_int] = optimized_setpoints[i]
+            
+            self.optimized_setpoints_map.update(new_cache)
+            
+            await self.async_request_refresh()
+            
+            # --- Run Simulation for Forecast (Predicted Temp) ---
+            # We want to return the predicted temperature path based on the NEW optimized setpoints.
+            # We reuse the `measurements` object but override the setpoints.
+            
+            # Create a clean array for simulation inputs
+            sim_setpoints = []
+            for i, ts in enumerate(timestamps):
+                # Use optimized value if available (it should be for this window)
+                if i < len(optimized_setpoints):
+                     sim_setpoints.append(optimized_setpoints[i])
+                else:
+                     sim_setpoints.append(measurements.setpoint[i])
+            
+            measurements.setpoint = np.array(sim_setpoints)
+            
+            # Ensure duration is valid for simulation
+            sim_duration_hours = duration_hours
+            if sim_duration_hours is None:
+                 sim_duration_hours = self.config_entry.options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
+                 
+            # Run Model
+            _LOGGER.info("Running simulation for service response (duration: %.1f h)...", sim_duration_hours)
+            sim_temps, _, _ = await self.hass.async_add_executor_job(
+                run_model, params, measurements, self.heat_pump, sim_duration_hours*60
+            )
+            
+            # Return Forecast Structure (similar to sensor)
+            forecast_data = []
+            for i, ts in enumerate(timestamps):
+                # Prepare item dict
+                item = {
+                    "datetime": ts.isoformat(),
+                    "target_temp": float(target_temps[i]), # Original Schedule
+                    "outdoor_temp": float(measurements.t_out[i]),
+                    "solar_kw": float(measurements.solar_kw[i]),
+                    "ideal_setpoint": float(optimized_setpoints[i]) if i < len(optimized_setpoints) else None,
+                    "predicted_temp": float(sim_temps[i]) if i < len(sim_temps) else None
+                }
+                # hvac_action from schedule
+                state_val = measurements.hvac_state[i]
+                if state_val > 0:
+                    item["hvac_action"] = "heating"
+                elif state_val < 0:
+                     item["hvac_action"] = "cooling"
+                else:
+                     item["hvac_action"] = "off"
+                     
+                forecast_data.append(item)
+                
+            return {
+                "forecast": forecast_data,
+                "optimization_summary": {
+                    "duration_seconds": opt_duration,
+                    "points": len(timestamps),
+                    "start_time": start_time.isoformat()
+                }
+            }
+            
+        except Exception as e:
+            _LOGGER.error("Optimization failed: %s", e)
+            import traceback
+            _LOGGER.error(traceback.format_exc())
+            raise e
+
+    async def _prepare_simulation_inputs(self, duration_override=None):
+        """Helper to fetch data and prepare measurements (shared logic)."""
+        # This is a refactored extraction of lines 116-364 from original _async_update_data
+        # For the sake of this tool use, I will assume I need to implement this helper 
+        # and replace the logic in _async_update_data to use it too.
+        
         # 1. Get Inputs
         # Fixed Identity (DATA)
         data = self.config_entry.data
@@ -122,7 +337,14 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # Modifiable Settings (OPTIONS)
         options = self.config_entry.options
-        duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
+        if duration_override is not None:
+             try:
+                 duration_hours = float(duration_override)
+             except (ValueError, TypeError):
+                 _LOGGER.warning("Invalid duration override '%s', using config", duration_override)
+                 duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
+        else:
+             duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
         
         # Parameters (Physics) - From Options
         params = [
@@ -133,7 +355,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             options.get(CONF_H_FACTOR, 5000.0),
         ]
         
-        _LOGGER.debug("Coordinator update with params (C, UA, K_Solar, Q_Int, H_Factor): %s", params)
+        _LOGGER.debug("Preparing simulation inputs with params: %s", params)
 
         # 2. Get Current State
         indoor_state = self.hass.states.get(sensor_indoor)
@@ -142,15 +364,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         try:
             current_temp = float(indoor_state.state)
-            _LOGGER.debug("Current indoor temp read from %s: %s", sensor_indoor, current_temp)
         except ValueError:
             raise UpdateFailed(f"Invalid indoor temp: {indoor_state.state}")
 
-        # 3. Get Weather Forecast
-        weather_state = self.hass.states.get(weather_entity)
-        if not weather_state:
-            raise UpdateFailed(f"Weather entity {weather_entity} not found")
-        
         # 3. Get Weather Forecast
         weather_state = self.hass.states.get(weather_entity)
         if not weather_state:
@@ -162,7 +378,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Try modern service call if attribute missing
         if forecast is None:
              try:
-                 # Support both 'hourly' and 'daily' - prefer hourly for simulation
                  response = await self.hass.services.async_call(
                      "weather", 
                      "get_forecasts", 
@@ -191,25 +406,19 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                      _LOGGER.debug("Failed to get daily forecast via service: %s", e)
 
         if not forecast:
-             _LOGGER.warning("No forecast data found for %s (tried attribute and service calls)", weather_entity)
+             _LOGGER.warning("No forecast data found for %s", weather_entity)
              forecast = []
 
         # 4. Get Solar Forecast
-        # Expecting sensors that have a 'forecast' attribute (like Forecast.Solar or Solcast)
-        # Config might be a single string or a list of strings (if multiple=True)
         solar_forecast_data = []
-        
         solar_entities = solar_entity
         if solar_entities:
-            # Normalize to list
             if isinstance(solar_entities, str):
                 solar_entities = [solar_entities]
             
             for entity_id in solar_entities:
                 s_state = self.hass.states.get(entity_id)
                 if s_state:
-                     # Get forecast (list of dicts)
-                     # Standard is 'forecast', Solcast uses 'detailedForecast'
                      partial_forecast = s_state.attributes.get("forecast")
                      if not partial_forecast:
                          partial_forecast = s_state.attributes.get("detailedForecast", [])
@@ -220,11 +429,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("Solar entity %s not found", entity_id)
 
         # 5. Prepare Simulation Data using Shared Upsampling Logic
-        # Construct a DataFrame with the sparse forecast points
         import pandas as pd
         from .housetemp.utils import upsample_dataframe
         
-        # Helper to parse forecast points into a list of dicts
         def parse_points(forecast_list, dt_key_opts, val_key_opts):
             pts = []
             for item in forecast_list:
@@ -233,44 +440,29 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 val = item.get(key_found) if key_found else None
                 
                 if dt_val and val is not None:
-                    # Handle both string and datetime inputs (Solcast uses datetime objects)
                     if isinstance(dt_val, str):
                         dt = dt_util.parse_datetime(dt_val)
                     else:
-                        # Already a datetime object
                         dt = dt_val
                     
                     if dt:
-                        # Enforce Timezone Awareness
                         if dt.tzinfo is None:
                             dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
                         
                         val_float = float(val)
-                        # Auto-detect units
                         if key_found in ['watts', 'wh_hours']: 
-                             # Forecast.Solar often uses 'watts' (power) or 'wh_hours' (energy/hour -> power)
-                             # Convert W to kW
                              val_float /= 1000.0
                         elif key_found == 'pv_estimate':
-                             # Solcast usually returns kW, but let's sanity check
-                             # If value > 100, it's probably Watts (unless user has 100kW+ array)
                              if val_float > 50: 
                                  val_float /= 1000.0
                         
                         pts.append({'time': dt, 'value': val_float})
             return pts
 
-        # Parse Weather
         weather_pts = parse_points(forecast, ['datetime'], ['temperature'])
         if not weather_pts:
              raise UpdateFailed(f"No forecast data available from {weather_entity}") 
 
-        # Parse Solar
-        # Support common keys: 
-        # 'pv_estimate' (Solcast, kW/W)
-        # 'watts' (Forecast.Solar, W)
-        # 'wh_hours' (Forecast.Solar, Wh -> W if 1h block)
-        # 'period_start' (Solcast detailedForecast)
         solar_pts = parse_points(solar_forecast_data, 
                                  ['datetime', 'period_end', 'period_start'], 
                                  ['pv_estimate', 'watts', 'wh_hours', 'value'])
@@ -280,27 +472,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                  now = now.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
              solar_pts = [{'time': now, 'value': 0.0}]
              
-        _LOGGER.debug("Fetched %d weather points and %d solar points", len(weather_pts), len(solar_pts))
-        
-        # Get timing parameters upfront (non-blocking)
         now = dt_util.now()
         start_time = now
         end_time = start_time + timedelta(hours=duration_hours)
         model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
-        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
         
-        _LOGGER.info("Starting simulation from %s to %s (%d hours)", start_time, end_time, duration_hours)
-        
-        # Run blocking pandas operations in executor
         def prepare_simulation_data():
-            # Create DataFrames
             df_w = pd.DataFrame(weather_pts).set_index('time').rename(columns={'value': 'outdoor_temp'})
             df_s = pd.DataFrame(solar_pts).set_index('time').rename(columns={'value': 'solar_kw'})
             
-            # Merge (Outer Join to keep all points)
             df_raw = df_w.join(df_s, how='outer').sort_index()
             
-            # Clip/Extend DataFrame index to cover start_time to end_time
             if df_raw.index.min() > start_time:
                 row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[0]], 'solar_kw': [0]}, index=[start_time])
                 df_raw = pd.concat([row, df_raw])
@@ -309,12 +491,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[-1]], 'solar_kw': [0]}, index=[end_time])
                 df_raw = pd.concat([df_raw, row])
                  
-            # Reset index for upsampling utility
             df_raw = df_raw.reset_index().rename(columns={'index': 'time'})
             
-            # Upsample to configured resolution
             freq_str = f"{model_timestep}min"
-            
             df_sim = upsample_dataframe(
                 df_raw, 
                 freq=freq_str, 
@@ -322,10 +501,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 cols_ffill=[] 
             )
             
-            # Filter to exactly the duration requested
             df_sim = df_sim[(df_sim['time'] >= start_time) & (df_sim['time'] <= end_time)]
             
-            # Extract Arrays
             timestamps = df_sim['time'].tolist()
             t_out_arr = df_sim['outdoor_temp'].ffill().fillna(50).values
             solar_arr = df_sim['solar_kw'].fillna(0).values
@@ -337,21 +514,16 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             prepare_simulation_data
         )
         
-        # If empty after slice, fail safe
         if not timestamps:
-            _LOGGER.warning("Simulation DataFrame empty after slice! Using fallback.")
             raise UpdateFailed("No forecast data available for simulation period")
         
-        # Create Result Arrays
         steps = len(timestamps)
         
-        # Schedule Processing
         schedule_json = self.config_entry.options.get(CONF_SCHEDULE_CONFIG, "[]")
         hvac_state_arr, setpoint_arr = self._process_schedule(timestamps, schedule_json)
 
-        # Indoor Temp Array
         t_in_arr = np.zeros(steps)
-        t_in_arr[0] = current_temp # Start temp
+        t_in_arr[0] = current_temp
 
         measurements = Measurements(
             timestamps=np.array(timestamps),
@@ -362,84 +534,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             setpoint=np.array(setpoint_arr),
             dt_hours=dt_values
         )
-
-        # 6. Run Optimization (Optional & Throttled)
-        opt_enabled = self.config_entry.options.get(CONF_OPTIMIZATION_ENABLED, False)
-        opt_interval = self.config_entry.options.get(CONF_OPTIMIZATION_INTERVAL, DEFAULT_OPTIMIZATION_INTERVAL)
         
-        run_opt = False
-        if opt_enabled:
-            now_ts = now.timestamp()
-            if self.last_optimization_time is None:
-                run_opt = True
-            else:
-                elapsed_min = (now_ts - self.last_optimization_time) / 60.0
-                if elapsed_min >= opt_interval:
-                    run_opt = True
-                else:
-                    _LOGGER.debug("Skipping optimization: %.1f min elapsed (interval: %s)", elapsed_min, opt_interval)
-                    
-        if run_opt:
-            _LOGGER.info(f"Running HVAC Optimization (Model: {model_timestep}m, Control: {control_timestep}m)...")
-            opt_start_time = time.time()
-            target_temps = setpoint_arr.copy()
-            comfort_config = {"mode": "heat", "center_preference": 0.5}
-            
-            try:
-                optimized_setpoints = await self.hass.async_add_executor_job(
-                    optimize_hvac_schedule,
-                    measurements,
-                    params,
-                    self.heat_pump,
-                    target_temps,
-                    comfort_config,
-                    control_timestep # block_size_minutes
-                )
-                
-                measurements.setpoint = optimized_setpoints
-                # setpoint_arr = optimized_setpoints # DON'T overwrite schedule!
-                # hvac_state_arr = measurements.hvac_state # Optimization updates this too
-                
-                # Cache the optimization results
-                self.last_optimized_setpoints = optimized_setpoints.copy()
-                
-                self.last_optimization_time = now.timestamp()
-                opt_duration = time.time() - opt_start_time
-                _LOGGER.info("Optimization completed in %.2f seconds", opt_duration)
-                
-            except Exception as e:
-                _LOGGER.error("Optimization failed: %s", e)
-                import traceback
-                _LOGGER.error(traceback.format_exc())
+        return measurements, params, start_time
 
-        # 7. Run Model (in executor to avoid blocking)
-        sim_temps, _, _ = await self.hass.async_add_executor_job(
-            run_model, params, measurements, self.heat_pump, duration_hours*60
-        )
-        
-        if len(sim_temps) > 0:
-            _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
-
-        # 8. Return Result (include cached optimized setpoints if available)
-        result = {
-            "timestamps": timestamps,
-            "predicted_temp": sim_temps,
-            "hvac_state": measurements.hvac_state,
-            "setpoint": setpoint_arr,
-            "solar": solar_arr,
-            "outdoor": t_out_arr
-        }
-        
-        # Include optimized setpoints from cache (even if optimization was skipped this cycle)
-        if self.last_optimized_setpoints is not None:
-            result["optimized_setpoint"] = self.last_optimized_setpoints
-        
-        return result
-
-    async def async_force_optimization(self):
-        """Force run optimization regardless of interval."""
-        self.last_optimization_time = None
-        await self.async_request_refresh()
+    # ... (Scheduling helper methods) ...
 
     def _get_interpolated_weather(self, timestamps, forecast, default_val=50.0):
         """Interpolate weather forecast to match timestamps."""
