@@ -254,9 +254,10 @@ def run_main(args_list=None):
             marker_interval = None
             target_temps = None
 
+        energy_result = energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
         if not args.debug_output:
             results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps)
-        energy_result = energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
+
         
         # Debug output (optional)
         if args.debug_output:
@@ -312,8 +313,8 @@ def run_main(args_list=None):
         print("\nOptimization converged successfully!")
         best_params = optimization_result.x
         save_model(best_params, args.output)
-        results.plot_results(measurements, best_params, hw, title_suffix="Optimization Result")
         energy.estimate_consumption(measurements, best_params, hw, cost_per_kwh=0.45)
+        results.plot_results(measurements, best_params, hw, title_suffix="Optimization Result")
         return 0
     else:
         print("Optimization failed:", optimization_result.message)
