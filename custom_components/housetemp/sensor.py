@@ -95,7 +95,7 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             item = {
                 "datetime": local_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                 "temperature": round(temps[best_idx], 1) if best_idx < len(temps) else None,
-                "target_temp": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
+                "setpoint": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
             }
             
             # ideal_setpoint only if optimization was run
