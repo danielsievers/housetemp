@@ -328,7 +328,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # Extract Arrays
         timestamps = df_sim['time'].tolist() # pydatetime objects
-        t_out_arr = df_sim['outdoor_temp'].fillna(method='ffill').fillna(50).values
+        t_out_arr = df_sim['outdoor_temp'].ffill().fillna(50).values
         solar_arr = df_sim['solar_kw'].fillna(0).values
         dt_values = df_sim['dt'].values # Should be ~0.25 (15 min) or whatever configured
         
