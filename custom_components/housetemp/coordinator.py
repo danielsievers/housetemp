@@ -40,7 +40,9 @@ from .const import (
 # Import from the installed package
 from .housetemp.run_model import run_model, HeatPump
 from .housetemp.measurements import Measurements
+from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
+from .housetemp.energy import estimate_consumption
 
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -230,6 +232,20 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # Target Temps (Schedule)
         target_temps = measurements.setpoint.copy()
+        
+        # -- Baseline Energy Calculation (Before Optimization) --
+        # We need to compute energy using the schedule (measurements.setpoint)
+        # Note: estimate_consumption might mutate measurements? It shouldn't, but let's be safe.
+        # It calls run_model, which doesn't mutate.
+        baseline_kwh = 0.0
+        try:
+             baseline_res = await self.hass.async_add_executor_job(
+                 estimate_consumption, measurements, params, self.heat_pump
+             )
+             baseline_kwh = baseline_res.get('total_kwh', 0.0)
+        except Exception as e:
+             _LOGGER.warning("Failed to estimate baseline energy: %s", e)
+             
         comfort_config = {"mode": "heat", "center_preference": 0.5}
         
         try:
@@ -278,11 +294,23 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             if sim_duration_hours is None:
                  sim_duration_hours = self.config_entry.options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
                  
-            # Run Model
+            # Run Model for Temp Curve
             _LOGGER.info("Running simulation for service response (duration: %.1f h)...", sim_duration_hours)
             sim_temps, _, _ = await self.hass.async_add_executor_job(
                 run_model, params, measurements, self.heat_pump, sim_duration_hours*60
             )
+            
+            # -- Optimized Energy Calculation --
+            # Now measurements.setpoint is OPTIMIZED.
+            optimized_kwh = 0.0
+            try:
+                 # Note: estimate_consumption will run simulation again internally.
+                 opt_res = await self.hass.async_add_executor_job(
+                     estimate_consumption, measurements, params, self.heat_pump
+                 )
+                 optimized_kwh = opt_res.get('total_kwh', 0.0)
+            except Exception as e:
+                 _LOGGER.warning("Failed to estimate optimized energy: %s", e)
             
             # Return Forecast Structure (similar to sensor)
             forecast_data = []
@@ -312,7 +340,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 "optimization_summary": {
                     "duration_seconds": opt_duration,
                     "points": len(timestamps),
-                    "start_time": start_time.isoformat()
+                    "start_time": start_time.isoformat(),
+                    "total_energy_use_kwh": float(baseline_kwh),
+                    "total_energy_use_optimized_kwh": float(optimized_kwh)
                 }
             }
             

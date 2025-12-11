@@ -121,7 +121,11 @@ async def test_service_call_returns_data(hass):
             "solar_kw": 0.5,
             "hvac_action": "heating"
         }],
-        "optimization_summary": {"points": 1}
+        "optimization_summary": {
+            "points": 1, 
+            "total_energy_use_kwh": 5.0, 
+            "total_energy_use_optimized_kwh": 4.5
+        }
     }
     
     with patch.object(coordinator, "async_trigger_optimization", return_value=expected_result) as mock_trigger:
@@ -151,6 +155,13 @@ async def test_service_call_returns_data(hass):
         # Verify return structure
         assert "forecast" in result
         assert "optimization_summary" in result
+        
+        summary = result["optimization_summary"]
+        assert "points" in summary
+        assert "total_energy_use_kwh" in summary
+        assert "total_energy_use_optimized_kwh" in summary
+        assert isinstance(summary["total_energy_use_kwh"], float)
+        assert isinstance(summary["total_energy_use_optimized_kwh"], float)
         
         assert len(result["forecast"]) == 1 # We mocked only one item
         item = result["forecast"][0]

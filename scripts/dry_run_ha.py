@@ -251,6 +251,7 @@ async def main():
         # Use defaults for new settings
         CONF_MODEL_TIMESTEP: DEFAULT_MODEL_TIMESTEP,
         CONF_CONTROL_TIMESTEP: DEFAULT_CONTROL_TIMESTEP,
+        CONF_SCHEDULE_CONFIG: COMFORT_CONFIG, # Ensure schedule is available in options
     }
     config_entry.options = options_data
     config_entry.entry_id = "test_entry_123"
@@ -298,6 +299,23 @@ async def main():
         print("  -> (Mock) Refresh requested. Updating data now...")
         await coordinator._async_update_data()
     coordinator.async_request_refresh = mock_refresh_instance
+    
+    # --- Patch optimize_hvac_schedule to force center_preference=0.1 for Dry Run ---
+    from custom_components.housetemp import coordinator as coord_module
+    original_optimize = coord_module.optimize_hvac_schedule
+    
+    def wrapped_optimize(*args, **kwargs):
+        # args: data, params, hw, target_temps, comfort_config, block_size_minutes
+        # We need to find comfort_config (5th arg, index 4)
+        if len(args) > 4:
+            comfort_config = args[4]
+            if isinstance(comfort_config, dict):
+                print(f"  -> (Patch) Overriding center_preference to 0.1 (was {comfort_config.get('center_preference')})")
+                comfort_config['center_preference'] = 0.1
+        return original_optimize(*args, **kwargs)
+        
+    # Apply the patch to the coordinator's import
+    coord_module.optimize_hvac_schedule = wrapped_optimize
     
     # 3. Trigger Service Handler
     print("Triggering Service: housetemp.run_hvac_optimization...")
@@ -398,6 +416,19 @@ async def main():
                 logging.info(f"{dt_str:<20} | {t_pred:<8.1f} | {opt_str:<8} | {sched_marker:<8} | {hvac_str:<5} | {t_out:<8.1f} | {sol:<8.2f}")
                 
             logging.info(f"\nTotal Steps: {len(forecast_items)}")
+            
+            # --- Energy Metrics ---
+            if "optimization_summary" in result_payload:
+                opt_sum = result_payload["optimization_summary"]
+                baseline_kwh = opt_sum.get("total_energy_use_kwh", 0.0)
+                opt_kwh = opt_sum.get("total_energy_use_optimized_kwh", 0.0)
+                
+                print("\n--- Energy Metrics ---")
+                print(f"Baseline Energy (Schedule):   {baseline_kwh:.2f} kWh")
+                print(f"Optimized Energy (Proposed):  {opt_kwh:.2f} kWh")
+                if baseline_kwh > 0:
+                     savings = (1 - (opt_kwh / baseline_kwh)) * 100
+                     print(f"Potential Savings:            {savings:.1f}%")
             
             # --- Suggestion 1: Sensor Entity Check ---
             print("\n--- Sensor Entity Check ---")
