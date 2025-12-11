@@ -30,9 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update options."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    # Force optimization run (resets timer) since settings changed
-    await coordinator.async_force_optimization()
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

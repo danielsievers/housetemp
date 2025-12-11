@@ -55,7 +55,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         self.config_entry = config_entry
         self.hass = hass
         
-        update_interval_min = config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        update_interval_min = config_entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
         
         super().__init__(
             hass,
@@ -74,6 +74,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
+        # Heat Pump Config is FIXED (Data)
         hp_config_str = self.config_entry.data.get(CONF_HEAT_PUMP_CONFIG)
         if not hp_config_str:
             return
@@ -113,19 +114,23 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed("Heat Pump not configured correctly")
 
         # 1. Get Inputs
+        # Fixed Identity (DATA)
         data = self.config_entry.data
         sensor_indoor = data.get(CONF_SENSOR_INDOOR_TEMP)
         weather_entity = data.get(CONF_WEATHER_ENTITY)
         solar_entity = data.get(CONF_SOLAR_ENTITY)
-        duration_hours = data.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
         
-        # Parameters
+        # Modifiable Settings (OPTIONS)
+        options = self.config_entry.options
+        duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
+        
+        # Parameters (Physics) - From Options
         params = [
-            data.get(CONF_C_THERMAL),
-            data.get(CONF_UA),
-            data.get(CONF_K_SOLAR),
-            data.get(CONF_Q_INT),
-            data.get(CONF_H_FACTOR),
+            options.get(CONF_C_THERMAL, 10000.0),
+            options.get(CONF_UA, 750.0),
+            options.get(CONF_K_SOLAR, 3000.0),
+            options.get(CONF_Q_INT, 2000.0),
+            options.get(CONF_H_FACTOR, 5000.0),
         ]
         
         _LOGGER.debug("Coordinator update with params (C, UA, K_Solar, Q_Int, H_Factor): %s", params)
@@ -341,7 +346,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         steps = len(timestamps)
         
         # Schedule Processing
-        schedule_json = data.get(CONF_SCHEDULE_CONFIG)
+        schedule_json = self.config_entry.options.get(CONF_SCHEDULE_CONFIG, "[]")
         hvac_state_arr, setpoint_arr = self._process_schedule(timestamps, schedule_json)
 
         # Indoor Temp Array

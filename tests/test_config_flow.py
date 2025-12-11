@@ -29,7 +29,7 @@ async def test_flow_user_init(hass: HomeAssistant):
 @pytest.mark.asyncio
 async def test_flow_full_path(hass: HomeAssistant):
     """Test the full config flow path."""
-    # 1. User Step
+    # 1. User Step (Identity)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -40,36 +40,31 @@ async def test_flow_full_path(hass: HomeAssistant):
         CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
         CONF_WEATHER_ENTITY: "weather.home",
         CONF_SOLAR_ENTITY: ["sensor.solar"],
+        CONF_HEAT_PUMP_CONFIG: "{}",
     }
+    
+    # 2. Advance to Settings
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input=user_input
     )
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "params"
+    assert result["step_id"] == "model_settings"
     
-    # 2. Params Step
-    params_input = {
+    # 3. Model Settings Step
+    settings_input = {
         CONF_C_THERMAL: 15000.0,
-        # ... other defaults
-    }
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input=params_input
-    )
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "configs"
-
-    # 3. Configs Step
-    configs_input = {
-        CONF_HEAT_PUMP_CONFIG: "{}",
         CONF_SCHEDULE_CONFIG: "[]",
+        # ... other defaults are handled by vol.Optional/Required defaults
     }
     
     with patch("custom_components.housetemp.async_setup_entry", return_value=True) as mock_setup:
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input=configs_input
+            result["flow_id"], user_input=settings_input
         )
     
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "House Temp Prediction"
+    
+    # Verify Split Storage
     assert result["data"][CONF_SENSOR_INDOOR_TEMP] == "sensor.indoor"
-    assert result["data"][CONF_C_THERMAL] == 15000.0
+    assert result["options"][CONF_C_THERMAL] == 15000.0

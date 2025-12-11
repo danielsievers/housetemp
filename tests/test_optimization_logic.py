@@ -135,38 +135,44 @@ async def test_optimization_throttling(hass, coordinator):
 
 @pytest.mark.asyncio
 async def test_optimization_trigger_on_config_update(hass):
-    """Test that optimization is triggered (timer reset) when config options change."""
-    from custom_components.housetemp.const import DOMAIN, CONF_SENSOR_INDOOR_TEMP, CONF_C_THERMAL, CONF_OPTIMIZATION_ENABLED, CONF_OPTIMIZATION_INTERVAL
+    """Test that configuration update triggers a reload (which resets everything)."""
+    from custom_components.housetemp.const import (
+        DOMAIN, 
+        CONF_SENSOR_INDOOR_TEMP, 
+        CONF_C_THERMAL, 
+        CONF_OPTIMIZATION_ENABLED, 
+        CONF_OPTIMIZATION_INTERVAL,
+        CONF_SCHEDULE_CONFIG
+    )
     from unittest.mock import patch, MagicMock
     from pytest_homeassistant_custom_component.common import MockConfigEntry
-
+    
     # Setup entry
     entry = MockConfigEntry(
         domain=DOMAIN, 
-        data={CONF_SENSOR_INDOOR_TEMP: "sensor.indoor", CONF_C_THERMAL: 1000.0},
-        options={CONF_OPTIMIZATION_ENABLED: True}
+        data={CONF_SENSOR_INDOOR_TEMP: "sensor.indoor"},
+        options={CONF_C_THERMAL: 1000.0, CONF_OPTIMIZATION_ENABLED: True}
     )
     entry.add_to_hass(hass)
     
-    # Mock update to succeed so setup completes
+    # Mock setup
     with patch("custom_components.housetemp.coordinator.HouseTempCoordinator._async_update_data", return_value={"timestamps": [], "predicted_temp": []}):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
-    
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    
-    # Mock force_optimization to check if it gets called
-    # We patch the instance method on the ACTIVE coordinator object
-    with patch.object(coordinator, 'async_force_optimization', side_effect=coordinator.async_force_optimization) as mock_force:
+
+    # Patch async_reload to verify it is called
+    with patch.object(hass.config_entries, "async_reload", return_value=None) as mock_reload:
         # Update options
-        hass.config_entries.async_update_entry(
-            entry,
-            options={CONF_OPTIMIZATION_ENABLED: True, CONF_OPTIMIZATION_INTERVAL: 120}
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_SCHEDULE_CONFIG: "[]",
+                CONF_C_THERMAL: 2000.0,
+                CONF_OPTIMIZATION_ENABLED: True
+            }
         )
         await hass.async_block_till_done()
         
-        # Verify force_optimization was called
-        mock_force.assert_called_once()
-        
-        # Verify last_optimization_time is None (which means forced)
-        assert coordinator.last_optimization_time is None
+        # Verify reload was called
+        mock_reload.assert_called_once_with(entry.entry_id)

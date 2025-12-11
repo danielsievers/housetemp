@@ -45,6 +45,7 @@ from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(DOMAIN)
 
+# Step 1: Fixed Identity (Stored in DATA)
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_SENSOR_INDOOR_TEMP): selector.EntitySelector(
@@ -54,34 +55,31 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
             selector.EntitySelectorConfig(domain="weather")
         ),
         vol.Optional(CONF_SOLAR_ENTITY): selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="sensor", device_class=["power", "energy"], multiple=True)
+            selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
         ),
-    }
-)
-
-STEP_PARAMS_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_C_THERMAL, default=10000.0): vol.Coerce(float),
-        vol.Required(CONF_UA, default=500.0): vol.Coerce(float),
-        vol.Required(CONF_K_SOLAR, default=50.0): vol.Coerce(float),
-        vol.Required(CONF_Q_INT, default=500.0): vol.Coerce(float),
-        vol.Required(CONF_H_FACTOR, default=1000.0): vol.Coerce(float),
-    }
-)
-
-STEP_CONFIGS_SCHEMA = vol.Schema(
-    {
         vol.Required(CONF_HEAT_PUMP_CONFIG): selector.TextSelector(
             selector.TextSelectorConfig(multiline=True)
         ),
-        vol.Required(CONF_SCHEDULE_CONFIG): selector.TextSelector(
+    }
+)
+
+# Step 2: Modifiable Settings (Stored in OPTIONS)
+# Physics Defaults: UA=750, C=10000, K=3000, Q=2000, H=5000
+STEP_MODEL_SETTINGS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_SCHEDULE_CONFIG, default="[]"): selector.TextSelector(
             selector.TextSelectorConfig(multiline=True)
         ),
+        vol.Required(CONF_UA, default=750.0): vol.Coerce(float),
+        vol.Required(CONF_C_THERMAL, default=10000.0): vol.Coerce(float),
+        vol.Required(CONF_K_SOLAR, default=3000.0): vol.Coerce(float),
+        vol.Required(CONF_Q_INT, default=2000.0): vol.Coerce(float),
+        vol.Required(CONF_H_FACTOR, default=5000.0): vol.Coerce(float),
         vol.Required(CONF_FORECAST_DURATION, default=DEFAULT_FORECAST_DURATION): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=24)
         ),
         vol.Required(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
-            vol.Coerce(int), vol.Range(min=1)
+             vol.Coerce(int), vol.Range(min=1)
         ),
     }
 )
@@ -93,140 +91,126 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     
     def __init__(self):
         self._data = {}
+        self._options = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step (Entities)."""
-        if user_input is None:
-            return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA
-            )
-
-        self._data.update(user_input)
-        return await self.async_step_params()
-
-    async def async_step_params(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the parameters step."""
-        if user_input is None:
-            return self.async_show_form(
-                step_id="params", data_schema=STEP_PARAMS_SCHEMA
-            )
-
-        self._data.update(user_input)
-        return await self.async_step_configs()
-
-    async def async_step_configs(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the configs step."""
+        """Handle the initial step (Fixed Identity)."""
         errors = {}
 
         if user_input is not None:
-             # Validate JSON
+             # Validate Heat Pump JSON
              try:
                  json.loads(user_input[CONF_HEAT_PUMP_CONFIG])
+                 self._data.update(user_input)
+                 return await self.async_step_model_settings()
              except ValueError:
                  errors[CONF_HEAT_PUMP_CONFIG] = "invalid_json"
-                 
-             try:
-                 json.loads(user_input[CONF_SCHEDULE_CONFIG])
-             except ValueError:
-                 errors[CONF_SCHEDULE_CONFIG] = "invalid_json"
-
-             if not errors:
-                 self._data.update(user_input)
-                 return self.async_create_entry(title="House Temp Prediction", data=self._data)
 
         return self.async_show_form(
-             step_id="configs", 
-             data_schema=STEP_CONFIGS_SCHEMA,
-             errors=errors
+            step_id="user", 
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors
+        )
+
+    async def async_step_model_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the Settings step (Modifiable Options)."""
+        errors = {}
+        
+        if user_input is not None:
+            # Validate Schedule JSON
+            try:
+                json.loads(user_input[CONF_SCHEDULE_CONFIG])
+                self._options.update(user_input)
+                
+                return self.async_create_entry(
+                    title="House Temp Prediction", 
+                    data=self._data,
+                    options=self._options
+                )
+            except ValueError:
+                errors[CONF_SCHEDULE_CONFIG] = "invalid_json"
+
+        return self.async_show_form(
+            step_id="model_settings", 
+            data_schema=STEP_MODEL_SETTINGS_SCHEMA,
+            errors=errors
         )
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return OptionsFlowHandler()
+        return OptionsFlowHandler(config_entry)
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options."""
 
+    def __init__(self, config_entry):
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
     async def async_step_init(self, user_input=None):
         """Manage the options - main menu."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+             # Validate Schedule JSON
+            try:
+                json.loads(user_input[CONF_SCHEDULE_CONFIG])
+                return self.async_create_entry(title="", data=user_input)
+            except ValueError:
+                errors = {CONF_SCHEDULE_CONFIG: "invalid_json"}
+                # Fall through to show form with errors (logic somewhat complex with schema, but standard pattern)
+                # Actually, standard pattern is to re-render form.
+                pass
+        else:
+            errors = {}
 
-        # Get current values from both data and options
-        data = self.config_entry.data
+        # Get current values from OPTIONS (tunable)
+        # Fallback to DATA only if migrating (optional, but good for safety)
+        # Note: In this strict refactor, we assume options are populated.
         opts = self.config_entry.options
-
-        options_schema = vol.Schema(
+        
+        # Re-create schema with current values as defaults
+        schema = vol.Schema(
             {
-                # Sensors
                 vol.Required(
-                    CONF_SENSOR_INDOOR_TEMP,
-                    default=data.get(CONF_SENSOR_INDOOR_TEMP, ""),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                    CONF_SCHEDULE_CONFIG,
+                    default=opts.get(CONF_SCHEDULE_CONFIG, "[]"),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(multiline=True)
                 ),
-                vol.Required(
-                    CONF_WEATHER_ENTITY,
-                    default=data.get(CONF_WEATHER_ENTITY, ""),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="weather")
-                ),
-                vol.Optional(
-                    CONF_SOLAR_ENTITY,
-                    default=data.get(CONF_SOLAR_ENTITY, []),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", multiple=True)
-                ),
-                # Model Parameters
-                vol.Required(
-                    CONF_C_THERMAL,
-                    default=data.get(CONF_C_THERMAL, 10000.0),
-                ): vol.Coerce(float),
                 vol.Required(
                     CONF_UA,
-                    default=data.get(CONF_UA, 500.0),
+                    default=opts.get(CONF_UA, 750.0),
+                ): vol.Coerce(float),
+                vol.Required(
+                    CONF_C_THERMAL,
+                    default=opts.get(CONF_C_THERMAL, 10000.0),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_K_SOLAR,
-                    default=data.get(CONF_K_SOLAR, 50.0),
+                    default=opts.get(CONF_K_SOLAR, 3000.0),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_Q_INT,
-                    default=data.get(CONF_Q_INT, 500.0),
+                    default=opts.get(CONF_Q_INT, 2000.0),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_H_FACTOR,
-                    default=data.get(CONF_H_FACTOR, 1000.0),
+                    default=opts.get(CONF_H_FACTOR, 5000.0),
                 ): vol.Coerce(float),
-                # HVAC configs
-                vol.Required(
-                    CONF_HEAT_PUMP_CONFIG,
-                    default=data.get(CONF_HEAT_PUMP_CONFIG, "{}"),
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(multiline=True)
-                ),
-                vol.Required(
-                    CONF_SCHEDULE_CONFIG,
-                    default=data.get(CONF_SCHEDULE_CONFIG, "[]"),
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(multiline=True)
-                ),
                 vol.Required(
                     CONF_FORECAST_DURATION,
-                    default=data.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION),
+                    default=opts.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=24)),
                 vol.Required(
                     CONF_UPDATE_INTERVAL,
-                    default=data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                    default=opts.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1)),
-                # Optimization options
+                
+                # Advanced Optimization Toggles (Keep specific optimization flags if they were there)
                 vol.Optional(
                     CONF_OPTIMIZATION_ENABLED,
                     default=opts.get(CONF_OPTIMIZATION_ENABLED, False),
@@ -246,4 +230,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=options_schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
