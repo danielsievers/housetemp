@@ -275,62 +275,66 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              solar_pts = [{'time': now, 'value': 0.0}]
              
         _LOGGER.debug("Fetched %d weather points and %d solar points", len(weather_pts), len(solar_pts))
-             
-        # Create DataFrames
-        df_w = pd.DataFrame(weather_pts).set_index('time').rename(columns={'value': 'outdoor_temp'})
-        df_s = pd.DataFrame(solar_pts).set_index('time').rename(columns={'value': 'solar_kw'})
         
-        # Merge (Outer Join to keep all points)
-        df_raw = df_w.join(df_s, how='outer').sort_index()
-        
-        # Ensure we cover the full duration requsted
+        # Get timing parameters upfront (non-blocking)
         now = dt_util.now()
         start_time = now
         end_time = start_time + timedelta(hours=duration_hours)
-        _LOGGER.info("Starting simulation from %s to %s (%d hours)", start_time, end_time, duration_hours)
-        
-        # Clip/Extend DataFrame index to cover start_time to end_time
-        # We add dummy rows at start and end if missing, so interpolation covers the range
-        if df_raw.index.min() > start_time:
-             # Prepend start row (use existing first values or defaults)
-             # Better: concatenation
-             row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[0]], 'solar_kw': [0]}, index=[start_time])
-             df_raw = pd.concat([row, df_raw])
-             
-        if df_raw.index.max() < end_time:
-             row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[-1]], 'solar_kw': [0]}, index=[end_time])
-             df_raw = pd.concat([df_raw, row])
-             
-        # Reset index for upsampling utility
-        df_raw = df_raw.reset_index().rename(columns={'index': 'time'})
-        
-        # Get Configured Timesteps
         model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
         control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
         
-        # Upsample to configured resolution
-        freq_str = f"{model_timestep}min"
+        _LOGGER.info("Starting simulation from %s to %s (%d hours)", start_time, end_time, duration_hours)
         
-        df_sim = upsample_dataframe(
-            df_raw, 
-            freq=freq_str, 
-            cols_linear=['outdoor_temp', 'solar_kw'],
-            cols_ffill=[] 
+        # Run blocking pandas operations in executor
+        def prepare_simulation_data():
+            # Create DataFrames
+            df_w = pd.DataFrame(weather_pts).set_index('time').rename(columns={'value': 'outdoor_temp'})
+            df_s = pd.DataFrame(solar_pts).set_index('time').rename(columns={'value': 'solar_kw'})
+            
+            # Merge (Outer Join to keep all points)
+            df_raw = df_w.join(df_s, how='outer').sort_index()
+            
+            # Clip/Extend DataFrame index to cover start_time to end_time
+            if df_raw.index.min() > start_time:
+                row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[0]], 'solar_kw': [0]}, index=[start_time])
+                df_raw = pd.concat([row, df_raw])
+                 
+            if df_raw.index.max() < end_time:
+                row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[-1]], 'solar_kw': [0]}, index=[end_time])
+                df_raw = pd.concat([df_raw, row])
+                 
+            # Reset index for upsampling utility
+            df_raw = df_raw.reset_index().rename(columns={'index': 'time'})
+            
+            # Upsample to configured resolution
+            freq_str = f"{model_timestep}min"
+            
+            df_sim = upsample_dataframe(
+                df_raw, 
+                freq=freq_str, 
+                cols_linear=['outdoor_temp', 'solar_kw'],
+                cols_ffill=[] 
+            )
+            
+            # Filter to exactly the duration requested
+            df_sim = df_sim[(df_sim['time'] >= start_time) & (df_sim['time'] <= end_time)]
+            
+            # Extract Arrays
+            timestamps = df_sim['time'].tolist()
+            t_out_arr = df_sim['outdoor_temp'].ffill().fillna(50).values
+            solar_arr = df_sim['solar_kw'].fillna(0).values
+            dt_values = df_sim['dt'].values
+            
+            return timestamps, t_out_arr, solar_arr, dt_values
+        
+        timestamps, t_out_arr, solar_arr, dt_values = await self.hass.async_add_executor_job(
+            prepare_simulation_data
         )
         
-        # Filter to exactly the duration requested (from start_time)
-        df_sim = df_sim[(df_sim['time'] >= start_time) & (df_sim['time'] <= end_time)]
-        
-        # If empty after slice (shouldn't happen with logic above), fail safe
-        if df_sim.empty:
+        # If empty after slice, fail safe
+        if not timestamps:
             _LOGGER.warning("Simulation DataFrame empty after slice! Using fallback.")
-            # ... fallback logic logic or minimal DF
-
-        # Extract Arrays
-        timestamps = df_sim['time'].tolist() # pydatetime objects
-        t_out_arr = df_sim['outdoor_temp'].ffill().fillna(50).values
-        solar_arr = df_sim['solar_kw'].fillna(0).values
-        dt_values = df_sim['dt'].values # Should be ~0.25 (15 min) or whatever configured
+            raise UpdateFailed("No forecast data available for simulation period")
         
         # Create Result Arrays
         steps = len(timestamps)
@@ -399,8 +403,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 import traceback
                 _LOGGER.error(traceback.format_exc())
 
-        # 7. Run Model
-        sim_temps, _, _ = run_model(params, measurements, self.heat_pump, duration_minutes=duration_hours*60)
+        # 7. Run Model (in executor to avoid blocking)
+        sim_temps, _, _ = await self.hass.async_add_executor_job(
+            run_model, params, measurements, self.heat_pump, duration_hours*60
+        )
         
         if len(sim_temps) > 0:
             _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
