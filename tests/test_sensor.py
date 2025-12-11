@@ -83,7 +83,7 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         # Now resampled to 15-min intervals: 8 hours * 4 per hour = 32 points
         assert len(attrs["forecast"]) == 32
         assert attrs["forecast"][0]["temperature"] == 72.5
-        assert attrs["forecast"][0]["setpoint"] == 70.0  # From schedule
+        assert attrs["forecast"][0]["target_temp"] == 70.0  # From schedule
         assert "forecast_points" in attrs  # Original resolution count
         pass # mock return is repeated or real model runs with constant inputs
         
@@ -224,5 +224,5 @@ async def test_sensor_without_optimized_setpoint(hass):
     assert len(attrs["forecast"]) > 0
     # Should NOT have ideal_setpoint when no optimization
     assert "ideal_setpoint" not in attrs["forecast"][0]
-    # But should have setpoint
-    assert attrs["forecast"][0]["setpoint"] == 68.0
+    # But should have setpoint (renamed to target_temp)
+    assert attrs["forecast"][0]["target_temp"] == 68.0
