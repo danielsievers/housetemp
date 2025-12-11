@@ -99,7 +99,7 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             }
             
             # ideal_setpoint only if optimization was run
-            if optimized_setpoints and best_idx < len(optimized_setpoints):
+            if len(optimized_setpoints) > 0 and best_idx < len(optimized_setpoints):
                 item["ideal_setpoint"] = float(optimized_setpoints[best_idx])
             
             forecast.append(item)
