@@ -392,7 +392,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 )
                 
                 measurements.setpoint = optimized_setpoints
-                setpoint_arr = optimized_setpoints
+                # setpoint_arr = optimized_setpoints # DON'T overwrite schedule!
                 # hvac_state_arr = measurements.hvac_state # Optimization updates this too
                 
                 # Cache the optimization results
