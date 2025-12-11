@@ -70,6 +70,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # State for optimization
         self.last_optimization_time = None
+        self.last_optimized_setpoints = None  # Cache for optimization results
 
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
@@ -394,6 +395,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 setpoint_arr = optimized_setpoints
                 # hvac_state_arr = measurements.hvac_state # Optimization updates this too
                 
+                # Cache the optimization results
+                self.last_optimized_setpoints = optimized_setpoints.copy()
+                
                 self.last_optimization_time = now.timestamp()
                 opt_duration = time.time() - opt_start_time
                 _LOGGER.info("Optimization completed in %.2f seconds", opt_duration)
@@ -411,15 +415,21 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         if len(sim_temps) > 0:
             _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
 
-        # 7. Return Result
-        return {
+        # 8. Return Result (include cached optimized setpoints if available)
+        result = {
             "timestamps": timestamps,
             "predicted_temp": sim_temps,
-            "hvac_state": measurements.hvac_state, # Use measuring array as it might change
+            "hvac_state": measurements.hvac_state,
             "setpoint": setpoint_arr,
             "solar": solar_arr,
             "outdoor": t_out_arr
         }
+        
+        # Include optimized setpoints from cache (even if optimization was skipped this cycle)
+        if self.last_optimized_setpoints is not None:
+            result["optimized_setpoint"] = self.last_optimized_setpoints
+        
+        return result
 
     def _get_interpolated_weather(self, timestamps, forecast, default_val=50.0):
         """Interpolate weather forecast to match timestamps."""
