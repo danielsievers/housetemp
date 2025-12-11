@@ -132,3 +132,41 @@ async def test_optimization_throttling(hass, coordinator):
              assert mock_opt.call_count == 2 # Now 2
              t3 = coordinator.last_optimization_time
              assert t3 > t2
+
+@pytest.mark.asyncio
+async def test_optimization_trigger_on_config_update(hass):
+    """Test that optimization is triggered (timer reset) when config options change."""
+    from custom_components.housetemp.const import DOMAIN, CONF_SENSOR_INDOOR_TEMP, CONF_C_THERMAL, CONF_OPTIMIZATION_ENABLED, CONF_OPTIMIZATION_INTERVAL
+    from unittest.mock import patch, MagicMock
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    # Setup entry
+    entry = MockConfigEntry(
+        domain=DOMAIN, 
+        data={CONF_SENSOR_INDOOR_TEMP: "sensor.indoor", CONF_C_THERMAL: 1000.0},
+        options={CONF_OPTIMIZATION_ENABLED: True}
+    )
+    entry.add_to_hass(hass)
+    
+    # Mock update to succeed so setup completes
+    with patch("custom_components.housetemp.coordinator.HouseTempCoordinator._async_update_data", return_value={"timestamps": [], "predicted_temp": []}):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    
+    # Mock force_optimization to check if it gets called
+    # We patch the instance method on the ACTIVE coordinator object
+    with patch.object(coordinator, 'async_force_optimization', side_effect=coordinator.async_force_optimization) as mock_force:
+        # Update options
+        hass.config_entries.async_update_entry(
+            entry,
+            options={CONF_OPTIMIZATION_ENABLED: True, CONF_OPTIMIZATION_INTERVAL: 120}
+        )
+        await hass.async_block_till_done()
+        
+        # Verify force_optimization was called
+        mock_force.assert_called_once()
+        
+        # Verify last_optimization_time is None (which means forced)
+        assert coordinator.last_optimization_time is None

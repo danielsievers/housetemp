@@ -431,6 +431,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         return result
 
+    async def async_force_optimization(self):
+        """Force run optimization regardless of interval."""
+        self.last_optimization_time = None
+        await self.async_request_refresh()
+
     def _get_interpolated_weather(self, timestamps, forecast, default_val=50.0):
         """Interpolate weather forecast to match timestamps."""
         # Simple nearest neighbor or linear interpolation
