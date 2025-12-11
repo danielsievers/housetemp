@@ -94,7 +94,7 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             local_dt = dt_util.as_local(current_dt)
             item = {
                 "datetime": local_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                "temperature": round(temps[best_idx], 1) if best_idx < len(temps) else None,
+                "temperature": float(round(temps[best_idx], 1)) if best_idx < len(temps) else None,
                 "setpoint": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
             }
             
