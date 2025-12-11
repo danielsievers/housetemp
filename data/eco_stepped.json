@@ -1,0 +1,40 @@
+{
+    "center_preference": 0.1,
+    "mode": "heat",
+    "avoid_defrost": true,
+    "schedule": [
+        {
+            "weekdays": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 60
+                },
+                {
+                    "time": "07:00",
+                    "temp": 66
+                },
+                {
+                    "time": "9:30",
+                    "temp": 67
+                },
+                {
+                    "time": "13:30",
+                    "temp": 69
+                },
+                {
+                    "time": "21:00",
+                    "temp": 60
+                }
+            ]
+        }
+    ]
+}
