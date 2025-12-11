@@ -1,5 +1,5 @@
 {
-    "center_preference": 0.5,
+    "center_preference": 0.1,
     "mode": "heat",
     "avoid_defrost": true,
     "schedule": [
@@ -16,15 +16,19 @@
             "daily_schedule": [
                 {
                     "time": "00:00",
-                    "temp": 63
+                    "temp": 60
                 },
                 {
                     "time": "07:00",
+                    "temp": 66
+                },
+                {
+                    "time": "10:00",
                     "temp": 69
                 },
                 {
                     "time": "21:00",
-                    "temp": 63
+                    "temp": 60
                 }
             ]
         }
