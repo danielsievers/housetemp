@@ -154,3 +154,75 @@ async def test_sensor_empty_prediction(hass):
     sensor = HouseTempPredictionSensor(mock_coord, entry)
     assert sensor.native_value is None
 
+
+@pytest.mark.asyncio
+async def test_sensor_with_optimized_setpoint(hass):
+    """Test sensor with optimized_setpoint (numpy array)."""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    from datetime import datetime, timedelta, timezone
+    
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_C_THERMAL: 1000.0,
+    }
+    
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    # Create mock data with numpy arrays (simulating real coordinator data)
+    now = datetime.now(timezone.utc)
+    timestamps = [now + timedelta(minutes=i*5) for i in range(24)]  # 2 hours of 5-min data
+    
+    mock_coord = MagicMock()
+    mock_coord.data = {
+        "timestamps": timestamps,
+        "predicted_temp": np.array([70.0] * 24),
+        "setpoint": np.array([68.0] * 24),
+        "optimized_setpoint": np.array([69.0] * 24),  # Optimization result
+    }
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    attrs = sensor.extra_state_attributes
+    
+    assert "forecast" in attrs
+    # Should have resampled to 15-min intervals
+    assert len(attrs["forecast"]) > 0
+    # Each item should have ideal_setpoint
+    assert "ideal_setpoint" in attrs["forecast"][0]
+    assert attrs["forecast"][0]["ideal_setpoint"] == 69.0
+
+
+@pytest.mark.asyncio
+async def test_sensor_without_optimized_setpoint(hass):
+    """Test sensor without optimized_setpoint (no optimization ran)."""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    from datetime import datetime, timedelta, timezone
+    
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_C_THERMAL: 1000.0,
+    }
+    
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    now = datetime.now(timezone.utc)
+    timestamps = [now + timedelta(minutes=i*5) for i in range(24)]
+    
+    mock_coord = MagicMock()
+    mock_coord.data = {
+        "timestamps": timestamps,
+        "predicted_temp": np.array([70.0] * 24),
+        "setpoint": np.array([68.0] * 24),
+        # No optimized_setpoint - optimization didn't run
+    }
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    attrs = sensor.extra_state_attributes
+    
+    assert "forecast" in attrs
+    assert len(attrs["forecast"]) > 0
+    # Should NOT have ideal_setpoint when no optimization
+    assert "ideal_setpoint" not in attrs["forecast"][0]
+    # But should have setpoint
+    assert attrs["forecast"][0]["setpoint"] == 68.0
