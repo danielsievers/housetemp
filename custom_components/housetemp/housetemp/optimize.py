@@ -164,8 +164,11 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     
     def schedule_loss(candidate_blocks):
         # 1. Upsample Blocks to Simulation Resolution
-        # Use Linear interpolation for smoother gradients during optimization
-        candidate_setpoints = np.interp(sim_minutes, control_times, candidate_blocks)
+        # Use Stepped interpolation (hold value) to match actual thermostat behavior
+        indices = np.searchsorted(control_times, sim_minutes, side='right') - 1
+        indices = np.clip(indices, 0, len(candidate_blocks) - 1)
+        
+        candidate_setpoints = candidate_blocks[indices]
         
         # 2. Update Data
         data.setpoint[:] = candidate_setpoints
