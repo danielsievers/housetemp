@@ -40,11 +40,15 @@ The integration creates a sensor: `sensor.indoor_temperature_forecast`.
 
 To run the unit tests for this component:
 
-1.  Install dependencies:
+1.  Set up the development environment (at project root):
     ```bash
-    pip install pytest pytest-homeassistant-custom-component
+    make setup
     ```
-2.  Run tests:
+2.  Run tests using the virtual environment:
     ```bash
-    pytest tests/
+    # Use Makefile
+    make test
+
+    # Or manually with venv python
+    .venv/bin/python -m pytest tests/
     ```

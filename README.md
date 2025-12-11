@@ -91,6 +91,10 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
+> [!IMPORTANT]
+> **Agents & Automation**: Always use the python executable inside the virtual environment (`.venv/bin/python`) when running commands directly, or use `make` targets. System python may not have the correct dependencies or version.
+> Example: `.venv/bin/python -m pytest tests/` matches the `make test` behavior.
+
 ### Controlling Plots
 By default, tests run silently without showing plots. To enable plots during tests:
 
