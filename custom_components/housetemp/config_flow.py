@@ -16,6 +16,7 @@ from homeassistant.helpers import selector
 from .const import (
     DOMAIN,
     CONF_C_THERMAL,
+    CONF_UA,
     CONF_HVAC_MODE,
     CONF_AVOID_DEFROST,
     CONF_K_SOLAR,
