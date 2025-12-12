@@ -16,7 +16,8 @@ from homeassistant.helpers import selector
 from .const import (
     DOMAIN,
     CONF_C_THERMAL,
-    CONF_UA,
+    CONF_HVAC_MODE,
+    CONF_AVOID_DEFROST,
     CONF_K_SOLAR,
     CONF_Q_INT,
     CONF_H_FACTOR,
@@ -30,6 +31,13 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     DEFAULT_FORECAST_DURATION,
     DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_C_THERMAL,
+    DEFAULT_UA,
+    DEFAULT_K_SOLAR,
+    DEFAULT_Q_INT,
+    DEFAULT_H_FACTOR,
+    DEFAULT_CENTER_PREFERENCE,
+    DEFAULT_SCHEDULE_CONFIG,
     CONF_MODEL_TIMESTEP,
     DEFAULT_MODEL_TIMESTEP,
     MIN_MODEL_TIMESTEP,
@@ -41,9 +49,6 @@ _LOGGER = logging.getLogger(DOMAIN)
 
 # Validation Helpers
 SCHEDULE_SCHEMA = vol.Schema({
-    vol.Required("mode"): vol.In(["heat", "cool", "auto"]),
-    vol.Optional("center_preference", default=1.0): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
-    vol.Optional("avoid_defrost", default=True): bool,
     vol.Required("schedule"): [
         {
             vol.Required("weekdays"): [vol.In([
@@ -116,15 +121,19 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 # Physics Defaults: UA=750, C=10000, K=3000, Q=2000, H=5000
 STEP_MODEL_SETTINGS_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_SCHEDULE_CONFIG, default="[]"): selector.TextSelector(
+        vol.Required(CONF_SCHEDULE_CONFIG, default=DEFAULT_SCHEDULE_CONFIG): selector.TextSelector(
             selector.TextSelectorConfig(multiline=True)
         ),
-        vol.Required(CONF_UA, default=750.0): vol.Coerce(float),
-        vol.Required(CONF_C_THERMAL, default=10000.0): vol.Coerce(float),
-        vol.Required(CONF_K_SOLAR, default=3000.0): vol.Coerce(float),
-        vol.Required(CONF_Q_INT, default=2000.0): vol.Coerce(float),
-        vol.Required(CONF_H_FACTOR, default=5000.0): vol.Coerce(float),
-        vol.Required(CONF_CENTER_PREFERENCE, default=1.0): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+        vol.Required(CONF_HVAC_MODE, default="heat"): selector.SelectSelector(
+            selector.SelectSelectorConfig(options=["heat", "cool"])
+        ),
+        vol.Required(CONF_AVOID_DEFROST, default=True): selector.BooleanSelector(),
+        vol.Required(CONF_UA, default=DEFAULT_UA): vol.Coerce(float),
+        vol.Required(CONF_C_THERMAL, default=DEFAULT_C_THERMAL): vol.Coerce(float),
+        vol.Required(CONF_K_SOLAR, default=DEFAULT_K_SOLAR): vol.Coerce(float),
+        vol.Required(CONF_Q_INT, default=DEFAULT_Q_INT): vol.Coerce(float),
+        vol.Required(CONF_H_FACTOR, default=DEFAULT_H_FACTOR): vol.Coerce(float),
+        vol.Required(CONF_CENTER_PREFERENCE, default=DEFAULT_CENTER_PREFERENCE): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
         vol.Required(CONF_FORECAST_DURATION, default=DEFAULT_FORECAST_DURATION): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=24)
         ),
@@ -234,33 +243,43 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Required(
                     CONF_SCHEDULE_CONFIG,
-                    default=opts.get(CONF_SCHEDULE_CONFIG, "[]"),
+                    default=opts.get(CONF_SCHEDULE_CONFIG, DEFAULT_SCHEDULE_CONFIG),
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(multiline=True)
                 ),
                 vol.Required(
+                    CONF_HVAC_MODE,
+                    default=opts.get(CONF_HVAC_MODE, "heat"),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=["heat", "cool"])
+                ),
+                vol.Required(
+                    CONF_AVOID_DEFROST,
+                    default=opts.get(CONF_AVOID_DEFROST, True),
+                ): selector.BooleanSelector(),
+                vol.Required(
                     CONF_UA,
-                    default=opts.get(CONF_UA, 750.0),
+                    default=opts.get(CONF_UA, DEFAULT_UA),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_C_THERMAL,
-                    default=opts.get(CONF_C_THERMAL, 10000.0),
+                    default=opts.get(CONF_C_THERMAL, DEFAULT_C_THERMAL),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_K_SOLAR,
-                    default=opts.get(CONF_K_SOLAR, 3000.0),
+                    default=opts.get(CONF_K_SOLAR, DEFAULT_K_SOLAR),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_Q_INT,
-                    default=opts.get(CONF_Q_INT, 2000.0),
+                    default=opts.get(CONF_Q_INT, DEFAULT_Q_INT),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_H_FACTOR,
-                    default=opts.get(CONF_H_FACTOR, 5000.0),
+                    default=opts.get(CONF_H_FACTOR, DEFAULT_H_FACTOR),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_CENTER_PREFERENCE,
-                    default=opts.get(CONF_CENTER_PREFERENCE, 1.0),
+                    default=opts.get(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
                 vol.Required(
                     CONF_FORECAST_DURATION,
