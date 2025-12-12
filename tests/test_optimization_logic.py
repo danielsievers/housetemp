@@ -16,6 +16,9 @@ from custom_components.housetemp.const import (
     CONF_K_SOLAR,
     CONF_Q_INT,
     CONF_H_FACTOR,
+    CONF_HVAC_MODE,
+    CONF_CENTER_PREFERENCE,
+    CONF_AVOID_DEFROST,
 )
 from custom_components.housetemp.coordinator import HouseTempCoordinator
 
@@ -32,7 +35,17 @@ VALID_CONFIG = {
 @pytest.fixture
 def coordinator(hass):
     """Create a coordinator instance."""
-    entry = MockConfigEntry(domain=DOMAIN, data=VALID_CONFIG)
+    options = {
+        CONF_C_THERMAL: 10000.0,
+        CONF_UA: 500.0,
+        CONF_K_SOLAR: 50.0,
+        CONF_Q_INT: 500.0,
+        CONF_H_FACTOR: 1000.0,
+        CONF_HVAC_MODE: "heat",
+        CONF_CENTER_PREFERENCE: 1.0,
+        CONF_AVOID_DEFROST: True,
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=VALID_CONFIG, options=options)
     entry.add_to_hass(hass)
     
     with patch("custom_components.housetemp.coordinator.HeatPump") as mock_hp:

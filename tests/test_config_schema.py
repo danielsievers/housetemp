@@ -11,7 +11,6 @@ class TestConfigSchema(unittest.TestCase):
     def test_schema_valid_structure(self):
         """Test that a fully valid schema passes structral validation."""
         valid_data = {
-            "mode": "heat",
             "schedule": [
                 {
                     "weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday"],
@@ -25,14 +24,11 @@ class TestConfigSchema(unittest.TestCase):
         }
         # Voluptuous returns the data if valid
         out = SCHEDULE_SCHEMA(valid_data)
-        self.assertEqual(out["mode"], "heat")
         self.assertTrue(validate_schedule_timeline(out))
 
-    def test_schema_missing_required(self):
-        """Test missing required fields in schema."""
-        invalid_data = {
-            "schedule": [] # Missing mode
-        }
+    def test_schema_missing_schedule(self):
+        """Test missing schedule key."""
+        invalid_data = {}
         with self.assertRaises(vol.Invalid):
             SCHEDULE_SCHEMA(invalid_data)
 
