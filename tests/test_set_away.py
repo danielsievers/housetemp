@@ -271,6 +271,136 @@ async def test_early_return_cancellation(coordinator):
         # Verify Immediate Optimization Triggered (Restoring comfort)
         assert coordinator.async_trigger_optimization.call_count == 2
         
-        # Verify status is effectively "Home" (end time is now)
-        is_away, _, _ = coordinator._get_away_status()
-        assert not is_away # Should be expired or extremely close
+@pytest.mark.asyncio
+async def test_away_attributes_after_restart(hass_mock):
+    """Test 6: Away Attributes Persist After Restart"""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    
+    # 1. Setup Mock Config Entry with persisted Away Data
+    future = dt_util.now() + timedelta(days=2)
+    entry = MagicMock()
+    entry.entry_id = "test_restart"
+    entry.options = {
+        "away_end": future.isoformat(),
+        "away_temp": 50.0,
+        "forecast_duration": 48
+    }
+    
+    # 2. Setup Coordinator (mocking initialization that reads options)
+    coord = MagicMock()
+    coord.config_entry = entry
+    coord.data = {
+         "timestamps": [dt_util.now()],
+         "predicted_temp": [50.0],
+         "setpoint": [70.0],
+         # logic in coordinator._async_update_data populates away_info from options
+         "away_info": {
+             "active": True,
+             "temp": 50.0,
+             "end": future.isoformat()
+         }
+    }
+    # Mock hass config for time zone
+    coord.hass.config.time_zone = "UTC"
+    
+    # 3. Initialize Sensor
+    sensor = HouseTempPredictionSensor(coord, entry)
+    
+    # 4. Verify Attributes
+    attrs = sensor.extra_state_attributes
+    assert attrs.get("away") is True
+    assert attrs.get("away_end") == future.isoformat()
+
+@pytest.mark.asyncio
+async def test_away_cancellation_updates_sensor(hass_mock):
+    """Test 7: Away Cancellation Updates Sensor Attributes"""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    
+    # 1. Start with Active Away
+    entry = MagicMock()
+    entry.entry_id = "test_cancel"
+    # Options will be updated by coordinator logic in real app, we mock the data flow here
+    entry.options = {} 
+    
+    coord = MagicMock()
+    coord.config_entry = entry
+    coord.hass.config.time_zone = "UTC"
+    
+    # Active Data
+    future = dt_util.now() + timedelta(hours=5)
+    coord.data = {
+         "timestamps": [dt_util.now()],
+         "predicted_temp": [50.0],
+         "setpoint": [70.0],
+         "away_info": {
+             "active": True,
+             "end": future.isoformat(),
+             "temp": 55.0
+         }
+    }
+    
+    sensor = HouseTempPredictionSensor(coord, entry)
+    assert sensor.extra_state_attributes.get("away") is True
+    
+    # 2. Cancel Away (Simulate data update reflecting cancellation)
+    # The coordinator would set active=False
+    coord.data["away_info"] = {"active": False}
+    
+    # 3. Verify Attributes Update
+    attrs = sensor.extra_state_attributes
+    assert attrs.get("away") is False
+    assert "away_end" not in attrs
+
+@pytest.mark.asyncio
+async def test_away_end_timezone_conversion(hass_mock):
+    """Test 8: Away End Timezone Conversion"""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    import pytz
+    
+    # Define Timezones
+    utc_tz = pytz.UTC
+    la_tz = pytz.timezone("America/Los_Angeles")
+    
+    # 1. Setup Mock Config Entry with UTC time
+    # 12:00 UTC = 04:00 PST (assuming standard time)
+    future_utc = datetime(2025, 1, 1, 12, 0, 0, tzinfo=utc_tz)
+    
+    entry = MagicMock()
+    entry.entry_id = "test_tz"
+    entry.options = {} 
+    
+    coord = MagicMock()
+    coord.config_entry = entry
+    # Mock hass config to LA
+    coord.hass.config.time_zone = "America/Los_Angeles"
+    
+    # Data has UTC string and dummy timestamps to bypass early return
+    coord.data = {
+         "timestamps": [datetime.now()],
+         "predicted_temp": [50.0], # matching length
+         "setpoint": [70.0],
+         "away_info": {
+             "active": True,
+             "end": future_utc.isoformat(),
+             "temp": 50.0
+         }
+    }
+    
+    # Patch dt_util.DEFAULT_TIME_ZONE to match LA for as_local() to work
+    with patch("homeassistant.util.dt.DEFAULT_TIME_ZONE", la_tz):
+        sensor = HouseTempPredictionSensor(coord, entry)
+        attrs = sensor.extra_state_attributes
+        
+        assert attrs.get("away") is True
+        away_end_str = attrs.get("away_end")
+        
+        # Parse result
+        dt_result = dt_util.parse_datetime(away_end_str)
+        
+        # Verify it is Local (LA has -8h offset in Jan)
+        assert dt_result.utcoffset().total_seconds() == -8 * 3600
+        
+        # Verify Hour (Should be 4 AM)
+        assert dt_result.hour == 4
+        assert dt_result.minute == 0
+

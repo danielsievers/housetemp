@@ -94,6 +94,9 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
 
         end_dt = timestamps[-1]
         
+        # Determine extra away info from data
+        away_info = data.get("away_info", {})
+        
         forecast = []
         while current_dt <= end_dt:
             # Find nearest data point (or interpolate)
@@ -115,7 +118,6 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             
             # ideal_setpoint only if optimization was run AND covers this time slot
             # Fallback to Away Temp if active and missing optimization
-            away_info = data.get("away_info", {})
             
             if len(optimized_setpoints) > 0 and best_idx < len(optimized_setpoints):
                 val = optimized_setpoints[best_idx]
@@ -131,7 +133,26 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             forecast.append(item)
             current_dt += timedelta(minutes=15)
 
-        return {
+        to_return = {
             "forecast": forecast,
-            "forecast_points": len(timestamps),  # Original resolution count
+            "forecast_points": len(timestamps),
         }
+        
+        if away_info.get("active"):
+            to_return["away"] = True
+            end_s = away_info.get("end")
+            if end_s:
+                try:
+                    # Parse as UTC/Aware
+                    dt_end = dt_util.parse_datetime(end_s)
+                    # Convert to local
+                    if dt_end:
+                         if dt_end.tzinfo is None:
+                             dt_end = dt_end.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
+                         to_return["away_end"] = dt_util.as_local(dt_end).isoformat()
+                except Exception:
+                    pass
+        else:
+             to_return["away"] = False
+
+        return to_return

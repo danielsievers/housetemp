@@ -126,3 +126,8 @@ When `set_away` is called, the service returns predicted energy usage if the awa
 *   `energy_used_schedule_kwh`: Est. consumption if the original schedule were followed.
 *   `energy_used_optimized_kwh`: Est. consumption using the new Away Setpoint (and smart return).
 *   Allows users/automations to immediately calculate "Savings" from the away action.
+
+### 7.4 Sensor Attributes
+The main temperature sensor reflects the Away status:
+*   `away` (boolean): `true` when Away Mode is active.
+*   `away_end` (datetime): The local time when Away Mode is scheduled to end (only present when active).
