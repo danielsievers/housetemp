@@ -136,38 +136,29 @@ async def test_update_weather_invalid_current(hass, coordinator):
         await coordinator._async_update_data()
 
 @pytest.mark.asyncio
-async def test_process_schedule_invalid_json(hass, coordinator):
-    """Test schedule processing with invalid JSON raises ValueError."""
-    timestamps = [datetime.now()]
-    with pytest.raises(ValueError, match="Invalid Schedule JSON"):
-        coordinator._process_schedule(timestamps, "{invalid")
-
-@pytest.mark.asyncio
-async def test_process_schedule_modes(hass, coordinator):
-    """Test schedule processing for cool mode and time logic."""
-    schedule = json.dumps({
-        "mode": "auto",  # Test valid mode field
-        "schedule": [
-            {
-               "weekdays": ["sunday"],
-               "daily_schedule": [
-                   {"time": "00:00", "temp": 68},
-                   {"time": "12:00", "temp": 75}
-               ]
-            }
-        ]
-    })
+async def test_update_schedule_invalid_json(hass, coordinator):
+    """Test update with invalid schedule JSON in options."""
+    # Mock input handler to return valid simulation data so we reach schedule processing
+    from datetime import datetime, timezone
     
-    # Create timestamps for 10am and 2pm on Sunday (2023-01-01 was Sunday)
-    t1 = datetime(2023, 1, 1, 10, 0, 0)
-    t2 = datetime(2023, 1, 1, 14, 0, 0)
-    timestamps = [t1, t2]
+    start = datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+    mock_sim_data = (
+        [start], # timestamps
+        np.array([50.0]), # t_out
+        np.array([0.0]),  # solar
+        np.array([1.0])   # dt
+    )
     
-    hvac, setpoints = coordinator._process_schedule(timestamps, schedule)
+    # We must patch the input_handler on the coordinator instance
+    coordinator.input_handler = MagicMock()
+    coordinator.input_handler.prepare_simulation_data = MagicMock(return_value=mock_sim_data)
     
-    # For "auto" mode, hvac should be 0
-    assert hvac[0] == 0
-    assert setpoints[0] == 68.0
+    # Set invalid schedule in options
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={CONF_SCHEDULE_CONFIG: "{invalid"}
+    )
     
-    assert hvac[1] == 0
-    assert setpoints[1] == 75.0
+    # Should raise UpdateFailed because ValueError from json.loads is caught in _async_update_data
+    with pytest.raises(UpdateFailed, match="Error preparing simulation inputs"):
+        await coordinator._async_update_data()

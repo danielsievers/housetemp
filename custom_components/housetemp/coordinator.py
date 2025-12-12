@@ -45,6 +45,7 @@ from .housetemp.run_model import run_model, HeatPump
 from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.optimize import optimize_hvac_schedule
+from .housetemp.schedule import process_schedule_data
 from .housetemp.energy import estimate_consumption
 from .input_handler import SimulationInputHandler
 
@@ -529,11 +530,22 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         if not timestamps:
             raise UpdateFailed("No forecast data available for simulation period")
         
-        steps = len(timestamps)
-        
         schedule_json = self.config_entry.options.get(CONF_SCHEDULE_CONFIG, "[]")
-        hvac_state_arr, setpoint_arr = self._process_schedule(timestamps, schedule_json)
+        
+        try:
+            schedule_data = json.loads(schedule_json)
+        except Exception as e:
+            _LOGGER.error("Invalid Schedule JSON: %s", e)
+            raise ValueError(f"Invalid Schedule JSON: {e}")
 
+        is_away, away_end, away_temp = self._get_away_status()
+        hvac_state_arr, setpoint_arr = process_schedule_data(
+            timestamps, 
+            schedule_data, 
+            away_status=(is_away, away_end, away_temp)
+        )
+
+        steps = len(timestamps)
         t_in_arr = np.zeros(steps)
         t_in_arr[0] = current_temp
 
@@ -549,98 +561,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         return measurements, params, start_time
 
-    def _process_schedule(self, timestamps, schedule_json):
-        """Generate HVAC state and setpoint arrays from schedule."""
-        _LOGGER.debug("Processing schedule for %d timestamps", len(timestamps))
-        from datetime import time as datetime_time
-        from datetime import datetime
-        
-        # Check for Away Mode
-        is_away, away_end, away_temp = self._get_away_status()
-        
-        try:
-            schedule_data = json.loads(schedule_json)
-        except Exception as e:
-            _LOGGER.error("Invalid Schedule JSON: %s", e)
-            raise ValueError(f"Invalid Schedule JSON: {e}")
-
-        if not isinstance(schedule_data, dict) or "schedule" not in schedule_data:
-            _LOGGER.error("Schedule must be a dictionary with 'schedule' key. Got: %s", schedule_json)
-            raise ValueError("Schedule must be a dictionary with 'schedule' key")
-
-        # Helper to find daily schedule for a given date
-        def get_daily_schedule(date_obj):
-            day_name = date_obj.strftime("%A").lower()
-            for rule in schedule_data.get("schedule", []):
-                if day_name in [d.lower() for d in rule.get("weekdays", [])]:
-                    return rule.get("daily_schedule", [])
-            return []
-
-        hvac_arr = []
-        setpoint_arr = []
-
-        for ts in timestamps:
-            daily_items = get_daily_schedule(ts)
-            
-            if not daily_items:
-                raise ValueError(f"No schedule coverage for timestamp {ts}")
-            
-            # Use local time for schedule lookup
-            ts_local = dt_util.as_local(ts)
-            current_time = ts_local.time()
-            
-            # Sort items by time (defensive, though validation enforces it)
-            # Use datetime.time for robust comparison
-            try:
-                # Convert string times to datetime.time objects once if optimization needed,
-                # but for simplicity we do it here. validation ensures "HH:MM" format.
-                sorted_items = sorted(
-                    daily_items, 
-                    key=lambda x: datetime.strptime(x['time'], "%H:%M").time() if isinstance(x['time'], str) else x['time']
-                )
-            except ValueError:
-                 _LOGGER.error("Invalid time format in schedule for timestamp %s", ts)
-                 raise ValueError(f"Invalid time format in schedule for timestamp {ts}")
-
-            # Find active rule: last time less than or equal to current time
-            # Validation ensures daily_schedule is not empty.
-            active_item = sorted_items[-1] # Default to last item (wrap around previous day effectively)
-            
-            for item in sorted_items:
-                # Parse item time
-                t_str = item['time']
-                t_obj = datetime.strptime(t_str, "%H:%M").time()
-                
-                if t_obj <= current_time:
-                    active_item = item
-                else:
-                    break
-            
-            # Extract setpoint and mode
-            val = active_item.get("temp")
-            if val is None:
-                 raise ValueError(f"Missing 'temp' in schedule item: {active_item}")
-            setpoint = float(val)
-            
-            global_mode = schedule_data.get("mode", "heat").lower()
-            
-            # Map logic to integers
-            state_val = 0
-            if global_mode == 'heat':
-                state_val = 1
-            elif global_mode == 'cool':
-                state_val = -1
-            
-            hvac_arr.append(state_val)
-            
-            # Apply Away Override
-            final_setpoint = setpoint
-            if is_away and ts < away_end:
-                 final_setpoint = away_temp
-            
-            setpoint_arr.append(final_setpoint)
-
-        return np.array(hvac_arr), np.array(setpoint_arr)
 
     async def async_set_away_mode(self, duration_delta: timedelta, safety_temp: float):
         """Set the away mode with a duration and safety temperature."""
