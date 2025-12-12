@@ -53,7 +53,7 @@ async def test_flow_full_path(hass: HomeAssistant):
     # 3. Model Settings Step
     settings_input = {
         CONF_C_THERMAL: 15000.0,
-        CONF_SCHEDULE_CONFIG: "[]",
+        CONF_SCHEDULE_CONFIG: '{"mode": "heat", "schedule": [{"weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"], "daily_schedule": [{"time": "00:00", "temp": 70}]}]}',
         # ... other defaults are handled by vol.Optional/Required defaults
     }
     

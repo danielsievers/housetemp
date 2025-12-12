@@ -662,143 +662,105 @@ class HouseTempCoordinator(DataUpdateCoordinator):
     def _process_schedule(self, timestamps, schedule_json):
         """Generate HVAC state and setpoint arrays from schedule."""
         _LOGGER.debug("Processing schedule for %d timestamps", len(timestamps))
+        from datetime import time as datetime_time
+        from datetime import datetime
         
         # Check for Away Mode
         is_away, away_end, away_temp = self._get_away_status()
         
-        # Schedule can be old list or new nested dict
         try:
             schedule_data = json.loads(schedule_json)
-            # Basic Schema Validation
-            if isinstance(schedule_data, dict):
-                 if "schedule" not in schedule_data or not isinstance(schedule_data["schedule"], list):
-                      _LOGGER.error("Schedule JSON missing 'schedule' list")
-                      return np.zeros(len(timestamps)), np.full(len(timestamps), 70.0)
         except Exception as e:
             _LOGGER.error("Invalid Schedule JSON: %s", e)
-            return np.zeros(len(timestamps)), np.full(len(timestamps), 70.0)
+            return np.zeros(len(timestamps)), np.full(len(timestamps), DEFAULT_FALLBACK_SETPOINT)
 
-        if not schedule_data:
-             return np.zeros(len(timestamps)), np.full(len(timestamps), 70.0)
+        if not isinstance(schedule_data, dict) or "schedule" not in schedule_data:
+            _LOGGER.error("Schedule must be a dictionary with 'schedule' key")
+            return np.zeros(len(timestamps)), np.full(len(timestamps), DEFAULT_FALLBACK_SETPOINT)
 
-        # Handle New format: {"schedule": [...]}
-        if isinstance(schedule_data, dict) and "schedule" in schedule_data:
-            # We need to flatten this based on weekdays?
-            # For simplicity in this coordinator, let's assume we just want to look up the schedule for the current day.
-            # But the simulation spans multiple hours (maybe crossing days).
-            # We need a helper to look up properties.
-            # Let's re-use the logic or adapt it.
-            
-            # Extract the relevant daily schedule for each timestamp
-            hvac_arr = []
-            setpoint_arr = []
-            
-            # Helper to find daily schedule for a given date
-            def get_daily_schedule(date_obj):
-                day_name = date_obj.strftime("%A").lower()
-                for rule in schedule_data.get("schedule", []):
-                    if day_name in [d.lower() for d in rule.get("weekdays", [])]:
-                        return rule.get("daily_schedule", [])
-                return []
+        # Helper to find daily schedule for a given date
+        def get_daily_schedule(date_obj):
+            day_name = date_obj.strftime("%A").lower()
+            for rule in schedule_data.get("schedule", []):
+                if day_name in [d.lower() for d in rule.get("weekdays", [])]:
+                    return rule.get("daily_schedule", [])
+            return []
 
-            for ts in timestamps:
-                daily_items = get_daily_schedule(ts)
-                if not daily_items:
-                    # Fallback
-                    hvac_arr.append(0)
-                    setpoint_arr.append(DEFAULT_FALLBACK_SETPOINT)
-                    continue
-                    
-                # Find item in daily_items
-                # They are sorted by time? They should be.
-                # daily_items = [{"time": "00:00", ...}, ...]
-                
-                # CRITICAL: The timestamp 'ts' is likely UTC (from dt_util.now() or forecast).
-                # The schedule "07:00" is meant for Local Time.
-                # We must convert 'ts' to local time before comparing.
-                ts_local = dt_util.as_local(ts)
-                current_time_str = ts_local.strftime("%H:%M")
-                
-                # Sort just in case
-                daily_items = sorted(daily_items, key=lambda x: x['time'])
-                
-                active_item = daily_items[-1] # Default to last of prev day? OR last item
-                
-                for item in daily_items:
-                    if item['time'] <= current_time_str:
-                        active_item = item
-                    else:
-                        break
-                
-                # mode logic
-                if "temp" in active_item:
-                     # New format uses "temp" which is setpoint
-                     setpoint = float(active_item["temp"])
-                     # Mode is global in new format? Or implied?
-                     # The new format comfort.json has "mode": "heat" at top level.
-                     # We should use that.
-                     global_mode = schedule_data.get("mode", "heat").lower()
-                     mode = global_mode
-                else:
-                     # Old format
-                     mode = active_item.get('mode', 'off').lower()
-                     setpoint = float(active_item.get('setpoint', DEFAULT_FALLBACK_SETPOINT))
-                
-                state_val = 0
-                if mode == 'heat':
-                    state_val = 1
-                elif mode == 'cool':
-                    state_val = -1
-                
-                hvac_arr.append(state_val)
-                
-                # Apply Away Override
-                final_setpoint = setpoint
-                if is_away and ts < away_end:
-                     final_setpoint = away_temp
-                     # Force mode to heat if away? 
-                     # Usually away mode implies heating/cooling to safety. 
-                     # But current implementation just overrides setpoint.
-                     # The optimization will then see a low target and likely keep hvac off.
-                
-                setpoint_arr.append(final_setpoint)
-
-            return np.array(hvac_arr), np.array(setpoint_arr)
-
-        # Legacy List Format handling (keep for backward compat if needed, or just fail)
-        if isinstance(schedule_data, list):
-             schedule = schedule_data
-             # ... (Original logic for list) ...
-             # We can copy paste the original loop here or just deprecate list.
-             # Let's keep it simple and assume list format is dead or handled by above if we enforce dict.
-             pass
-
-        # If we got here and it's a list, run original logic:
-        schedule = schedule_data
         hvac_arr = []
         setpoint_arr = []
-        
+
         for ts in timestamps:
-            current_time_str = ts.strftime("%H:%M")
-            schedule.sort(key=lambda x: x['time'])
-            active_item = schedule[-1]
-            for item in schedule:
-                if item['time'] <= current_time_str:
+            daily_items = get_daily_schedule(ts)
+            
+            if not daily_items:
+                # This should be caught by config validation, but defensive fallback remains
+                hvac_arr.append(0)
+                setpoint_arr.append(DEFAULT_FALLBACK_SETPOINT)
+                continue
+            
+            # Use local time for schedule lookup
+            ts_local = dt_util.as_local(ts)
+            current_time = ts_local.time()
+            
+            # Sort items by time (defensive, though validation enforces it)
+            # Use datetime.time for robust comparison
+            try:
+                # Convert string times to datetime.time objects once if optimization needed,
+                # but for simplicity we do it here. validation ensures "HH:MM" format.
+                sorted_items = sorted(
+                    daily_items, 
+                    key=lambda x: datetime.strptime(x['time'], "%H:%M").time() if isinstance(x['time'], str) else x['time']
+                )
+            except ValueError:
+                 # Fallback if time format is somehow wrong
+                 _LOGGER.error("Invalid time format in schedule for timestamp %s", ts)
+                 hvac_arr.append(0)
+                 setpoint_arr.append(DEFAULT_FALLBACK_SETPOINT)
+                 continue
+
+            # Find active rule: last time less than or equal to current time
+            # Default to last item (wrapping logic can be complex, 
+            # simple assumption: schedule matches "state at this time")
+            # If current time is 00:05 and first rule is 08:00, what happens?
+            # Typically thermostat schedules carry over from previous day.
+            # Implementing carry-over is complex in stateless loop.
+            # Sticking to: default to first item if before first, or last item? 
+            # Usually: find item where item.time <= current.time.
+            # If none found (current < first), use last item OF THE LIST (previous night) 
+            # OR typically we assume list starts at 00:00.
+            
+            # Validation ensures daily_schedule is not empty.
+            active_item = sorted_items[-1] # Default to last item (wrap around previous day effectively)
+            
+            for item in sorted_items:
+                # Parse item time
+                t_str = item['time']
+                t_obj = datetime.strptime(t_str, "%H:%M").time()
+                
+                if t_obj <= current_time:
                     active_item = item
                 else:
                     break
             
-            mode = active_item.get('mode', 'off').lower()
-            setpoint = float(active_item.get('setpoint', 70))
+            # Extract setpoint and mode
+            setpoint = float(active_item.get("temp", DEFAULT_FALLBACK_SETPOINT))
+            global_mode = schedule_data.get("mode", "heat").lower()
             
+            # Map logic to integers
             state_val = 0
-            if mode == 'heat':
+            if global_mode == 'heat':
                 state_val = 1
-            elif mode == 'cool':
+            elif global_mode == 'cool':
                 state_val = -1
             
             hvac_arr.append(state_val)
-            setpoint_arr.append(setpoint)
+            
+            # Apply Away Override
+            final_setpoint = setpoint
+            if is_away and ts < away_end:
+                 final_setpoint = away_temp
+            
+            setpoint_arr.append(final_setpoint)
 
         return np.array(hvac_arr), np.array(setpoint_arr)
 

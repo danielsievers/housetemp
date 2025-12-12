@@ -170,24 +170,31 @@ async def test_process_schedule_invalid_json(hass, coordinator):
 @pytest.mark.asyncio
 async def test_process_schedule_modes(hass, coordinator):
     """Test schedule processing for cool mode and time logic."""
-    schedule = json.dumps([
-        {"time": "00:00", "mode": "heat", "setpoint": 68},
-        {"time": "12:00", "mode": "cool", "setpoint": 75},
-    ])
+    schedule = json.dumps({
+        "mode": "auto",  # Test valid mode field
+        "schedule": [
+            {
+               "weekdays": ["sunday"],
+               "daily_schedule": [
+                   {"time": "00:00", "temp": 68},
+                   {"time": "12:00", "temp": 75}
+               ]
+            }
+        ]
+    })
     
-    # Create timestamps for 10am and 2pm
+    # Create timestamps for 10am and 2pm on Sunday (2023-01-01 was Sunday)
     t1 = datetime(2023, 1, 1, 10, 0, 0)
     t2 = datetime(2023, 1, 1, 14, 0, 0)
     timestamps = [t1, t2]
     
     hvac, setpoints = coordinator._process_schedule(timestamps, schedule)
     
-    # 10am -> matches 00:00 -> heat (1)
-    assert hvac[0] == 1 
+    # For "auto" mode, hvac should be 0
+    assert hvac[0] == 0
     assert setpoints[0] == 68.0
     
-    # 2pm -> matches 12:00 -> cool (-1)
-    assert hvac[1] == -1
+    assert hvac[1] == 0
     assert setpoints[1] == 75.0
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
@@ -37,9 +37,62 @@ from .const import (
     DEFAULT_CONTROL_TIMESTEP,
     MIN_CONTROL_TIMESTEP,
 )
-from homeassistant.core import callback
-
 _LOGGER = logging.getLogger(DOMAIN)
+
+# Validation Helpers
+SCHEDULE_SCHEMA = vol.Schema({
+    vol.Required("mode"): vol.In(["heat", "cool", "auto"]),
+    vol.Optional("center_preference", default=1.0): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+    vol.Optional("avoid_defrost", default=True): bool,
+    vol.Required("schedule"): [
+        {
+            vol.Required("weekdays"): [vol.In([
+                "monday", "tuesday", "wednesday", "thursday", 
+                "friday", "saturday", "sunday"
+            ])],
+            vol.Required("daily_schedule"): [
+                {
+                    vol.Required("time"): vol.Match(r"^([0-1][0-9]|2[0-3]):[0-5][0-9]$"),  # HH:MM
+                    vol.Required("temp"): vol.All(vol.Coerce(float), vol.Range(min=40, max=95))
+                }
+            ]
+        }
+    ]
+}, extra=vol.ALLOW_EXTRA)
+
+def validate_schedule_timeline(schedule_data):
+    """Ensure schedule creates a valid, gapless timeline."""
+    weekday_names = ["monday", "tuesday", "wednesday", "thursday", 
+                    "friday", "saturday", "sunday"]
+    covered = set()
+    
+    # Check 1: Weekday Coverage & Duplicates
+    if not isinstance(schedule_data.get("schedule"), list):
+        raise ValueError("Schedule must contain a list under 'schedule' key")
+
+    for rule in schedule_data["schedule"]:
+        for day in rule["weekdays"]:
+            day_clean = day.lower()
+            if day_clean in covered:
+                raise ValueError(f"Weekday '{day}' is defined in multiple schedule blocks")
+            covered.add(day_clean)
+    
+    if len(covered) != 7:
+        missing = set(weekday_names) - covered
+        raise ValueError(f"Schedule must cover all 7 days. Missing: {missing}")
+    
+    # Check 2: Daily Schedule Format
+    for rule in schedule_data["schedule"]:
+        daily = rule["daily_schedule"]
+        if not daily:
+            raise ValueError("daily_schedule cannot be empty")
+        
+        # Verify chronological order
+        times = [item["time"] for item in daily]
+        if times != sorted(times):
+            raise ValueError(f"Daily schedule times must be sorted chronologically: {times}")
+
+    return True
 
 # Step 1: Fixed Identity (Stored in DATA)
 STEP_USER_DATA_SCHEMA = vol.Schema(
@@ -120,7 +173,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Validate Schedule JSON
             try:
-                json.loads(user_input[CONF_SCHEDULE_CONFIG])
+                schedule_data = json.loads(user_input[CONF_SCHEDULE_CONFIG])
+                SCHEDULE_SCHEMA(schedule_data)        # Validate Types/Structure
+                validate_schedule_timeline(schedule_data) # Validate Logic
+                
                 self._options.update(user_input)
                 
                 return self.async_create_entry(
@@ -128,8 +184,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data=self._data,
                     options=self._options
                 )
-            except ValueError:
+            except (ValueError, vol.Invalid) as e:
                 errors[CONF_SCHEDULE_CONFIG] = "invalid_json"
+                _LOGGER.warning("Invalid schedule config: %s", e)
 
         return self.async_show_form(
             step_id="model_settings", 
@@ -154,12 +211,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
              # Validate Schedule JSON
             try:
-                json.loads(user_input[CONF_SCHEDULE_CONFIG])
+                schedule_data = json.loads(user_input[CONF_SCHEDULE_CONFIG])
+                SCHEDULE_SCHEMA(schedule_data)        # Validate Types/Structure
+                validate_schedule_timeline(schedule_data) # Validate Logic
+                
                 return self.async_create_entry(title="", data=user_input)
-            except ValueError:
+            except (ValueError, vol.Invalid) as e:
                 errors = {CONF_SCHEDULE_CONFIG: "invalid_json"}
-                # Fall through to show form with errors (logic somewhat complex with schema, but standard pattern)
-                # Actually, standard pattern is to re-render form.
+                _LOGGER.warning("Invalid schedule config in options: %s", e)
+                # Fall through to show form with errors
                 pass
         else:
             errors = {}
