@@ -44,7 +44,9 @@ from .const import (
 from .housetemp.run_model import run_model, HeatPump
 from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
+from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.energy import estimate_consumption
+from .input_handler import SimulationInputHandler
 
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -72,6 +74,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # State for optimization
         # Change to dict: timestamp -> setpoint
         self.optimized_setpoints_map = {} 
+        
+        # New Input Handler
+        self.input_handler = SimulationInputHandler(hass)
 
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
@@ -404,9 +409,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
     async def _prepare_simulation_inputs(self, duration_override=None):
         """Helper to fetch data and prepare measurements (shared logic)."""
-        # This is a refactored extraction of lines 116-364 from original _async_update_data
-        # For the sake of this tool use, I will assume I need to implement this helper 
-        # and replace the logic in _async_update_data to use it too.
+        """Helper to fetch data and prepare measurements (shared logic)."""
         
         # 1. Get Inputs
         # Fixed Identity (DATA)
@@ -510,95 +513,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.warning("Solar entity %s not found", entity_id)
 
-        # 5. Prepare Simulation Data using Shared Upsampling Logic
-        import pandas as pd
-        from .housetemp.utils import upsample_dataframe
-        
-        def parse_points(forecast_list, dt_key_opts, val_key_opts):
-            pts = []
-            for item in forecast_list:
-                dt_val = next((item.get(k) for k in dt_key_opts if item.get(k)), None)
-                key_found = next((k for k in val_key_opts if item.get(k) is not None), None)
-                val = item.get(key_found) if key_found else None
-                
-                if dt_val and val is not None:
-                    if isinstance(dt_val, str):
-                        dt = dt_util.parse_datetime(dt_val)
-                    else:
-                        dt = dt_val
-                    
-                    if dt:
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
-                        
-                        val_float = float(val)
-                        if key_found in ['watts', 'wh_hours']: 
-                             val_float /= 1000.0
-                        elif key_found == 'pv_estimate':
-                             if val_float > 50: 
-                                 val_float /= 1000.0
-                        
-                        pts.append({'time': dt, 'value': val_float})
-            return pts
-
-        weather_pts = parse_points(forecast, ['datetime'], ['temperature'])
-        if not weather_pts:
-             raise UpdateFailed(f"No forecast data available from {weather_entity}") 
-
-        solar_pts = parse_points(solar_forecast_data, 
-                                 ['datetime', 'period_end', 'period_start'], 
-                                 ['pv_estimate', 'watts', 'wh_hours', 'value'])
-        if not solar_pts:
-             now = dt_util.now()
-             if now.tzinfo is None:
-                 now = now.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
-             solar_pts = [{'time': now, 'value': 0.0}]
-             
+        # 5. Prepare Simulation Data using Shared Handler
         now = dt_util.now()
         start_time = now
-        end_time = start_time + timedelta(hours=duration_hours)
         model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
         
-        def prepare_simulation_data():
-            df_w = pd.DataFrame(weather_pts).set_index('time').rename(columns={'value': 'outdoor_temp'})
-            df_s = pd.DataFrame(solar_pts).set_index('time').rename(columns={'value': 'solar_kw'})
-            
-            df_raw = df_w.join(df_s, how='outer').sort_index()
-            
-            if df_raw.index.min() > start_time:
-                row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[0]], 'solar_kw': [0]}, index=[start_time])
-                df_raw = pd.concat([row, df_raw])
-                 
-            if df_raw.index.max() < end_time:
-                row = pd.DataFrame({'outdoor_temp': [df_raw['outdoor_temp'].iloc[-1]], 'solar_kw': [0]}, index=[end_time])
-                df_raw = pd.concat([df_raw, row])
-                 
-            df_raw = df_raw.reset_index().rename(columns={'index': 'time'})
-            
-            freq_str = f"{model_timestep}min"
-            df_sim = upsample_dataframe(
-                df_raw, 
-                freq=freq_str, 
-                cols_linear=['outdoor_temp', 'solar_kw'],
-                cols_ffill=[] 
-            )
-            
-            df_sim = df_sim[(df_sim['time'] >= start_time) & (df_sim['time'] <= end_time)]
-            
-            timestamps = df_sim['time'].tolist()
-            t_out_arr = df_sim['outdoor_temp'].ffill().values
-            
-            # Check for missing data (NaNs)
-            if pd.isna(t_out_arr).any():
-                 raise ValueError("Weather forecast data gap: unable to interpolate outdoor temperature for full duration.")
-                 
-            solar_arr = df_sim['solar_kw'].fillna(0).values
-            dt_values = df_sim['dt'].values
-            
-            return timestamps, t_out_arr, solar_arr, dt_values
-        
-        timestamps, t_out_arr, solar_arr, dt_values = await self.hass.async_add_executor_job(
-            prepare_simulation_data
+        timestamps, t_out_arr, solar_arr, dt_values = await self.input_handler.prepare_simulation_data(
+            forecast if forecast else [],
+            solar_forecast_data,
+            start_time,
+            duration_hours,
+            model_timestep
         )
         
         if not timestamps:
