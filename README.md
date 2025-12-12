@@ -1,7 +1,7 @@
 # HouseTemp: Home Thermal Model
 
 A physics-based thermal model for estimating home insulation (UA), thermal mass (C), and other parameters from Home Assistant history data.
-A physics-based thermal model for estimating home insulation (UA), thermal mass (C), and other parameters from Home Assistant history data.
+
 
 ## Home Assistant Integration
 This repository includes a custom component for Home Assistant.
@@ -66,7 +66,6 @@ python3 main.py data.csv -p my_house.json --optimize-hvac --comfort data/comfort
 }
 ```
 
-```
 
 ### 5. Set Away Mode (Smart Wake-Up)
 The integration provides a `housetemp.set_away` service to override the schedule for a duration.
