@@ -68,3 +68,34 @@ async def test_flow_full_path(hass: HomeAssistant):
     # Verify Split Storage
     assert result["data"][CONF_SENSOR_INDOOR_TEMP] == "sensor.indoor"
     assert result["options"][CONF_C_THERMAL] == 15000.0
+
+@pytest.mark.asyncio
+async def test_solar_selector_schema(hass: HomeAssistant):
+    """Test the solar entity selector schema allows correct device classes."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    
+    # Extract the schema for CONF_SOLAR_ENTITY
+    schema = result["data_schema"]
+    
+    # Schema keys are markers, we need to iterate to find the right key
+    solar_key = None
+    for key in schema.schema:
+        if key == CONF_SOLAR_ENTITY:
+            solar_key = key
+            break
+    
+    assert solar_key is not None
+    
+    # Inspect the Selector config
+    # In Home Assistant, selector is attached to the schema key or val info.
+    # Actually, vol.Schema structure is complex to inspect deep selector config directly via volatile objects.
+    # However, for selectors created via selector.EntitySelector(config), the config is typically stored.
+    
+    selector_config = schema.schema[solar_key].config
+    
+    # Domain is a list in EntitySelectorConfig when parsed
+    assert selector_config["domain"] == ["sensor"] 
+    assert selector_config["multiple"] is True
+    assert set(selector_config["device_class"]) == {"power", "energy"}
