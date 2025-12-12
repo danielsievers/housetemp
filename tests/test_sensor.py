@@ -268,3 +268,59 @@ async def test_sensor_preference_optimized_over_schedule(hass: HomeAssistant):
     # helper to check state
     val = sensor.native_value
     assert val == 68.0  # Should pick optimized (68) over schedule (65)
+
+@pytest.mark.asyncio
+async def test_sensor_away_expires_in_forecast(hass: HomeAssistant):
+    """Test that ideal_setpoint stops using away temp after expiration."""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    from datetime import datetime, timedelta, timezone
+    from homeassistant.util import dt as dt_util
+    
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_C_THERMAL: 1000.0,
+    }
+    
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    now = datetime.now(timezone.utc)
+    # 4 hours of data
+    timestamps = [now + timedelta(minutes=i*15) for i in range(16)] 
+    
+    # Away ends after 1 hour (4 points)
+    away_end = now + timedelta(hours=1)
+    
+    mock_coord = MagicMock()
+    mock_coord.hass = hass
+    
+    # Simulate data WITHOUT optimized setpoints (forcing fallback logic)
+    mock_coord.data = {
+        "timestamps": timestamps,
+        "predicted_temp": np.array([70.0] * 16),
+        "setpoint": np.array([68.0] * 16),
+        "optimized_setpoint": [], # Empty/Missing optimization
+        "away_info": {
+            "active": True,
+            "temp": 55.0,
+            "end": away_end.isoformat()
+        }
+    }
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    attrs = sensor.extra_state_attributes
+    forecast = attrs["forecast"]
+    
+    # Point 0 (Now): Should be Away Temp (55)
+    # Note: Sensor realigns to 15min grid, so we just check values, not exact timestamp strings unless calculated
+    assert forecast[0]["ideal_setpoint"] == 55.0
+    
+    # Point 4 (1 hour later = away_end): Should NOT be Away Temp (None or fall through)
+    # Since optimized_setpoint is empty, it should simply not be present or match logic
+    
+    # Check 5th point (index 4) which is exactly AT away_end (or slightly after depending on < vs <=)
+    # Logic is: if current_dt < away_end. 
+    # timestamps[4] == away_end. So 55 should NOT apply.
+    
+    # With no optimized data, ideal_setpoint should be missing for this point
+    assert "ideal_setpoint" not in forecast[4]

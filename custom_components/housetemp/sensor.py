@@ -98,6 +98,17 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         
         # Determine extra away info from data
         away_info = data.get("away_info", {})
+        away_end_dt = None
+        if away_info.get("active") and away_info.get("end"):
+            try:
+                # Parse available away_end. It usually comes as ISO string
+                dt_end = dt_util.parse_datetime(away_info["end"])
+                if dt_end:
+                     if dt_end.tzinfo is None:
+                         dt_end = dt_end.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
+                     away_end_dt = dt_end
+            except Exception:
+                pass
         
         forecast = []
         n_timestamps = len(timestamps)
@@ -127,6 +138,15 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
                 "target_temp": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
             }
             
+            # Check if this specific point is within the generic "Away" window
+            is_point_away = False
+            if away_end_dt:
+                if current_dt < away_end_dt:
+                    is_point_away = True
+            elif away_info.get("active"):
+                # Fallback if no end time (shouldn't happen usually)
+                is_point_away = True
+
             # ideal_setpoint only if optimization was run AND covers this time slot
             # Fallback to Away Temp if active and missing optimization
             
@@ -134,10 +154,10 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
                 val = optimized_setpoints[best_idx]
                 if val is not None:
                     item["ideal_setpoint"] = float(val)
-                elif away_info.get("active") and away_info.get("temp") is not None:
+                elif is_point_away and away_info.get("temp") is not None:
                      # Gap in optimization but away is active
                      item["ideal_setpoint"] = float(away_info["temp"])
-            elif away_info.get("active") and away_info.get("temp") is not None:
+            elif is_point_away and away_info.get("temp") is not None:
                  # No optimization data at all, but away is active
                  item["ideal_setpoint"] = float(away_info["temp"])
             
