@@ -35,7 +35,16 @@ from .const import (
     DEFAULT_MODEL_TIMESTEP,
     CONF_CONTROL_TIMESTEP,
     DEFAULT_CONTROL_TIMESTEP,
+    CONF_HVAC_MODE,
+    CONF_AVOID_DEFROST,
     DEFAULT_AWAY_TEMP,
+    DEFAULT_C_THERMAL,
+    DEFAULT_UA,
+    DEFAULT_K_SOLAR,
+    DEFAULT_Q_INT,
+    DEFAULT_H_FACTOR,
+    DEFAULT_CENTER_PREFERENCE,
+    DEFAULT_SCHEDULE_CONFIG,
 
     AWAY_WAKEUP_ADVANCE_HOURS,
 )
@@ -301,8 +310,13 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              _LOGGER.warning("Failed to estimate baseline energy: %s", e)
              
         # Use configured preference (Default 1.0)
-        user_pref = self.config_entry.options.get("center_preference", 1.0)
-        comfort_config = {"mode": "heat", "center_preference": float(user_pref)}
+        # Build comfort_config from options
+        options = self.config_entry.options
+        comfort_config = {
+            "mode": options.get(CONF_HVAC_MODE, "heat"),
+            "center_preference": float(options.get(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE)),
+            "avoid_defrost": options.get(CONF_AVOID_DEFROST, True),
+        }
         
         try:
             optimized_setpoints = await self.hass.async_add_executor_job(
@@ -431,12 +445,13 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
         
         # Parameters (Physics) - From Options
+        # Parameters (Physics) - From Options
         params = [
-            options.get(CONF_C_THERMAL, 10000.0),
-            options.get(CONF_UA, 750.0),
-            options.get(CONF_K_SOLAR, 3000.0),
-            options.get(CONF_Q_INT, 2000.0),
-            options.get(CONF_H_FACTOR, 5000.0),
+            options.get(CONF_C_THERMAL, DEFAULT_C_THERMAL),
+            options.get(CONF_UA, DEFAULT_UA),
+            options.get(CONF_K_SOLAR, DEFAULT_K_SOLAR),
+            options.get(CONF_Q_INT, DEFAULT_Q_INT),
+            options.get(CONF_H_FACTOR, DEFAULT_H_FACTOR),
         ]
         
         _LOGGER.debug("Preparing simulation inputs with params: %s", params)
@@ -530,7 +545,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         if not timestamps:
             raise UpdateFailed("No forecast data available for simulation period")
         
-        schedule_json = self.config_entry.options.get(CONF_SCHEDULE_CONFIG, "[]")
+        schedule_json = self.config_entry.options.get(CONF_SCHEDULE_CONFIG, DEFAULT_SCHEDULE_CONFIG)
         
         try:
             schedule_data = json.loads(schedule_json)
@@ -618,6 +633,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                  
             if dt_util.now() < away_end:
                  return True, away_end, away_temp
+            
+            # Away expired - clean up stale entries
+            new_options = {k: v for k, v in options.items() 
+                          if k not in ("away_end", "away_temp")}
+            self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
         except Exception as e:
             _LOGGER.warning("Error parsing away_end: %s", e)
             
