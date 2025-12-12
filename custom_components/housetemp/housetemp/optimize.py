@@ -239,7 +239,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         return kwh + total_penalty + defrost_cost
 
     # Run Optimization
-    print(f"Solving for {num_blocks} control variables (30-min blocks)...")
+    print(f"Solving for {num_blocks} control variables ({block_size_minutes}-min blocks)...")
     result = minimize(
         schedule_loss,
         initial_guess,
@@ -248,13 +248,15 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         options={'disp': False, 'maxiter': 5000}
     )
 
+    msg = result.message.decode('utf-8') if isinstance(result.message, bytes) else str(result.message)
+    
     if not result.success:
         # Check for specific "Abnormal Termination" which is often acceptable in L-BFGS-B on non-smooth functions
-        msg = result.message.decode('utf-8') if isinstance(result.message, bytes) else str(result.message)
-        if "ABNORMAL_TERMINATION_IN_LNSRCH" in msg:
+        # L-BFGS-B texts: "ABNORMAL_TERMINATION_IN_LNSRCH", "ABNORMAL: ..."
+        if "ABNORMAL" in msg:
              print(f"Optimization Finished with Warning: {msg} (Result is likely usable)")
         else:
-             print(f"Optimization Failed: {msg}")
+             print(f"Optimization Failed: {msg!r}")
     else:
         print(f"Optimization Converged Successfully (Cost: {result.fun:.4f})")
     
