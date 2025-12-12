@@ -31,6 +31,8 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
     hass.config.units = US_CUSTOMARY_SYSTEM
 
     # 1. Setup Config Entry
+    # 1. Setup Config Entry
+    # Fixed parameters in data
     config_data = {
         CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
         CONF_WEATHER_ENTITY: "weather.home",
@@ -41,19 +43,24 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         CONF_Q_INT: 500.0,
         CONF_H_FACTOR: 1000.0,
         CONF_HEAT_PUMP_CONFIG: "{}",
-        CONF_SCHEDULE_CONFIG: '[{"time": "00:00", "mode": "heat", "setpoint": 70}]',
+    }
+    # Adjustable parameters in options
+    config_options = {
+        CONF_SCHEDULE_CONFIG: '{"schedule": [{"weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"], "daily_schedule": [{"time": "00:00", "temp": 70}]}]}',
         CONF_FORECAST_DURATION: 8,
         CONF_UPDATE_INTERVAL: 15,
     }
     
-    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data, options=config_options)
     entry.add_to_hass(hass)
 
     # 2. Mock Dependencies
     # Mock States
+    from homeassistant.util import dt as dt_util
+    now = dt_util.now()
     hass.states.async_set("sensor.indoor", "68.0")
     hass.states.async_set("weather.home", "50.0", {"forecast": [
-        {"datetime": (datetime.now() + timedelta(hours=1)).isoformat(), "temperature": 55.0}
+        {"datetime": (now - timedelta(hours=1)).isoformat(), "temperature": 55.0} # Start 1 hour ago to be safe
     ]})
     hass.states.async_set("sensor.solar", "0.0", {"forecast": []})
 
@@ -109,7 +116,7 @@ async def test_sensor_initially_unavailable(hass: HomeAssistant):
         CONF_Q_INT: 100.0,
         CONF_H_FACTOR: 100.0,
         CONF_HEAT_PUMP_CONFIG: "{}",
-        CONF_SCHEDULE_CONFIG: "[]",
+        CONF_SCHEDULE_CONFIG: '{"schedule": []}',
     }
     
     entry = MockConfigEntry(domain=DOMAIN, data=config_data)

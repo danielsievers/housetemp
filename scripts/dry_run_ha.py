@@ -25,7 +25,7 @@ homeassistant.helpers.frame.report_usage = lambda *args, **kwargs: None
 # Now we can import from custom_components.housetemp
 from custom_components.housetemp.coordinator import HouseTempCoordinator
 from custom_components.housetemp.const import *
-from custom_components.housetemp import async_setup_entry
+from custom_components.housetemp import async_setup_entry, async_setup
 from custom_components.housetemp.config_flow import STEP_USER_DATA_SCHEMA, STEP_MODEL_SETTINGS_SCHEMA
 import voluptuous as vol
 
@@ -270,6 +270,10 @@ async def main():
     hass.config_entries.async_forward_entry_setups = MagicMock(return_value=f)
     hass.data = {DOMAIN: {}} # Initialize hass.data for the component
 
+    print("Running async_setup (Domain Setup - Services)...")
+    # Call async_setup to register services at domain level
+    await async_setup(hass, {})
+    
     print("Running async_setup_entry (Initialization)...")
     
     # We need to mock coordinator behavior inside setup?

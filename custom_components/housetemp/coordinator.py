@@ -36,8 +36,7 @@ from .const import (
     CONF_CONTROL_TIMESTEP,
     DEFAULT_CONTROL_TIMESTEP,
     DEFAULT_AWAY_TEMP,
-    DEFAULT_FALLBACK_SETPOINT,
-    DEFAULT_OUTDOOR_TEMP_FALLBACK,
+
     AWAY_WAKEUP_ADVANCE_HOURS,
 )
 
@@ -587,7 +586,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             df_sim = df_sim[(df_sim['time'] >= start_time) & (df_sim['time'] <= end_time)]
             
             timestamps = df_sim['time'].tolist()
-            t_out_arr = df_sim['outdoor_temp'].ffill().fillna(50).values
+            t_out_arr = df_sim['outdoor_temp'].ffill().values
+            
+            # Check for missing data (NaNs)
+            if pd.isna(t_out_arr).any():
+                 raise ValueError("Weather forecast data gap: unable to interpolate outdoor temperature for full duration.")
+                 
             solar_arr = df_sim['solar_kw'].fillna(0).values
             dt_values = df_sim['dt'].values
             
@@ -615,84 +619,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             solar_kw=solar_arr,
             hvac_state=np.array(hvac_state_arr),
             setpoint=np.array(setpoint_arr),
-            dt_hours=dt_values
+             dt_hours=dt_values
         )
         
         return measurements, params, start_time
-
-    # ... (Scheduling helper methods) ...
-
-    def _get_interpolated_weather(self, timestamps, forecast, default_val=DEFAULT_OUTDOOR_TEMP_FALLBACK):
-        """Interpolate weather forecast to match timestamps."""
-        # Simple nearest neighbor or linear interpolation
-        # Forecast structure: [{'datetime': '...', 'temperature': 20}, ...]
-        # Map forecast to a time-value list
-        points = []
-        for item in forecast:
-            try:
-                dt_str = item.get('datetime')
-                val = item.get('temperature')
-                if dt_str and val is not None:
-                    dt = dt_util.parse_datetime(dt_str)
-                    if dt:
-                        # Enforce Timezone Awareness
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
-                        points.append((dt.timestamp(), float(val)))
-            except:
-                continue
-        
-        if not points:
-            return [default_val] * len(timestamps)
-            
-        points.sort(key=lambda x: x[0])
-        xp = [p[0] for p in points]
-        fp = [p[1] for p in points]
-        
-        target_ts = [t.timestamp() for t in timestamps]
-        return np.interp(target_ts, xp, fp)
-
-    def _get_interpolated_solar(self, timestamps, forecast):
-        """Interpolate solar forecast."""
-        # Forecast structure: [{'period_end': '...', 'pv_estimate': 2.0}, ...] (Forecast.Solar)
-        # Or generic: {'datetime': ..., 'value': ...}
-        # We need to handle generic case or specific.
-        # Let's assume keys 'datetime'/'period_end' and 'value'/'pv_estimate'/'wh_watts'
-        
-        points = []
-        for item in forecast:
-            try:
-                # Try common keys (including period_start for Solcast)
-                dt_val = item.get('datetime') or item.get('period_end') or item.get('period_start')
-                val = item.get('value') or item.get('pv_estimate')
-                
-                if dt_val and val is not None:
-                    # Handle both string and datetime inputs (Solcast uses datetime objects)
-                    if isinstance(dt_val, str):
-                        dt = dt_util.parse_datetime(dt_val)
-                    else:
-                        # Already a datetime object
-                        dt = dt_val
-                    
-                    if dt:
-                        # Enforce Timezone Awareness
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
-                        
-                        # For now, take raw value.
-                        points.append((dt.timestamp(), float(val)))
-            except:
-                continue
-
-        if not points:
-            return [0.0] * len(timestamps)
-
-        points.sort(key=lambda x: x[0])
-        xp = [p[0] for p in points]
-        fp = [p[1] for p in points]
-        
-        target_ts = [t.timestamp() for t in timestamps]
-        return np.interp(target_ts, xp, fp)
 
     def _process_schedule(self, timestamps, schedule_json):
         """Generate HVAC state and setpoint arrays from schedule."""
@@ -707,11 +637,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             schedule_data = json.loads(schedule_json)
         except Exception as e:
             _LOGGER.error("Invalid Schedule JSON: %s", e)
-            return np.zeros(len(timestamps)), np.full(len(timestamps), DEFAULT_FALLBACK_SETPOINT)
+            raise ValueError(f"Invalid Schedule JSON: {e}")
 
         if not isinstance(schedule_data, dict) or "schedule" not in schedule_data:
-            _LOGGER.error("Schedule must be a dictionary with 'schedule' key")
-            return np.zeros(len(timestamps)), np.full(len(timestamps), DEFAULT_FALLBACK_SETPOINT)
+            _LOGGER.error("Schedule must be a dictionary with 'schedule' key. Got: %s", schedule_json)
+            raise ValueError("Schedule must be a dictionary with 'schedule' key")
 
         # Helper to find daily schedule for a given date
         def get_daily_schedule(date_obj):
@@ -728,10 +658,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             daily_items = get_daily_schedule(ts)
             
             if not daily_items:
-                # This should be caught by config validation, but defensive fallback remains
-                hvac_arr.append(0)
-                setpoint_arr.append(DEFAULT_FALLBACK_SETPOINT)
-                continue
+                raise ValueError(f"No schedule coverage for timestamp {ts}")
             
             # Use local time for schedule lookup
             ts_local = dt_util.as_local(ts)
@@ -747,23 +674,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     key=lambda x: datetime.strptime(x['time'], "%H:%M").time() if isinstance(x['time'], str) else x['time']
                 )
             except ValueError:
-                 # Fallback if time format is somehow wrong
                  _LOGGER.error("Invalid time format in schedule for timestamp %s", ts)
-                 hvac_arr.append(0)
-                 setpoint_arr.append(DEFAULT_FALLBACK_SETPOINT)
-                 continue
+                 raise ValueError(f"Invalid time format in schedule for timestamp {ts}")
 
             # Find active rule: last time less than or equal to current time
-            # Default to last item (wrapping logic can be complex, 
-            # simple assumption: schedule matches "state at this time")
-            # If current time is 00:05 and first rule is 08:00, what happens?
-            # Typically thermostat schedules carry over from previous day.
-            # Implementing carry-over is complex in stateless loop.
-            # Sticking to: default to first item if before first, or last item? 
-            # Usually: find item where item.time <= current.time.
-            # If none found (current < first), use last item OF THE LIST (previous night) 
-            # OR typically we assume list starts at 00:00.
-            
             # Validation ensures daily_schedule is not empty.
             active_item = sorted_items[-1] # Default to last item (wrap around previous day effectively)
             
@@ -778,7 +692,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     break
             
             # Extract setpoint and mode
-            setpoint = float(active_item.get("temp", DEFAULT_FALLBACK_SETPOINT))
+            val = active_item.get("temp")
+            if val is None:
+                 raise ValueError(f"Missing 'temp' in schedule item: {active_item}")
+            setpoint = float(val)
+            
             global_mode = schedule_data.get("mode", "heat").lower()
             
             # Map logic to integers

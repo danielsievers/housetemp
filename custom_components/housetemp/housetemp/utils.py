@@ -33,21 +33,33 @@ def upsample_dataframe(df: pd.DataFrame, freq: str, cols_linear: list = None, co
     cols_linear = [c for c in cols_linear if c in df.columns]
     cols_ffill = [c for c in cols_ffill if c in df.columns]
     
-    # 1. Resample and create full index
-    resampler = df.resample(freq)
-    df_resampled = resampler.asfreq()
+    # 1. Create target grid and union index
+    # We must use union to keep original points for accurate interpolation
+    start = df.index.min().floor(freq)
+    end = df.index.max().ceil(freq)
+    grid = pd.date_range(start, end, freq=freq)
+    
+    # Union of original points and target grid
+    union_idx = df.index.union(grid).sort_values().unique()
+    df_union = df.reindex(union_idx)
     
     # 2. Interpolate Continuous variables
     if cols_linear:
         # method='time' requires a DatetimeIndex
-        df_resampled[cols_linear] = df_resampled[cols_linear].interpolate(method='time')
+        df_union[cols_linear] = df_union[cols_linear].interpolate(method='time')
         
     # 3. Fill Discrete variables
     if cols_ffill:
-        df_resampled[cols_ffill] = df_resampled[cols_ffill].ffill()
+        df_union[cols_ffill] = df_union[cols_ffill].ffill()
     
-    # Reset index to get 'time' back as column
+    # 4. Filter back to just the target grid
+    df_resampled = df_union.reindex(grid)
+    
+    # Guarantee index name so reset_index produces 'time' column
+    df_resampled.index.name = 'time'
     df_out = df_resampled.reset_index()
+    
+    # 5. Calculate time deltas (dt) for physics
     
     # 4. Calculate time deltas (dt) for physics
     # Shift to align dt with interval (bfill first row)

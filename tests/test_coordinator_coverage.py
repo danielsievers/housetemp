@@ -38,7 +38,7 @@ VALID_CONFIG = {
     CONF_Q_INT: 100.0,
     CONF_H_FACTOR: 100.0,
     CONF_HEAT_PUMP_CONFIG: '{"max_capacity": 10000, "cop_curve": [[-10, 3], [10, 4]], "hvac_power": 1000}',
-    CONF_SCHEDULE_CONFIG: "[]",
+    CONF_SCHEDULE_CONFIG: '{"schedule": [{"weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"], "daily_schedule": [{"time": "00:00", "temp": 70}]}]}',
     CONF_FORECAST_DURATION: 1,
     CONF_UPDATE_INTERVAL: 60,
 }
@@ -136,36 +136,11 @@ async def test_update_weather_invalid_current(hass, coordinator):
         await coordinator._async_update_data()
 
 @pytest.mark.asyncio
-async def test_interpolation_malformed_items(hass, coordinator):
-    """Test weather interpolation with malformed items."""
-    forecast = [
-        {"datetime": "invalid_date", "temperature": 60},
-        {"datetime": None, "temperature": 60},
-        {"no_date": "value"},
-    ]
-    timestamps = [datetime.now()]
-    res = coordinator._get_interpolated_weather(timestamps, forecast)
-    assert len(res) == 1
-    assert res[0] == 50.0 # Default fallback
-
-@pytest.mark.asyncio
-async def test_solar_interpolation_malformed(hass, coordinator):
-    """Test solar interpolation with malformed items."""
-    forecast = [
-        {"period_end": "invalid", "pv_estimate": 10},
-    ]
-    timestamps = [datetime.now()]
-    res = coordinator._get_interpolated_solar(timestamps, forecast)
-    assert len(res) == 1
-    assert res[0] == 0.0
-
-@pytest.mark.asyncio
 async def test_process_schedule_invalid_json(hass, coordinator):
-    """Test schedule processing with invalid JSON."""
+    """Test schedule processing with invalid JSON raises ValueError."""
     timestamps = [datetime.now()]
-    hvac, setpoints = coordinator._process_schedule(timestamps, "{invalid")
-    assert hvac[0] == 0
-    assert setpoints[0] == 70.0
+    with pytest.raises(ValueError, match="Invalid Schedule JSON"):
+        coordinator._process_schedule(timestamps, "{invalid")
 
 @pytest.mark.asyncio
 async def test_process_schedule_modes(hass, coordinator):
@@ -196,45 +171,3 @@ async def test_process_schedule_modes(hass, coordinator):
     
     assert hvac[1] == 0
     assert setpoints[1] == 75.0
-
-@pytest.mark.asyncio
-async def test_interpolation_exception_trigger(hass, coordinator):
-    """Test interpolation exception handling (not just None return)."""
-    # Trigger exception by passing type that causes error
-    forecast = [{"datetime": object(), "temperature": 10}] # object() as datetime string might raise TypeError in parse_datetime or get
-    # Note: parse_datetime(None) returns None
-    timestamps = [datetime.now()]
-    res = coordinator._get_interpolated_weather(timestamps, forecast)
-    assert len(res) == 1
-
-@pytest.mark.asyncio
-async def test_solar_interpolation_exception_trigger(hass, coordinator):
-    """Test solar interpolation exception handling."""
-    forecast = [{"datetime": "2023-01-01", "value": "invalid_float"}]
-    timestamps = [datetime.now()]
-    res = coordinator._get_interpolated_solar(timestamps, forecast)
-    assert len(res) == 1
-    assert res[0] == 0.0
-
-@pytest.mark.asyncio
-async def test_solar_interpolation_valid(hass, coordinator):
-    """Test solar interpolation with valid data."""
-    # Use generic format
-    dt_str = datetime.now().isoformat()
-    forecast = [{"datetime": dt_str, "value": 5.0}]
-    timestamps = [datetime.now()]
-    res = coordinator._get_interpolated_solar(timestamps, forecast)
-    assert len(res) == 1
-    assert res[0] == 5.0
-
-@pytest.mark.asyncio
-async def test_solar_interpolation_datetime_object(hass, coordinator):
-    """Test solar interpolation with datetime objects (Solcast format)."""
-    # Solcast uses datetime objects for period_start, not strings
-    from datetime import timezone
-    dt_obj = datetime.now(timezone.utc)
-    forecast = [{"period_start": dt_obj, "pv_estimate": 3.5}]
-    timestamps = [datetime.now()]
-    res = coordinator._get_interpolated_solar(timestamps, forecast)
-    assert len(res) == 1
-    assert res[0] == 3.5

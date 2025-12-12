@@ -121,9 +121,13 @@ async def test_cache_application_in_update(hass, coordinator, mock_data):
     coordinator.optimized_setpoints_map[ts0_int] = 75.0 # Cached value
     
     # Mock run_model to capture what was passed
-    with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
+    # Ensure current time is BEFORE the cache timestamps so they aren't expired
+    fake_now = ms.timestamps[0] - timedelta(hours=1)
+    
+    with patch("homeassistant.util.dt.now", return_value=fake_now), \
+         patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
          patch("custom_components.housetemp.coordinator.run_model", return_value=([], 0.0, [])) as mock_run:
-        
+    
         result = await coordinator._async_update_data()
         
         # Verify measurements passed to run_model has the cached setpoint
