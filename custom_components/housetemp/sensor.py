@@ -94,20 +94,31 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
 
         end_dt = timestamps[-1]
         
+        import bisect
+        
         # Determine extra away info from data
         away_info = data.get("away_info", {})
         
         forecast = []
+        n_timestamps = len(timestamps)
+        
         while current_dt <= end_dt:
-            # Find nearest data point (or interpolate)
-            # Simple nearest-neighbor for temperature, last-value for setpoints
+            # Find nearest data point using binary search
+            idx = bisect.bisect_left(timestamps, current_dt)
+            
             best_idx = 0
-            min_diff = abs((timestamps[0] - current_dt).total_seconds())
-            for i, ts in enumerate(timestamps):
-                diff = abs((ts - current_dt).total_seconds())
-                if diff < min_diff:
-                    min_diff = diff
-                    best_idx = i
+            if idx == 0:
+                best_idx = 0
+            elif idx >= n_timestamps:
+                best_idx = n_timestamps - 1
+            else:
+                # Check idx-1 and idx to see which is closer
+                dist_left = abs((timestamps[idx-1] - current_dt).total_seconds())
+                dist_right = abs((timestamps[idx] - current_dt).total_seconds())
+                if dist_left < dist_right:
+                    best_idx = idx - 1
+                else:
+                    best_idx = idx
             
             local_dt = dt_util.as_local(current_dt)
             item = {
