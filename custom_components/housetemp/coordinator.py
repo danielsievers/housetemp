@@ -200,8 +200,20 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "hvac_state": measurements.hvac_state,
             "setpoint": setpoint_arr, # Return original schedule for comparison
             "solar": solar_arr,
+            "solar": solar_arr,
             "outdoor": t_out_arr
         }
+        
+        # Add Away Info for Sensor
+        is_away, away_end, away_temp = self._get_away_status()
+        if is_away:
+             result["away_info"] = {
+                 "active": True,
+                 "temp": float(away_temp),
+                 "end": away_end.isoformat()
+             }
+        else:
+             result["away_info"] = {"active": False}
         
         if has_optimized_data:
             result["optimized_setpoint"] = optimized_setpoint_arr
@@ -644,6 +656,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
     def _process_schedule(self, timestamps, schedule_json):
         """Generate HVAC state and setpoint arrays from schedule."""
         _LOGGER.debug("Processing schedule for %d timestamps", len(timestamps))
+        
+        # Check for Away Mode
+        is_away, away_end, away_temp = self._get_away_status()
+        
         # Schedule can be old list or new nested dict
         try:
             schedule_data = json.loads(schedule_json)
@@ -729,7 +745,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     state_val = -1
                 
                 hvac_arr.append(state_val)
-                setpoint_arr.append(setpoint)
+                
+                # Apply Away Override
+                final_setpoint = setpoint
+                if is_away and ts < away_end:
+                     final_setpoint = away_temp
+                     # Force mode to heat if away? 
+                     # Usually away mode implies heating/cooling to safety. 
+                     # But current implementation just overrides setpoint.
+                     # The optimization will then see a low target and likely keep hvac off.
+                
+                setpoint_arr.append(final_setpoint)
 
             return np.array(hvac_arr), np.array(setpoint_arr)
 
@@ -769,3 +795,64 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             setpoint_arr.append(setpoint)
 
         return np.array(hvac_arr), np.array(setpoint_arr)
+
+    async def async_set_away_mode(self, duration_delta: timedelta, safety_temp: float):
+        """Set the away mode with a duration and safety temperature."""
+        _LOGGER.info("Setting away mode. Duration: %s, Safety Temp: %s", duration_delta, safety_temp)
+        
+        # 1. Calculate End Time
+        now = dt_util.now()
+        away_end = now + duration_delta
+        
+        # 2. Persist to Config Entry (Options)
+        # We need to update options to persist across restarts
+        new_options = self.config_entry.options.copy()
+        new_options["away_end"] = away_end.isoformat()
+        new_options["away_temp"] = float(safety_temp)
+        
+        self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
+        
+        # 3. Schedule Smart Wake-Up (12 hours before return)
+        # Cancel any existing timer
+        if hasattr(self, "_away_timer_unsub") and self._away_timer_unsub:
+            self._away_timer_unsub()
+            self._away_timer_unsub = None
+            
+        wakeup_time = away_end - timedelta(hours=12)
+        if wakeup_time > dt_util.now():
+            from homeassistant.helpers.event import async_track_point_in_time
+            
+            async def _wake_up_callback(now):
+                _LOGGER.info("Smart Wake-Up Triggered! Re-optimizing for return...")
+                try:
+                    await self.async_trigger_optimization()
+                except Exception as e:
+                    _LOGGER.error("Smart Wake-Up Optimization failed: %s", e)
+                    
+            _LOGGER.info("Scheduling Smart Wake-Up optimization for %s", wakeup_time)
+            self._away_timer_unsub = async_track_point_in_time(self.hass, _wake_up_callback, wakeup_time)
+        
+        # 4. Trigger Immediate Optimization
+        # This will use the new away settings (via _process_schedule checking config options)
+        await self.async_trigger_optimization()
+
+    def _get_away_status(self):
+        """Get current away status from config."""
+        options = self.config_entry.options
+        away_end_str = options.get("away_end")
+        away_temp = options.get("away_temp", 50.0)
+        
+        if not away_end_str:
+            return False, None, None
+            
+        try:
+            away_end = dt_util.parse_datetime(away_end_str)
+            if away_end.tzinfo is None: # handle legacy/missing TZ
+                 away_end = away_end.replace(tzinfo=dt_util.get_time_zone(self.hass.config.time_zone))
+                 
+            if dt_util.now() < away_end:
+                 return True, away_end, away_temp
+        except Exception as e:
+            _LOGGER.warning("Error parsing away_end: %s", e)
+            
+        return False, None, None

@@ -47,9 +47,18 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         if not self.coordinator.data:
             return None
         
+        # Check Away Status for Fallback
+        away_info = self.coordinator.data.get("away_info", {})
+        
         optimized_setpoints = self.coordinator.data.get("optimized_setpoint")
         if optimized_setpoints is not None and len(optimized_setpoints) > 0:
-            return round(float(optimized_setpoints[0]), 1)
+            val = optimized_setpoints[0]
+            if val is not None:
+                return round(float(val), 1)
+        
+        # Fallback: If optimization missing but Away is active, show Away Temp
+        if away_info.get("active") and away_info.get("temp") is not None:
+             return round(float(away_info["temp"]), 1)
             
         setpoints = self.coordinator.data.get("setpoint")
         if setpoints is not None and len(setpoints) > 0:
@@ -105,10 +114,19 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             }
             
             # ideal_setpoint only if optimization was run AND covers this time slot
+            # Fallback to Away Temp if active and missing optimization
+            away_info = data.get("away_info", {})
+            
             if len(optimized_setpoints) > 0 and best_idx < len(optimized_setpoints):
                 val = optimized_setpoints[best_idx]
                 if val is not None:
                     item["ideal_setpoint"] = float(val)
+                elif away_info.get("active") and away_info.get("temp") is not None:
+                     # Gap in optimization but away is active
+                     item["ideal_setpoint"] = float(away_info["temp"])
+            elif away_info.get("active") and away_info.get("temp") is not None:
+                 # No optimization data at all, but away is active
+                 item["ideal_setpoint"] = float(away_info["temp"])
             
             forecast.append(item)
             current_dt += timedelta(minutes=15)

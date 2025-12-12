@@ -107,3 +107,16 @@ The cost function is asymmetric, penalizing only "bad" deviations while allowing
     *   If $T_{in} \le T_{target}$: **Zero Penalty** (Undershoot/Overcooling is allowed).
 
 $$ \text{Cost}_{comfort} = P_{center} \cdot \left(\text{EffectiveError}\right)^2 $$
+
+## 7. Away Mode & Smart Wake-Up
+The system supports a robust "Away Mode" that overrides the schedule with a safety temperature (e.g., 50°F) for extended durations.
+
+### 7.1 Smart Wake-Up Scheduling
+To prevent inefficient reheating (emergency heat / maximum power) when returning from a deep setback:
+1.  **Immediate Action**: Upon setting "Away", the system re-optimizes with the safety temperature as the target.
+2.  **Delayed Trigger**: A background timer is scheduled for **12 hours before** the return time (`AwayEnd`).
+3.  **Pre-Heating**: When the timer fires, the optimization runs again. Since `AwayEnd` is now within the forecast horizon, the optimizer "sees" the scheduled setpoint returning.
+4.  **Efficient Ramp**: The optimizer plans a gradual pre-heating ramp using the heat pump's most efficient capacity, ensuring the home is comfortable exactly upon return without energy waste.
+
+### 7.2 Persistence
+The Away state (End Time, Safety Temp) and the Smart Wake-Up timer are persisted in the configuration options to survive Home Assistant restarts.

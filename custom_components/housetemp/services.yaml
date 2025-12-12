@@ -12,5 +12,26 @@ run_hvac_optimization:
           max: 168
           unit_of_measurement: hours
           mode: box
-  return_response: true Re-calculates the ideal setpoints based on the latest forecast and parameters.
-  fields: {}
+  return_response: true
+
+set_away:
+  name: Set Away Mode
+  description: Overrides the HVAC schedule with a safety temperature for a specified duration.
+  fields:
+    duration:
+      name: Duration
+      description: How long to stay in away mode.
+      required: true
+      selector:
+        duration: {}
+    safety_temp:
+      name: Safety Temperature
+      description: The target temperature to maintain while away.
+      required: true
+      default: 50
+      selector:
+        number:
+          min: 40
+          max: 90
+          unit_of_measurement: "°F"
+          mode: box

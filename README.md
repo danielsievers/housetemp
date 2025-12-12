@@ -66,7 +66,17 @@ python3 main.py data.csv -p my_house.json --optimize-hvac --comfort data/comfort
 }
 ```
 
-### 5. Other Arguments
+```
+
+### 5. Set Away Mode (Smart Wake-Up)
+The integration provides a `housetemp.set_away` service to override the schedule for a duration.
+
+- **Arguments**:
+  - `duration`: Time to stay in away mode (e.g., "7 days", "12 hours").
+  - `safety_temp`: Temperature to maintain (e.g., 50°F).
+- **Smart Wake-Up**: The system automatically schedules a pre-heating optimization **12 hours before your return**. This ensures the house is warm when you arrive without using inefficient emergency heating.
+
+### 6. Other Arguments
 - `--heat-pump <json_file>`: Path to Heat Pump configuration file (default: `data/heat_pump.json`). Required for prediction and optimization.
 - `--debug-output <json_file>`: Export detailed debug results to a JSON file (useful for inspection/automation).
 

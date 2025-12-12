@@ -70,6 +70,57 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_service_handler,
             supports_response=SupportsResponse.OPTIONAL
         )
+        
+    if not hass.services.has_service(DOMAIN, "set_away"):
+        from homeassistant.helpers import config_validation as cv
+        import voluptuous as vol
+        
+        async def async_handle_set_away(call):
+            # Parse Duration
+            duration_data = call.data.get("duration")
+            # cv.time_period creates a timedelta from dict or string
+            try:
+                if isinstance(duration_data, dict):
+                    duration = cv.time_period(duration_data)
+                elif isinstance(duration_data, str):
+                     # Handle "HH:MM:SS" or "days" format if cv supports it directly
+                     # cv.time_period expects dict usually for "hours": 1
+                     # Actually cv.time_period_str might be needed for string?
+                     # Let's rely on UI selector passing dict {"hours": X} usually.
+                     # But manual call might pass string.
+                     duration = cv.time_period_str(duration_data)
+                else:
+                    # Fallback or error
+                    duration = cv.time_period(duration_data) # Let cv handle it
+            except Exception:
+                # Fallback to defaults or fail
+                import logging
+                logging.getLogger(DOMAIN).warning("Invalid duration format: %s", duration_data)
+                return
+
+            safety_temp = call.data.get("safety_temp", 50.0)
+            
+            current_entries = hass.config_entries.async_entries(DOMAIN)
+            
+            results = {}
+            for entry in current_entries:
+                if entry.entry_id in hass.data[DOMAIN]:
+                    coord = hass.data[DOMAIN][entry.entry_id]
+                    try:
+                        await coord.async_set_away_mode(duration, safety_temp)
+                        results[entry.title] = "OK"
+                    except Exception as e:
+                        results[entry.title] = {"error": str(e)}
+            
+            if call.return_response:
+                return results
+
+        hass.services.async_register(
+            DOMAIN,
+            "set_away",
+            async_handle_set_away,
+            supports_response=SupportsResponse.OPTIONAL
+        )
 
     return True
 
