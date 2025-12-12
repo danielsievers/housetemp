@@ -1,6 +1,8 @@
 """The House Temp Prediction integration."""
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, SupportsResponse
@@ -11,6 +13,8 @@ from .const import DOMAIN, DEFAULT_AWAY_TEMP
 from .coordinator import HouseTempCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -46,6 +50,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # Register set_away service
     async def async_handle_set_away(call):
         """Handle set_away service call."""
+        from homeassistant.exceptions import ServiceValidationError
+        
         duration_data = call.data.get("duration")
         
         try:
@@ -55,10 +61,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 duration = cv.time_period_str(duration_data)
             else:
                 duration = cv.time_period(duration_data)
-        except Exception:
-            import logging
-            logging.getLogger(DOMAIN).warning("Invalid duration format: %s", duration_data)
-            return
+        except (vol.Invalid, ValueError, TypeError) as e:
+            raise ServiceValidationError(
+                f"Invalid duration format: {duration_data}. Expected dict or string."
+            ) from e
 
         safety_temp = call.data.get("safety_temp", DEFAULT_AWAY_TEMP)
         
@@ -70,9 +76,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 coord = hass.data[DOMAIN][entry.entry_id]
                 try:
                     await coord.async_set_away_mode(duration, safety_temp)
-                    results[entry.title] = "OK"
+                    results[entry.title] = {"success": True}
                 except Exception as e:
-                    results[entry.title] = {"error": str(e)}
+                    _LOGGER.error("Failed to set away mode for %s: %s", entry.title, e)
+                    results[entry.title] = {"success": False, "error": str(e)}
         
         if call.return_response:
             return results
