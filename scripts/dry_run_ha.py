@@ -252,6 +252,7 @@ async def main():
         CONF_MODEL_TIMESTEP: DEFAULT_MODEL_TIMESTEP,
         CONF_CONTROL_TIMESTEP: DEFAULT_CONTROL_TIMESTEP,
         CONF_SCHEDULE_CONFIG: COMFORT_CONFIG, # Ensure schedule is available in options
+        CONF_CENTER_PREFERENCE: 1.0,
     }
     config_entry.options = options_data
     config_entry.entry_id = "test_entry_123"

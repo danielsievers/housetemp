@@ -7,6 +7,7 @@ CONF_UA = "ua"
 CONF_K_SOLAR = "k_solar"
 CONF_Q_INT = "q_int"
 CONF_H_FACTOR = "h_factor"
+CONF_CENTER_PREFERENCE = "center_preference"
 
 CONF_SENSOR_INDOOR_TEMP = "sensor_indoor_temp"
 CONF_WEATHER_ENTITY = "weather_entity"

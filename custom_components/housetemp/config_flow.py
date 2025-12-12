@@ -20,6 +20,7 @@ from .const import (
     CONF_K_SOLAR,
     CONF_Q_INT,
     CONF_H_FACTOR,
+    CONF_CENTER_PREFERENCE,
     CONF_SENSOR_INDOOR_TEMP,
     CONF_WEATHER_ENTITY,
     CONF_SOLAR_ENTITY,
@@ -28,8 +29,6 @@ from .const import (
     CONF_FORECAST_DURATION,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FORECAST_DURATION,
-    DEFAULT_FORECAST_DURATION,
-    DEFAULT_UPDATE_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
     CONF_MODEL_TIMESTEP,
     DEFAULT_MODEL_TIMESTEP,
@@ -72,6 +71,7 @@ STEP_MODEL_SETTINGS_SCHEMA = vol.Schema(
         vol.Required(CONF_K_SOLAR, default=3000.0): vol.Coerce(float),
         vol.Required(CONF_Q_INT, default=2000.0): vol.Coerce(float),
         vol.Required(CONF_H_FACTOR, default=5000.0): vol.Coerce(float),
+        vol.Required(CONF_CENTER_PREFERENCE, default=1.0): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
         vol.Required(CONF_FORECAST_DURATION, default=DEFAULT_FORECAST_DURATION): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=24)
         ),
@@ -198,6 +198,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_H_FACTOR,
                     default=opts.get(CONF_H_FACTOR, 5000.0),
                 ): vol.Coerce(float),
+                vol.Required(
+                    CONF_CENTER_PREFERENCE,
+                    default=opts.get(CONF_CENTER_PREFERENCE, 1.0),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
                 vol.Required(
                     CONF_FORECAST_DURATION,
                     default=opts.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION),
