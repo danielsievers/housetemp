@@ -35,11 +35,14 @@ from .const import (
     DEFAULT_MODEL_TIMESTEP,
     CONF_CONTROL_TIMESTEP,
     DEFAULT_CONTROL_TIMESTEP,
+    DEFAULT_AWAY_TEMP,
+    DEFAULT_FALLBACK_SETPOINT,
+    DEFAULT_OUTDOOR_TEMP_FALLBACK,
+    AWAY_WAKEUP_ADVANCE_HOURS,
 )
 
 # Import from the installed package
 from .housetemp.run_model import run_model, HeatPump
-from .housetemp.measurements import Measurements
 from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.energy import estimate_consumption
@@ -199,7 +202,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "predicted_temp": sim_temps,
             "hvac_state": measurements.hvac_state,
             "setpoint": setpoint_arr, # Return original schedule for comparison
-            "solar": solar_arr,
             "solar": solar_arr,
             "outdoor": t_out_arr
         }
@@ -583,7 +585,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
     # ... (Scheduling helper methods) ...
 
-    def _get_interpolated_weather(self, timestamps, forecast, default_val=50.0):
+    def _get_interpolated_weather(self, timestamps, forecast, default_val=DEFAULT_OUTDOOR_TEMP_FALLBACK):
         """Interpolate weather forecast to match timestamps."""
         # Simple nearest neighbor or linear interpolation
         # Forecast structure: [{'datetime': '...', 'temperature': 20}, ...]
@@ -702,7 +704,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 if not daily_items:
                     # Fallback
                     hvac_arr.append(0)
-                    setpoint_arr.append(70.0)
+                    setpoint_arr.append(DEFAULT_FALLBACK_SETPOINT)
                     continue
                     
                 # Find item in daily_items
@@ -738,7 +740,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 else:
                      # Old format
                      mode = active_item.get('mode', 'off').lower()
-                     setpoint = float(active_item.get('setpoint', 70))
+                     setpoint = float(active_item.get('setpoint', DEFAULT_FALLBACK_SETPOINT))
                 
                 state_val = 0
                 if mode == 'heat':
@@ -820,7 +822,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             self._away_timer_unsub()
             self._away_timer_unsub = None
             
-        wakeup_time = away_end - timedelta(hours=12)
+        wakeup_time = away_end - timedelta(hours=AWAY_WAKEUP_ADVANCE_HOURS)
         if wakeup_time > dt_util.now():
             from homeassistant.helpers.event import async_track_point_in_time
             
@@ -842,7 +844,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         """Get current away status from config."""
         options = self.config_entry.options
         away_end_str = options.get("away_end")
-        away_temp = options.get("away_temp", 50.0)
+        away_temp = options.get("away_temp", DEFAULT_AWAY_TEMP)
         
         if not away_end_str:
             return False, None, None

@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
 
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_AWAY_TEMP
 from .coordinator import HouseTempCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
@@ -60,7 +60,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             logging.getLogger(DOMAIN).warning("Invalid duration format: %s", duration_data)
             return
 
-        safety_temp = call.data.get("safety_temp", 50.0)
+        safety_temp = call.data.get("safety_temp", DEFAULT_AWAY_TEMP)
         
         current_entries = hass.config_entries.async_entries(DOMAIN)
         
