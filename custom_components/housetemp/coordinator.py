@@ -108,8 +108,43 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Failed to setup Heat Pump: %s", e)
             self.heat_pump = None
 
+    def _expire_cache(self):
+        """Remove stale cache entries (past timestamps only)."""
+        if not self.optimized_setpoints_map:
+            return
+        
+        now = dt_util.now()
+        now_ts = int(now.timestamp())
+        
+        # Remove only PAST entries, keep all FUTURE entries
+        old_size = len(self.optimized_setpoints_map)
+        
+        # Filter keys: keep if timestamp >= now
+        # Note: We use a new dict comprehension for atomic replacement
+        self.optimized_setpoints_map = {
+            k: v for k, v in self.optimized_setpoints_map.items() 
+            if k >= now_ts
+        }
+        
+        # FIFO eviction if cache grows too large (prevent memory leak)
+        # 3000 entries = ~10 days at 5 minute intervals
+        if len(self.optimized_setpoints_map) > 3000:
+            sorted_keys = sorted(self.optimized_setpoints_map.keys())
+            keep_keys = sorted_keys[-3000:]  # Keep most recent/future 3000
+            self.optimized_setpoints_map = {
+                k: self.optimized_setpoints_map[k] for k in keep_keys
+            }
+        
+        removed = old_size - len(self.optimized_setpoints_map)
+        if removed > 0:
+            _LOGGER.debug("Cache cleanup: removed %d past entries, %d remain", 
+                         removed, len(self.optimized_setpoints_map))
+
     async def _async_update_data(self):
         """Fetch data and run the model."""
+        # Clean up cache before processing
+        self._expire_cache()
+
         if not self.heat_pump:
             await self._setup_heat_pump()
             if not self.heat_pump:
