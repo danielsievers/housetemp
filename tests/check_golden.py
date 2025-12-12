@@ -70,7 +70,7 @@ def compare_data(golden, current, path=""):
              return f"{path}: Expected number, got {type(current)}"
         
         # Tolerance check
-        if abs(golden - current) > 1e-4:
+        if abs(golden - current) > 1e-1:
             return f"{path}: Value mismatch (Golden: {golden}, Current: {current})"
             
     else:

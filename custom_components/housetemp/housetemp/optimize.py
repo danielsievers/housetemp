@@ -107,7 +107,11 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     print(f"Optimizing HVAC Schedule ({block_size_minutes}-min blocks)...")
     
     # Config
-    center_preference = comfort_config.get('center_preference', 0.5)
+    user_preference = comfort_config.get('center_preference', 1.0)
+    # Scale from User (0.0 - 1.0) to Physics (0.1 - 0.5)
+    # 0.0 -> 0.1
+    # 1.0 -> 0.5
+    center_preference = 0.1 + (user_preference * 0.4)
     
     # --- 1. Setup Control Blocks (Aligned) ---
     # Convert start/end to pandas Timestamp for easy flooring
@@ -241,7 +245,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         initial_guess,
         bounds=bounds,
         method='L-BFGS-B',
-        options={'disp': False, 'maxiter': 1000}
+        options={'disp': False, 'maxiter': 5000}
     )
 
     if not result.success:

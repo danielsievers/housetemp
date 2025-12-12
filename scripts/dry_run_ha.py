@@ -310,8 +310,8 @@ async def main():
         if len(args) > 4:
             comfort_config = args[4]
             if isinstance(comfort_config, dict):
-                print(f"  -> (Patch) Overriding center_preference to 0.1 (was {comfort_config.get('center_preference')})")
-                comfort_config['center_preference'] = 0.1
+                print(f"  -> (Patch) Overriding center_preference to 0.0 (User Eco) (was {comfort_config.get('center_preference')})")
+                comfort_config['center_preference'] = 0.0
         return original_optimize(*args, **kwargs)
         
     # Apply the patch to the coordinator's import

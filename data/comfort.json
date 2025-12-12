@@ -1,5 +1,5 @@
 {
-    "center_preference": 0.5,
+    "center_preference": 1.0,
     "mode": "heat",
     "avoid_defrost": true,
     "schedule": [

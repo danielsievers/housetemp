@@ -258,7 +258,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         except Exception as e:
              _LOGGER.warning("Failed to estimate baseline energy: %s", e)
              
-        comfort_config = {"mode": "heat", "center_preference": 0.5}
+        comfort_config = {"mode": "heat", "center_preference": 1.0}
         
         try:
             optimized_setpoints = await self.hass.async_add_executor_job(
