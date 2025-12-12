@@ -558,7 +558,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         hvac_state_arr, setpoint_arr = process_schedule_data(
             timestamps, 
             schedule_data, 
-            away_status=(is_away, away_end, away_temp)
+            away_status=(is_away, away_end, away_temp),
+            timezone=self.hass.config.time_zone
         )
 
         steps = len(timestamps)

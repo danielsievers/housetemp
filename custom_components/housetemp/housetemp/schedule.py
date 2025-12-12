@@ -98,7 +98,7 @@ def load_comfort_schedule(json_path, timestamps):
     
     return targets, config
 
-def process_schedule_data(timestamps, schedule_data, away_status=None):
+def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=None):
     """
     Process schedule data (dict) into setpoints and hvac state arrays.
     
@@ -106,6 +106,8 @@ def process_schedule_data(timestamps, schedule_data, away_status=None):
         timestamps: List/Array of datetime objects.
         schedule_data: Dictionary containing the schedule config.
         away_status: Optional tuple (is_away, away_end, away_temp).
+        timezone: Optional timezone string or object. If provided, timestamps will be 
+                 converted to this timezone before extracting time-of-day.
         
     Returns:
         hvac_state (np.array), setpoint (np.array)
@@ -115,6 +117,14 @@ def process_schedule_data(timestamps, schedule_data, away_status=None):
 
     # Use pandas for efficient processing
     ts_index = pd.to_datetime(timestamps)
+    
+    # Convert to local timezone if specified
+    if timezone:
+        if ts_index.tz is None:
+            ts_index = ts_index.tz_localize('UTC').tz_convert(timezone)
+        else:
+            ts_index = ts_index.tz_convert(timezone)
+
     
     # Validation logic reused from load_comfort_schedule but applied here
     # To keep it DRY, we could extract the mapping logic, but for now copying the
