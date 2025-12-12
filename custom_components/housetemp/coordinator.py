@@ -616,7 +616,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # 4. Trigger Immediate Optimization
         # This will use the new away settings (via _process_schedule checking config options)
-        await self.async_trigger_optimization()
+        return await self.async_trigger_optimization()
 
     def _get_away_status(self):
         """Get current away status from config."""

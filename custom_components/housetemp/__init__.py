@@ -75,8 +75,37 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             if entry.entry_id in hass.data.get(DOMAIN, {}):
                 coord = hass.data[DOMAIN][entry.entry_id]
                 try:
-                    await coord.async_set_away_mode(duration, safety_temp)
-                    results[entry.title] = {"success": True}
+                    opt_result = await coord.async_set_away_mode(duration, safety_temp)
+                    
+                    response = {"success": True}
+                    
+                    # check if we should return energy stats
+                    # opt_result is the full structure returned by async_trigger_optimization
+                    # which contains "optimization_summary"
+                    if opt_result and "optimization_summary" in opt_result:
+                        summary = opt_result["optimization_summary"]
+                        
+                        # Check if away_end is within the optimization horizon
+                        # We can roughly check if duration < forecast_duration
+                        # Or better, check the timestamps.
+                        # The optimization result has 'points' and 'duration', but not explicit end time easily accessible 
+                        # without parsing.
+                        # However, we know 'duration' passed to set_away is the away duration.
+                        # And we know the forecast duration from config.
+                        
+                        forecast_duration_hours = coord.config_entry.options.get("forecast_duration", 48) # default 48
+                        away_duration_hours = duration.total_seconds() / 3600.0
+                        
+                        # Requirement: "only do this calculation if the away end is within the 12h window that we did the optimization for"
+                        # The user prompt said: "within the 12h window that we did the optimization for"
+                        # But wait, optimization is done for 'forecast_duration' (default 48h).
+                        # Let's assume "window" means the optimization horizon.
+                        
+                        if away_duration_hours <= forecast_duration_hours:
+                            response["energy_used_schedule_kwh"] = summary.get("total_energy_use_kwh")
+                            response["energy_used_optimized_kwh"] = summary.get("total_energy_use_optimized_kwh")
+
+                    results[entry.title] = response
                 except Exception as e:
                     _LOGGER.error("Failed to set away mode for %s: %s", entry.title, e)
                     results[entry.title] = {"success": False, "error": str(e)}

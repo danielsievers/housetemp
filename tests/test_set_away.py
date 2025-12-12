@@ -5,6 +5,19 @@ from datetime import timedelta, datetime
 from homeassistant.util import dt as dt_util
 from homeassistant.const import CONF_PLATFORM, CONF_SCAN_INTERVAL
 
+# Mock SupportsResponse if missing (Must affect imports below)
+import homeassistant.core
+if not hasattr(homeassistant.core, "SupportsResponse"):
+    class MockSupportsResponse:
+        OPTIONAL = "optional"
+    homeassistant.core.SupportsResponse = MockSupportsResponse
+
+import homeassistant.exceptions
+if not hasattr(homeassistant.exceptions, "ServiceValidationError"):
+    class ServiceValidationError(Exception):
+        pass
+    homeassistant.exceptions.ServiceValidationError = ServiceValidationError
+
 from custom_components.housetemp.coordinator import HouseTempCoordinator
 from custom_components.housetemp.const import DOMAIN
 from custom_components.housetemp.sensor import HouseTempPredictionSensor
@@ -98,6 +111,69 @@ async def test_short_away_immediate_optimization(coordinator):
     assert len(forecast) > 0
     # First few points should match safety temp
     assert forecast[0]["ideal_setpoint"] == 55.0
+
+@pytest.mark.asyncio
+async def test_set_away_service_return_values(hass_mock):
+    """Test 5: Set Away Service Return Values (Energy Stats)"""
+    # Mock SupportsResponse if missing
+    import homeassistant.core
+    if not hasattr(homeassistant.core, "SupportsResponse"):
+        class MockSupportsResponse:
+            OPTIONAL = "optional"
+        homeassistant.core.SupportsResponse = MockSupportsResponse
+        
+    from custom_components.housetemp import async_setup
+    
+    # Setup mocks
+    entry = MagicMock()
+    entry.entry_id = "test_entry"
+    entry.title = "Test House"
+    entry.options = {"forecast_duration": 48}
+    entry.data = {}
+    
+    coord = MagicMock()
+    coord.config_entry = entry
+    
+    # Mock return from async_set_away_mode (which calls trigger_optimization)
+    # It returns the optimization dict
+    coord.async_set_away_mode = AsyncMock(return_value={
+        "forecast": [],
+        "optimization_summary": {
+            "total_energy_use_kwh": 10.5,
+            "total_energy_use_optimized_kwh": 8.2
+        }
+    })
+    
+    hass_mock.data = {DOMAIN: {entry.entry_id: coord}}
+    hass_mock.config_entries.async_entries = MagicMock(return_value=[entry])
+    hass_mock.services.async_register = MagicMock()
+    
+    # Run Setup to register service
+    await async_setup(hass_mock, {})
+    
+    # Get the service handler
+    call_handler = hass_mock.services.async_register.call_args_list[1][0][2]
+    
+    # Case A: Short Away (Inside Window)
+    call = MagicMock()
+    call.data = {"duration": {"hours": 12}, "safety_temp": 50}
+    call.return_response = True
+    
+    result = await call_handler(call)
+    
+    assert result["Test House"]["success"] is True
+    assert result["Test House"]["energy_used_schedule_kwh"] == 10.5
+    assert result["Test House"]["energy_used_optimized_kwh"] == 8.2
+    
+    # Case B: Long Away (Outside Window)
+    call.data = {"duration": {"hours": 72}, "safety_temp": 50}
+    
+    result = await call_handler(call)
+    
+    assert result["Test House"]["success"] is True
+    # Should NOT satisfy condition: 72h > 48h forecast
+    assert "energy_used_schedule_kwh" not in result["Test House"]
+    assert "energy_used_optimized_kwh" not in result["Test House"]
 
 @pytest.mark.asyncio
 async def test_long_away_smart_wakeup(coordinator):

@@ -120,3 +120,9 @@ To prevent inefficient reheating (emergency heat / maximum power) when returning
 
 ### 7.2 Persistence
 The Away state (End Time, Safety Temp) and the Smart Wake-Up timer are persisted in the configuration options to survive Home Assistant restarts.
+
+### 7.3 Energy Estimation
+When `set_away` is called, the service returns predicted energy usage if the away period is within the optimization horizon:
+*   `energy_used_schedule_kwh`: Est. consumption if the original schedule were followed.
+*   `energy_used_optimized_kwh`: Est. consumption using the new Away Setpoint (and smart return).
+*   Allows users/automations to immediately calculate "Savings" from the away action.
