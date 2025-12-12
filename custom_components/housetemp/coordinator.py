@@ -452,8 +452,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                      _LOGGER.debug("Failed to get daily forecast via service: %s", e)
 
         if not forecast:
-             _LOGGER.warning("No forecast data found for %s", weather_entity)
-             forecast = []
+            raise UpdateFailed(
+                f"No forecast data available from {weather_entity}. "
+                "Check weather integration and entity configuration."
+            )
 
         # 4. Get Solar Forecast
         solar_forecast_data = []
