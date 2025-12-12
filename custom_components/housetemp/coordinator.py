@@ -425,7 +425,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
     async def _prepare_simulation_inputs(self, duration_override=None):
         """Helper to fetch data and prepare measurements (shared logic)."""
-        """Helper to fetch data and prepare measurements (shared logic)."""
         
         # 1. Get Inputs
         # Fixed Identity (DATA)
@@ -445,7 +444,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         else:
              duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
         
-        # Parameters (Physics) - From Options
         # Parameters (Physics) - From Options
         params = [
             options.get(CONF_C_THERMAL, DEFAULT_C_THERMAL),
@@ -555,11 +553,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             raise ValueError(f"Invalid Schedule JSON: {e}")
 
         is_away, away_end, away_temp = self._get_away_status()
-        hvac_state_arr, setpoint_arr = process_schedule_data(
-            timestamps, 
-            schedule_data, 
-            away_status=(is_away, away_end, away_temp),
-            timezone=self.hass.config.time_zone
+        
+        # Run process_schedule_data in executor to avoid blocking event loop (pytz I/O)
+        from functools import partial
+        hvac_state_arr, setpoint_arr = await self.hass.async_add_executor_job(
+            partial(
+                process_schedule_data,
+                timestamps, 
+                schedule_data, 
+                away_status=(is_away, away_end, away_temp),
+                timezone=self.hass.config.time_zone
+            )
         )
 
         steps = len(timestamps)
