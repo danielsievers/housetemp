@@ -27,7 +27,7 @@ set_away:
     safety_temp:
       name: Safety Temperature
       description: The target temperature to maintain while away.
-      required: true
+      required: false
       default: 50
       selector:
         number:
