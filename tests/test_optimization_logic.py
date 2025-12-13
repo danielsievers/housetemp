@@ -107,6 +107,7 @@ async def test_manual_trigger_optimizes(hass, coordinator, mock_data):
     with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule", return_value=optimized_setpoints) as mock_opt, \
          patch.object(coordinator, "async_request_refresh") as mock_refresh, \
+         patch.object(coordinator, "async_set_updated_data") as mock_set_data, \
          patch("custom_components.housetemp.coordinator.run_model", return_value=([68.0]*4, 0.0, [])) as mock_run_model:
         
         await coordinator.async_trigger_optimization()
@@ -117,8 +118,11 @@ async def test_manual_trigger_optimizes(hass, coordinator, mock_data):
         ts0_int = int(ms.timestamps[0].timestamp())
         assert coordinator.optimized_setpoints_map[ts0_int] == 72.0
         
-        # Should trigger refresh
-        assert mock_refresh.called
+        # Should NOT trigger refresh (we do direct update now)
+        assert not mock_refresh.called
+        
+        # Should trigger direct data update
+        assert mock_set_data.called
         
         # Should run simulation for response
         assert mock_run_model.called

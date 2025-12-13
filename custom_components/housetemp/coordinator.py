@@ -258,13 +258,19 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
 
         # 8. Return Result
+        return self._build_coordinator_data(
+            timestamps, sim_temps, measurements, optimized_setpoint_arr if has_optimized_data else None
+        )
+
+    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None):
+        """Build the coordinator data dict from simulation results."""
         result = {
             "timestamps": timestamps,
             "predicted_temp": sim_temps,
             "hvac_state": measurements.hvac_state,
-            "setpoint": setpoint_arr, # Return original schedule for comparison
-            "solar": solar_arr,
-            "outdoor": t_out_arr
+            "setpoint": measurements.setpoint, # Return original schedule for comparison
+            "solar": measurements.solar_kw,
+            "outdoor": measurements.t_out
         }
         
         # Add Away Info for Sensor
@@ -278,8 +284,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         else:
              result["away_info"] = {"active": False}
         
-        if has_optimized_data:
-            result["optimized_setpoint"] = optimized_setpoint_arr
+        if optimized_setpoints is not None:
+            result["optimized_setpoint"] = optimized_setpoints
         
         return result
 
@@ -354,13 +360,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             self.optimized_setpoints_map.update(new_cache)
             
-            await self.async_request_refresh()
+            self.optimized_setpoints_map.update(new_cache)
             
-            # --- Run Simulation for Forecast (Predicted Temp) ---
-            # We want to return the predicted temperature path based on the NEW optimized setpoints.
-            # We reuse the `measurements` object but override the setpoints.
-            
-            # Create a clean array for simulation inputs
+            # Update data directly (race-condition free)
             sim_setpoints = []
             for i, ts in enumerate(timestamps):
                 # Use optimized value if available (it should be for this window)
@@ -370,7 +372,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                      sim_setpoints.append(measurements.setpoint[i])
             
             measurements.setpoint = np.array(sim_setpoints)
-            
+
             # Ensure duration is valid for simulation
             sim_duration_hours = duration_hours
             if sim_duration_hours is None:
@@ -381,6 +383,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             sim_temps, _, _ = await self.hass.async_add_executor_job(
                 run_model, params, measurements, self.heat_pump, sim_duration_hours*60
             )
+            
+            # --- Update Coordinator Data Immediately ---
+            # Instead of async_request_refresh() which might encounter timestamp mismatch,
+            # we build the result dict here and update self.data directly.
+            result_data = self._build_coordinator_data(
+                timestamps, sim_temps, measurements, optimized_setpoints
+            )
+            self.async_set_updated_data(result_data)
+            
+            # --- Continue for Service Response ---
+            # We want to return the predicted temperature path based on the NEW optimized setpoints.
             
             # -- Optimized Energy Calculation --
             # Now measurements.setpoint is OPTIMIZED.
