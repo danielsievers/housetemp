@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -144,7 +145,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update options."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    coordinator = hass.data[DOMAIN].get(entry.entry_id)
+    if not coordinator:
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+
+    # Only reload if critical init-time settings change (like update_interval)
+    # Most settings (physics, schedule, away) are read dynamically by the coordinator.
+    new_interval = entry.options.get("update_interval") # We rely on default handling in coordinator if None, but here we check change
+    # Note: coordinator.update_interval is a timedelta
+    
+    should_reload = False
+    if new_interval is not None:
+        if coordinator.update_interval != timedelta(minutes=new_interval):
+            should_reload = True
+            
+    if should_reload:
+        await hass.config_entries.async_reload(entry.entry_id)
+    else:
+        # Just refresh to apply new settings (physics, schedule, away)
+        _LOGGER.debug("Options updated, skipping reload and refreshing coordinator.")
+        await coordinator.async_request_refresh()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

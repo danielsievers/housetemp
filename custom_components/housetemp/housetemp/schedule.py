@@ -209,8 +209,24 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
                   # localize index? or convert scalar?
                   pass
              
-             # Vectorized comparison
-             away_mask = ts_index < pd.Timestamp(away_end)
+             # Handle Timezone matching for robust comparison
+             # away_end (datetime) vs ts_index (DatetimeIndex)
+             start_cmp = away_end
+             if ts_index.tz is not None:
+                 if start_cmp.tzinfo is None:
+                     # If index is aware but away_end is naive, force aware (assume user local/config tz)
+                     # But better to assume they match context if possible.
+                     # Here we simply localize to match index if naive.
+                     start_cmp = start_cmp.replace(tzinfo=ts_index.tz)
+                 else:
+                     # Both aware: Convert away_end to index's timezone
+                     start_cmp = start_cmp.astimezone(ts_index.tz)
+             else:
+                 # Index is naive. If away_end is aware, make it naive
+                 if start_cmp.tzinfo is not None:
+                     start_cmp = start_cmp.replace(tzinfo=None)
+             
+             away_mask = ts_index < start_cmp
              targets[away_mask] = float(away_temp)
              
     return hvac_state, targets
