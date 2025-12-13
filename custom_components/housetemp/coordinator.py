@@ -360,7 +360,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             self.optimized_setpoints_map.update(new_cache)
             
-            self.optimized_setpoints_map.update(new_cache)
+
             
             # Update data directly (race-condition free)
             sim_setpoints = []
