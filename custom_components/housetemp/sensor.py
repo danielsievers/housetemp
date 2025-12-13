@@ -185,5 +185,19 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
                     pass
         else:
              to_return["away"] = False
+             
+        # Add Energy Stats
+        kwh = data.get("energy_kwh")
+        opt_kwh = data.get("optimized_energy_kwh")
+        
+        if kwh is not None:
+            to_return["energy_kwh"] = round(float(kwh), 2)
+            
+        if opt_kwh is not None:
+            to_return["optimized_energy_kwh"] = round(float(opt_kwh), 2)
+            
+        if kwh is not None and opt_kwh is not None:
+            savings = kwh - opt_kwh
+            to_return["savings_kwh"] = round(float(savings), 2)
 
         return to_return

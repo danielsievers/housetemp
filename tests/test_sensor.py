@@ -324,3 +324,49 @@ async def test_sensor_away_expires_in_forecast(hass: HomeAssistant):
     
     # With no optimized data, ideal_setpoint should be missing for this point
     assert "ideal_setpoint" not in forecast[4]
+
+@pytest.mark.asyncio
+async def test_sensor_energy_attributes(hass: HomeAssistant):
+    """Test that sensor exposes energy attributes from coordinator."""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    from datetime import datetime, timedelta, timezone
+    
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_C_THERMAL: 1000.0,
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    now = datetime.now(timezone.utc)
+    timestamps = [now + timedelta(minutes=i*15) for i in range(4)]
+    
+    mock_coord = MagicMock()
+    mock_coord.hass = hass
+    
+    # 1. Case: Both Naive and Optimized available
+    mock_coord.data = {
+        "timestamps": timestamps,
+        "predicted_temp": [],
+        "setpoint": [],
+        "hvac_state": [],
+        "solar": [],
+        "outdoor": [], 
+        "energy_kwh": 10.5,
+        "optimized_energy_kwh": 8.2,
+    }
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    attrs = sensor.extra_state_attributes
+    
+    assert attrs["energy_kwh"] == 10.5
+    assert attrs["optimized_energy_kwh"] == 8.2
+    assert attrs["savings_kwh"] == 2.3  # 10.5 - 8.2
+    
+    # 2. Case: Only Naive available (no optimization)
+    mock_coord.data["optimized_energy_kwh"] = None
+    
+    attrs = sensor.extra_state_attributes
+    assert attrs["energy_kwh"] == 10.5
+    assert "optimized_energy_kwh" not in attrs
+    assert "savings_kwh" not in attrs

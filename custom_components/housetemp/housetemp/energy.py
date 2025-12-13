@@ -21,9 +21,18 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
         print("Warning: No Heat Pump model provided. Skipping energy calculation.")
         return 0.0, 0.0
 
-    # Unpack HVAC Aggressiveness (H_factor)
-    H_factor = params[4] 
     
+    return calculate_energy_stats(hvac_outputs, data, hw, h_factor=params[4], cost_per_kwh=cost_per_kwh)
+
+
+def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, cost_per_kwh=0.45):
+    """
+    Calculates energy stats from known HVAC outputs.
+    Avoids re-running simulation.
+    """
+    if hw is None:
+        return {'total_kwh': 0.0, 'total_cost': 0.0}
+
     total_kwh = 0.0
     hourly_kwh = np.zeros(len(data))
     
@@ -31,9 +40,10 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
     max_caps = hw.get_max_capacity(data.t_out)
     base_cops = hw.get_cop(data.t_out)
     
-    print(f"\nComputing Energy Profile ({len(data)} steps)...")
+    # We can only calculate energy for the steps we have outputs for
+    num_steps = min(len(data), len(hvac_outputs))
     
-    for i in range(len(data)):
+    for i in range(num_steps):
         q_output = hvac_outputs[i]
 
         if q_output == 0:
@@ -71,14 +81,5 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
 
     # --- REPORTING ---
     total_cost = total_kwh * cost_per_kwh
-    avg_cop = np.mean(base_cops) # Rough average for context
-    
-    print("-" * 40)
-    print(f"ENERGY ESTIMATE (Period Total)")
-    print("-" * 40)
-    print(f"Total Consumption: {total_kwh:.2f} kWh")
-    print(f"Estimated Cost:    ${total_cost:.2f} (@ ${cost_per_kwh}/kWh)")
-    print(f"Avg efficiency was improved by Inverter Logic.")
-    print("-" * 40)
     
     return {'total_kwh': total_kwh, 'total_cost': total_cost}

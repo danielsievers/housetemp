@@ -56,7 +56,7 @@ from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.schedule import process_schedule_data
-from .housetemp.energy import estimate_consumption
+from .housetemp.energy import estimate_consumption, calculate_energy_stats
 from .input_handler import SimulationInputHandler
 
 _LOGGER = logging.getLogger(DOMAIN)
@@ -250,27 +250,69 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     sim_setpoints.append(setpoint_arr[i])
             measurements.setpoint = np.array(sim_setpoints)
         
-        sim_temps, _, _ = await self.hass.async_add_executor_job(
+        sim_temps, _, hvac_outputs = await self.hass.async_add_executor_job(
             run_model, params, measurements, self.heat_pump, duration_hours*60
         )
         
         if len(sim_temps) > 0:
             _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
 
+        # --- Energy Calculation ---
+        naive_energy_kwh = None
+        optimized_energy_kwh = None
+
+        if self.heat_pump:
+            # 1. Calculate energy for the run we just did
+            current_energy_res = calculate_energy_stats(hvac_outputs, measurements, self.heat_pump, params[4])
+            current_energy_kwh = current_energy_res.get('total_kwh', 0.0)
+
+            if has_optimized_data:
+                # The run we just did was OPTIMIZED
+                optimized_energy_kwh = current_energy_kwh
+                
+                # 2. Run Naive (Schedule) Simulation for comparison
+                # Temporarily revert setpoints to the original schedule for the naive run
+                optimized_setpoint_array = measurements.setpoint
+                measurements.setpoint = np.array(setpoint_arr)
+                
+                _, _, hvac_outputs_naive = await self.hass.async_add_executor_job(
+                    run_model, params, measurements, self.heat_pump, duration_hours*60
+                )
+                
+                naive_res = calculate_energy_stats(hvac_outputs_naive, measurements, self.heat_pump, params[4])
+                naive_energy_kwh = naive_res.get('total_kwh', 0.0)
+                
+                # Restore Optimized Array for consistency if needed downstream
+                # (Though we pass setpoint_arr explicitly to build_data if we want schedule)
+                measurements.setpoint = optimized_setpoint_array
+                
+            else:
+                # Even if not optimized, this IS the naive run
+                naive_energy_kwh = current_energy_kwh
+                optimized_energy_kwh = None # Not available
+
         # 8. Return Result
         return self._build_coordinator_data(
-            timestamps, sim_temps, measurements, optimized_setpoint_arr if has_optimized_data else None
+            timestamps, sim_temps, measurements, optimized_setpoint_arr if has_optimized_data else None,
+            naive_energy_kwh, optimized_energy_kwh, setpoint_arr
         )
 
-    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None):
+    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, naive_kwh=None, optimized_kwh=None, original_schedule=None):
         """Build the coordinator data dict from simulation results."""
+        
+        # Use provided original_schedule if available, otherwise fallback to measurements.setpoint 
+        # (which might be optimized if not careful, but usually we pass original_schedule now)
+        display_setpoints = original_schedule if original_schedule is not None else measurements.setpoint
+
         result = {
             "timestamps": timestamps,
             "predicted_temp": sim_temps,
             "hvac_state": measurements.hvac_state,
-            "setpoint": measurements.setpoint, # Return original schedule for comparison
+            "setpoint": display_setpoints, # Return original schedule for comparison
             "solar": measurements.solar_kw,
-            "outdoor": measurements.t_out
+            "outdoor": measurements.t_out,
+            "energy_kwh": naive_kwh,
+            "optimized_energy_kwh": optimized_kwh
         }
         
         # Add Away Info for Sensor
@@ -380,32 +422,32 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                  
             # Run Model for Temp Curve
             _LOGGER.info("Running simulation for service response (duration: %.1f h)...", sim_duration_hours)
-            sim_temps, _, _ = await self.hass.async_add_executor_job(
+            sim_temps, _, hvac_outputs = await self.hass.async_add_executor_job(
                 run_model, params, measurements, self.heat_pump, sim_duration_hours*60
             )
             
             # --- Update Coordinator Data Immediately ---
-            # Instead of async_request_refresh() which might encounter timestamp mismatch,
-            # we build the result dict here and update self.data directly.
-            result_data = self._build_coordinator_data(
-                timestamps, sim_temps, measurements, optimized_setpoints
-            )
-            self.async_set_updated_data(result_data)
+            # Update data directly to avoid timestamp mismatches from a refresh request
             
-            # --- Continue for Service Response ---
-            # We want to return the predicted temperature path based on the NEW optimized setpoints.
+            result_data = self._build_coordinator_data(
+                timestamps, sim_temps, measurements, optimized_setpoints,
+                naive_kwh=baseline_kwh, optimized_kwh=None, # We calculate opt below
+                original_schedule=target_temps
+            )
             
             # -- Optimized Energy Calculation --
             # Now measurements.setpoint is OPTIMIZED.
             optimized_kwh = 0.0
             try:
-                 # Note: estimate_consumption will run simulation again internally.
-                 opt_res = await self.hass.async_add_executor_job(
-                     estimate_consumption, measurements, params, self.heat_pump
-                 )
+                 # Reuse HVAC outputs from the simulation we just ran!
+                 opt_res = calculate_energy_stats(hvac_outputs, measurements, self.heat_pump, params[4])
                  optimized_kwh = opt_res.get('total_kwh', 0.0)
             except Exception as e:
                  _LOGGER.warning("Failed to estimate optimized energy: %s", e)
+            
+            # Update result data with optimized kwh
+            result_data["optimized_energy_kwh"] = optimized_kwh
+            self.async_set_updated_data(result_data)
             
             # Return Forecast Structure (similar to sensor)
             forecast_data = []
