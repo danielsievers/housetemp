@@ -88,6 +88,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # New Input Handler
         self.input_handler = SimulationInputHandler(hass)
+        
+        # Track model timestep to invalidate cache on change
+        self._last_model_timestep = config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
 
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
@@ -159,6 +162,14 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         """Fetch data and run the model."""
         # Clean up cache before processing
         self._expire_cache()
+        
+        # Check for Model Timestep change (invalidates cache)
+        current_model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
+        if current_model_timestep != self._last_model_timestep:
+            _LOGGER.info("Model timestep changed from %s to %s. Clearing optimization cache.", 
+                         self._last_model_timestep, current_model_timestep)
+            self.optimized_setpoints_map.clear()
+            self._last_model_timestep = current_model_timestep
 
         if not self.heat_pump:
             await self._setup_heat_pump()
