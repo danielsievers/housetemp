@@ -28,6 +28,32 @@ This custom component integrates the HouseTemp thermal model into Home Assistant
     - **Parameters**: Enter your model parameters (`C_thermal`, `UA`, etc.) derived from the CLI tool.
     - **Configs**: Paste your Heat Pump JSON and Schedule JSON configuration.
     - **Settings**: Set the forecast duration (hours) and update interval (minutes).
+    - **Smart Wake-Up**: The system automatically schedules a pre-heating optimization **12 hours before your return**. This ensures the house is warm when you arrive without using inefficient emergency heating.
+
+## Services
+
+### Set Away Mode
+The integration provides a `housetemp.set_away` service to temporarily override the schedule for a duration (e.g., for vacations or day trips).
+
+- **Arguments**:
+  - `duration`: Time to stay in away mode (e.g., "7 days", "12 hours").
+  - `safety_temp`: Temperature to maintain (e.g., 50°F).
+
+## Configuration Reference
+
+### Schedule JSON (`comfort.json`)
+The **Schedule JSON** configuration expects a format like this. You can use this to define your standard heating/cooling schedule.
+
+```json
+{
+    "center_preference": 0.5,
+    "mode": "heat",
+    "schedule": [
+        {"time": "08:00", "temp": 70},
+        {"time": "22:00", "temp": 60}
+    ]
+}
+```
 
 ## Entities
 
@@ -52,3 +78,127 @@ To run the unit tests for this component:
     # Or manually with venv python
     .venv/bin/python -m pytest tests/
     ```
+
+## Visualization
+
+### ApexCharts Card
+Here is an example configuration for the [ApexCharts Card](https://github.com/RomRider/apexcharts-card):
+
+```yaml
+type: custom:apexcharts-card
+graph_span: 24h
+span:
+  start: minute
+header:
+  show: true
+  title: Temperature Forecast
+  show_states: true
+  colorize_states: true
+series:
+  - entity: sensor.indoor_temperature_forecast
+    attribute: energy_kwh
+    name: Target Energy
+    unit: kWh
+    color: steelblue
+    float_precision: 2
+    show:
+      in_header: true
+      in_chart: false
+  - entity: sensor.indoor_temperature_forecast
+    attribute: optimized_energy_kwh
+    name: Opt. Energy
+    unit: kWh
+    color: "#00E396"
+    float_precision: 2
+    show:
+      in_header: true
+      in_chart: false
+  - entity: sensor.indoor_temperature_forecast
+    attribute: savings_kwh
+    name: Savings
+    unit: kWh
+    color: green
+    float_precision: 2
+    show:
+      in_header: true
+      in_chart: false
+  - entity: sensor.indoor_temperature_forecast
+    name: Predicted
+    type: line
+    stroke_width: 2
+    color: orange
+    extend_to: false
+    show:
+      in_header: false
+      in_chart: true
+    data_generator: |
+      return entity.attributes.forecast.map(p => [
+        new Date(p.datetime).getTime(), 
+        p.temperature
+      ]);
+  - entity: sensor.indoor_temperature_forecast
+    name: Target
+    type: line
+    stroke_width: 2
+    color: steelblue
+    curve: stepline
+    extend_to: false
+    show:
+      in_header: false
+      in_chart: true
+    data_generator: |
+      return entity.attributes.forecast
+        .map(p => [
+          new Date(p.datetime).getTime(), 
+          p.target_temp
+        ]);
+  - entity: sensor.indoor_temperature_forecast
+    name: Optimized
+    type: line
+    stroke_width: 2
+    color: "#00E396"
+    curve: stepline
+    extend_to: false
+    show:
+      in_header: false
+      in_chart: true
+    data_generator: |
+      return entity.attributes.forecast
+        .filter(p => p.ideal_setpoint !== undefined && p.ideal_setpoint !== null)
+        .map(p => [
+          new Date(p.datetime).getTime(), 
+          p.ideal_setpoint
+        ]);
+apex_config:
+  chart:
+    height: 300
+  stroke:
+    width:
+      - 2
+      - 2
+      - 2
+    dashArray:
+      - 0
+      - 5
+      - 0
+  markers:
+    size: 0
+  xaxis:
+    type: datetime
+    tooltip:
+      enabled: false
+    labels:
+      formatter: |
+        EVAL: (value) => {
+          return new Date(value).toLocaleTimeString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            hour: 'numeric', 
+            minute: '2-digit' 
+          });
+        }
+  tooltip:
+    x:
+      format: dd MMM h:mm tt
+```
+
