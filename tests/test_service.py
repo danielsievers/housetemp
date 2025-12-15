@@ -42,7 +42,14 @@ async def test_service_resgistered_and_calls_coordinator(hass):
         assert hass.services.has_service(DOMAIN, "run_hvac_optimization")
         
         # Call service
-        await hass.services.async_call(DOMAIN, "run_hvac_optimization", {}, blocking=True)
+        with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+            mock_extract.return_value = [entry.entry_id]
+            await hass.services.async_call(
+                DOMAIN, 
+                "run_hvac_optimization", 
+                {}, 
+                blocking=True
+            )
         
         # Verify coordinator triggered
         assert mock_trigger.called
@@ -78,13 +85,16 @@ async def test_service_call_handles_exceptions(hass):
         # ONLY if return_response is True? Or always?
         # My implementation catches all exceptions and puts them in results dict.
         
-        response = await hass.services.async_call(
-            DOMAIN, 
-            "run_hvac_optimization", 
-            {}, 
-            blocking=True, 
-            return_response=True
-        )
+        # Call service
+        with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+            mock_extract.return_value = [entry.entry_id]
+            response = await hass.services.async_call(
+                DOMAIN, 
+                "run_hvac_optimization", 
+                {}, 
+                blocking=True, 
+                return_response=True
+            )
         
         assert mock_trigger.called
         assert "Mock Title" in response
@@ -130,7 +140,14 @@ async def test_service_call_returns_data(hass):
     
     with patch.object(coordinator, "async_trigger_optimization", return_value=expected_result) as mock_trigger:
         # 1. Test Duration Passing
-        await hass.services.async_call(DOMAIN, "run_hvac_optimization", {"duration": 48}, blocking=True)
+        with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+            mock_extract.return_value = [entry.entry_id]
+            await hass.services.async_call(
+                DOMAIN, 
+                "run_hvac_optimization", 
+                {"duration": 48}, 
+                blocking=True
+            )
         mock_trigger.assert_called_with(duration_hours=48.0) # Might come as int, check strictly if float cast is done inside or passed as is.
         # Coordinator logic type checks / converts it, but service handler passes raw.
         # Actually in __init__.py we pass: duration_hours=duration.
@@ -138,13 +155,15 @@ async def test_service_call_returns_data(hass):
         # Let's assert called with 48 (int) if HA passes int.
         
         # 2. Test Response
-        response = await hass.services.async_call(
-            DOMAIN, 
-            "run_hvac_optimization", 
-            {"duration": 12}, 
-            blocking=True, 
-            return_response=True
-        )
+        with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+            mock_extract.return_value = [entry.entry_id]
+            response = await hass.services.async_call(
+                DOMAIN, 
+                "run_hvac_optimization", 
+                {"duration": 12}, 
+                blocking=True, 
+                return_response=True
+            )
         
         mock_trigger.assert_called_with(duration_hours=12)
         

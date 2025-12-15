@@ -156,10 +156,12 @@ async def test_set_away_service_return_values(hass_mock):
     
     # Case A: Short Away (Inside Window)
     call = MagicMock()
-    call.data = {"duration": {"hours": 12}, "safety_temp": 50}
     call.return_response = True
     
-    result = await call_handler(call)
+    # Mock target extraction
+    with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = [entry.entry_id]
+        result = await call_handler(call)
     
     assert result["Test House"]["success"] is True
     assert result["Test House"]["energy_used_schedule_kwh"] == 10.5
@@ -168,7 +170,9 @@ async def test_set_away_service_return_values(hass_mock):
     # Case B: Long Away (Outside Window)
     call.data = {"duration": {"hours": 72}, "safety_temp": 50}
     
-    result = await call_handler(call)
+    with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = [entry.entry_id]
+        result = await call_handler(call)
     
     assert result["Test House"]["success"] is True
     # Should NOT satisfy condition: 72h > 48h forecast
