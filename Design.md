@@ -131,3 +131,13 @@ When `set_away` is called, the service returns predicted energy usage if the awa
 The main temperature sensor reflects the Away status:
 *   `away` (boolean): `true` when Away Mode is active.
 *   `away_end` (datetime): The local time when Away Mode is scheduled to end (only present when active).
+
+## 8. Services & API
+The integration exposes custom services to interact with the model and scheduler.
+
+### 8.1 Safety & Targeting
+All services **require** a target entity (`entity_id`). This ensures that commands are sent only to the specific HouseTemp instance intended, preventing accidental overrides in multi-zone setups. Broadcasting to all instances is not supported.
+
+### 8.2 Available Services
+*   `housetemp.run_hvac_optimization`: Manually triggers the optimization process for a specific duration.
+*   `housetemp.set_away`: activating "Away Mode" with a specific duration and safety temperature.
