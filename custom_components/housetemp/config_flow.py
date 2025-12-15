@@ -207,8 +207,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @staticmethod
+    @callback
     def async_get_options_flow(config_entry):
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options."""
@@ -235,69 +237,73 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         # Get current values from OPTIONS (tunable)
         # Fallback to DATA only if migrating (optional, but good for safety)
-        # Note: In this strict refactor, we assume options are populated.
         opts = self.config_entry.options
+        data = self.config_entry.data
+        
+        # Helper to get value from opts -> data -> default
+        def get_opt(key, default_val):
+            return opts.get(key, data.get(key, default_val))
         
         # Re-create schema with current values as defaults
         schema = vol.Schema(
             {
                 vol.Required(
                     CONF_SCHEDULE_CONFIG,
-                    default=opts.get(CONF_SCHEDULE_CONFIG, DEFAULT_SCHEDULE_CONFIG),
+                    default=get_opt(CONF_SCHEDULE_CONFIG, DEFAULT_SCHEDULE_CONFIG),
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(multiline=True)
                 ),
                 vol.Required(
                     CONF_HVAC_MODE,
-                    default=opts.get(CONF_HVAC_MODE, "heat"),
+                    default=get_opt(CONF_HVAC_MODE, "heat"),
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=["heat", "cool"])
                 ),
                 vol.Required(
                     CONF_AVOID_DEFROST,
-                    default=opts.get(CONF_AVOID_DEFROST, True),
+                    default=get_opt(CONF_AVOID_DEFROST, True),
                 ): selector.BooleanSelector(),
                 vol.Required(
                     CONF_UA,
-                    default=opts.get(CONF_UA, DEFAULT_UA),
+                    default=get_opt(CONF_UA, DEFAULT_UA),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_C_THERMAL,
-                    default=opts.get(CONF_C_THERMAL, DEFAULT_C_THERMAL),
+                    default=get_opt(CONF_C_THERMAL, DEFAULT_C_THERMAL),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_K_SOLAR,
-                    default=opts.get(CONF_K_SOLAR, DEFAULT_K_SOLAR),
+                    default=get_opt(CONF_K_SOLAR, DEFAULT_K_SOLAR),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_Q_INT,
-                    default=opts.get(CONF_Q_INT, DEFAULT_Q_INT),
+                    default=get_opt(CONF_Q_INT, DEFAULT_Q_INT),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_H_FACTOR,
-                    default=opts.get(CONF_H_FACTOR, DEFAULT_H_FACTOR),
+                    default=get_opt(CONF_H_FACTOR, DEFAULT_H_FACTOR),
                 ): vol.Coerce(float),
                 vol.Required(
                     CONF_CENTER_PREFERENCE,
-                    default=opts.get(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE),
+                    default=get_opt(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
                 vol.Required(
                     CONF_FORECAST_DURATION,
-                    default=opts.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION),
+                    default=get_opt(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=24)),
                 vol.Required(
                     CONF_UPDATE_INTERVAL,
-                    default=opts.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                    default=get_opt(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1)),
                 
                 # Advanced Optimization Toggles (Keep specific optimization flags if they were there)
                 vol.Optional(
                     CONF_MODEL_TIMESTEP,
-                    default=opts.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP),
+                    default=get_opt(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_MODEL_TIMESTEP)),
                 vol.Optional(
                     CONF_CONTROL_TIMESTEP,
-                    default=opts.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP),
+                    default=get_opt(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CONTROL_TIMESTEP)),
             }
         )
