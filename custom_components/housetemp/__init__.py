@@ -9,6 +9,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
+from homeassistant.helpers import service
 
 from .const import DOMAIN, DEFAULT_AWAY_TEMP
 from .coordinator import HouseTempCoordinator
@@ -24,19 +25,35 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # Register run_hvac_optimization service
     async def async_service_handler(call):
         """Handle run_hvac_optimization service call."""
-        duration = call.data.get("duration")
-        current_entries = hass.config_entries.async_entries(DOMAIN)
+        from homeassistant.exceptions import ServiceValidationError
         
+        duration = call.data.get("duration")
+        
+        # Extract target config entries
+        # This helper resolves entity_ids, device_ids, and area_ids to config entries
+        # We assume the user targets the sensor entity provided by this integration
+        target_entries = await service.async_extract_config_entry_ids(call)
+        
+        if not target_entries:
+            raise ServiceValidationError(
+                "No target selected. You must target a HouseTemp entity."
+            )
+
         results = {}
         
-        for entry in current_entries:
-            if entry.entry_id in hass.data.get(DOMAIN, {}):
-                coord = hass.data[DOMAIN][entry.entry_id]
+        for entry_id in target_entries:
+            if entry_id in hass.data.get(DOMAIN, {}):
+                coord = hass.data[DOMAIN][entry_id]
+                # Try to get the entry title for the result key
+                entry_title = coord.config_entry.title
                 try:
                     res = await coord.async_trigger_optimization(duration_hours=duration)
-                    results[entry.title] = res
+                    results[entry_title] = res
                 except Exception as e:
-                    results[entry.title] = {"error": str(e)}
+                    results[entry_title] = {"error": str(e)}
+            else:
+                 # Should not happen if extract_config_entry_ids works correctly for loaded entries
+                 pass
         
         if call.return_response:
             return results
@@ -69,12 +86,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
         safety_temp = call.data.get("safety_temp", DEFAULT_AWAY_TEMP)
         
-        current_entries = hass.config_entries.async_entries(DOMAIN)
+        target_entries = await service.async_extract_config_entry_ids(call)
+        
+        if not target_entries:
+            raise ServiceValidationError(
+                "No target selected. You must target a HouseTemp entity."
+            )
         
         results = {}
-        for entry in current_entries:
-            if entry.entry_id in hass.data.get(DOMAIN, {}):
-                coord = hass.data[DOMAIN][entry.entry_id]
+        for entry_id in target_entries:
+            if entry_id in hass.data.get(DOMAIN, {}):
+                coord = hass.data[DOMAIN][entry_id]
+                entry_title = coord.config_entry.title
                 try:
                     opt_result = await coord.async_set_away_mode(duration, safety_temp)
                     
@@ -87,29 +110,17 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                         summary = opt_result["optimization_summary"]
                         
                         # Check if away_end is within the optimization horizon
-                        # We can roughly check if duration < forecast_duration
-                        # Or better, check the timestamps.
-                        # The optimization result has 'points' and 'duration', but not explicit end time easily accessible 
-                        # without parsing.
-                        # However, we know 'duration' passed to set_away is the away duration.
-                        # And we know the forecast duration from config.
-                        
                         forecast_duration_hours = coord.config_entry.options.get("forecast_duration", 48) # default 48
                         away_duration_hours = duration.total_seconds() / 3600.0
-                        
-                        # Requirement: "only do this calculation if the away end is within the 12h window that we did the optimization for"
-                        # The user prompt said: "within the 12h window that we did the optimization for"
-                        # But wait, optimization is done for 'forecast_duration' (default 48h).
-                        # Let's assume "window" means the optimization horizon.
                         
                         if away_duration_hours <= forecast_duration_hours:
                             response["energy_used_schedule_kwh"] = summary.get("total_energy_use_kwh")
                             response["energy_used_optimized_kwh"] = summary.get("total_energy_use_optimized_kwh")
 
-                    results[entry.title] = response
+                    results[entry_title] = response
                 except Exception as e:
-                    _LOGGER.error("Failed to set away mode for %s: %s", entry.title, e)
-                    results[entry.title] = {"success": False, "error": str(e)}
+                    _LOGGER.error("Failed to set away mode for %s: %s", entry_title, e)
+                    results[entry_title] = {"success": False, "error": str(e)}
         
         if call.return_response:
             return results

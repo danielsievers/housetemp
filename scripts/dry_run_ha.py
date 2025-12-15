@@ -333,10 +333,26 @@ async def main():
             call_data = {"duration": 24}
             call = MagicMock()
             call.data = call_data
-            call.return_response = True
+            call.context = MagicMock()
+            # Mock extract_config_entry_ids helper behavior for dry run
+            # Since we use the helper, we need to mock it or ensure it works.
+            # The helper uses call.data['entity_id'] etc, or call.context.
+            # But in dry run we mocked the helper? No.
+            # We are running the REAL __init__.py code.
+            # Real async_extract_config_entry_ids uses hass.states, entity registry etc.
+            # It will fail in dry run because we mocked hass.states.get but not the entity registry.
             
-            # Execute Handler
-            result_payload_map = await handler(call)
+            # Use a patch for the dry run script specifically for this helper!
+            from unittest.mock import patch, AsyncMock
+            
+            # We need to simulate that the helper returns our entry ID
+            with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+                mock_extract.return_value = ["test_entry_123"]
+                
+                call.return_response = True
+                
+                # Execute Handler
+                result_payload_map = await handler(call)
             
             print(f"Service Execution Complete. Keys: {result_payload_map.keys() if result_payload_map else 'None'}")
             

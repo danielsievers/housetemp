@@ -1,6 +1,10 @@
 run_hvac_optimization:
   name: Run HVAC Optimization
   description: Manually triggers the HVAC cost and comfort optimization process.
+  target:
+    entity:
+      integration: housetemp
+      domain: sensor
   fields:
     duration:
       name: Duration (Hours)
@@ -17,6 +21,10 @@ run_hvac_optimization:
 set_away:
   name: Set Away Mode
   description: Overrides the HVAC schedule with a safety temperature for a specified duration.
+  target:
+    entity:
+      integration: housetemp
+      domain: sensor
   fields:
     duration:
       name: Duration
