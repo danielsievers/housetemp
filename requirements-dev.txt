@@ -2,7 +2,7 @@
 # Requires Python 3.13+ for Home Assistant 2025.11+ compatibility
 
 # Home Assistant (install from GitHub for latest versions not on PyPI)
-git+https://github.com/home-assistant/core.git@2025.11.3
+git+https://github.com/home-assistant/core.git@2025.12.0
 
 # Testing
 pytest
