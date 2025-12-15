@@ -59,7 +59,8 @@ SCHEDULE_SCHEMA = vol.Schema({
             vol.Required("daily_schedule"): [
                 {
                     vol.Required("time"): vol.Match(r"^([0-1][0-9]|2[0-3]):[0-5][0-9]$"),  # HH:MM
-                    vol.Required("temp"): vol.All(vol.Coerce(float), vol.Range(min=40, max=95))
+                    vol.Required("temp"): vol.All(vol.Coerce(float), vol.Range(min=40, max=95)),
+                    vol.Optional("fixed", default=False): bool
                 }
             ]
         }

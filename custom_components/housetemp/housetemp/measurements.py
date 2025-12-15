@@ -14,6 +14,7 @@ class Measurements:
     hvac_state: np.array  # 1 (Heat), 0 (Off), -1 (Cool)
     setpoint: np.array    # Thermostat Target (F)
     dt_hours: np.array    # Time step size in hours (e.g., 0.5 for 30 mins)
+    is_setpoint_fixed: np.array = None # Boolean mask: True if setpoint is fixed/mandatory
 
     def __len__(self):
         return len(self.timestamps)
@@ -27,5 +28,6 @@ class Measurements:
             solar_kw=self.solar_kw[start_idx:end_idx],
             hvac_state=self.hvac_state[start_idx:end_idx],
             setpoint=self.setpoint[start_idx:end_idx],
-            dt_hours=self.dt_hours[start_idx:end_idx]
+            dt_hours=self.dt_hours[start_idx:end_idx],
+            is_setpoint_fixed=self.is_setpoint_fixed[start_idx:end_idx] if self.is_setpoint_fixed is not None else None
         )

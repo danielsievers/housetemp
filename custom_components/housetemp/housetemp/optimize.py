@@ -99,7 +99,7 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
         
     return result
 
-def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block_size_minutes=30):
+def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block_size_minutes=30, fixed_mask=None):
     """
     Finds the optimal setpoint schedule to minimize Energy + Comfort Penalty.
     Uses block_size_minutes control blocks to reduce dimensionality.
@@ -143,10 +143,44 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     # sim_minutes = np.array([(t - start_ts).total_seconds() / 60.0 for t in sim_ts_series])
     
     # Initial Guess: Downsample target_temps to blocks
+    # Note: interp computes linear interpolation. For 'stepped' schedules it might blur transitions.
+    # But as an initial guess for the solver it is fine.
     initial_guess = np.interp(control_times, sim_minutes, target_temps)
     
+    # Process Fixed Mask -> Control Blocks
+    # Access fixed mask from data object if passed, or argument
+    # We support passing it as argument 'fixed_mask' (high resolution boolean array)
+    
+    block_fixed_flags = np.zeros(num_blocks, dtype=bool)
+    
+    if fixed_mask is not None:
+         # logic: if a control block covers ANY fixed time, is it fixed? 
+         # Or if it is MOSTLY fixed?
+         # Safer: If a block *starts* in a fixed region, lock it.
+         # Because we hold values, the block value determines the setpoint for the duration of the block.
+         
+         # Downsample mask: Use nearest neighbor (step) logic consistent with how we apply the schedule
+         # Search sorted gives indices into full resolution array
+         indices = np.searchsorted(sim_minutes, control_times, side='left')
+         indices = np.clip(indices, 0, len(fixed_mask) - 1)
+         
+         block_fixed_flags = fixed_mask[indices]
+
+         # Enforce Initial Guess for fixed blocks to be exactly the target temp
+         initial_guess[block_fixed_flags] = np.interp(control_times[block_fixed_flags], sim_minutes, target_temps)
+    
     # Bounds for optimization variables (thermostat limits)
-    bounds = [(50.0, 90.0) for _ in range(num_blocks)]
+    # Default: 50-90 F
+    # If Fixed: Bound is [target, target] (Equality constraint via bounds)
+    bounds = []
+    
+    for i in range(num_blocks):
+        if block_fixed_flags[i]:
+            # Locked to initial guess (which is the schedule target)
+            val = initial_guess[i]
+            bounds.append((val, val))
+        else:
+            bounds.append((50.0, 90.0))
     
     # Pre-calculate hardware limits for speed
     max_caps = hw.get_max_capacity(data.t_out)

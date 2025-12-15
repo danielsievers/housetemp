@@ -26,7 +26,7 @@ def test_process_schedule_basic():
         ]
     }
     
-    hvac, setpoints = process_schedule_data(timestamps, schedule)
+    hvac, setpoints, _ = process_schedule_data(timestamps, schedule)
     
     # Sun 8:00 -> 70 (before 10)
     assert setpoints[0] == 70.0
@@ -57,7 +57,7 @@ def test_process_schedule_away():
     away_end = datetime(2023, 1, 1, 10, 0, tzinfo=timezone.utc)
     away_status = (True, away_end, 50.0)
     
-    hvac, setpoints = process_schedule_data(timestamps, schedule, away_status)
+    hvac, setpoints, _ = process_schedule_data(timestamps, schedule, away_status)
     
     # 8:00 is away -> 50
     assert setpoints[0] == 50.0

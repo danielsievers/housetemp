@@ -158,6 +158,7 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
             daily_schedules[wd_idx] = day_schedule
 
     targets = np.zeros(len(timestamps))
+    fixed_mask = np.zeros(len(timestamps), dtype=bool)
     
     # Process Timestamps
     times_of_day = ts_index.time
@@ -178,14 +179,21 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
                 
             last_item = day_schedule[-1]
             day_targets = np.full(np.sum(day_mask), float(last_item['temp']))
+            # Default last item logic applies for 'fixed' too?
+            # If last item is fixed, it wraps around until the first item of same day.
+            day_fixed = np.full(np.sum(day_mask), bool(last_item.get('fixed', False)), dtype=bool)
             
             for item in day_schedule:
                 t_start = parse_time(item['time'])
                 temp = float(item['temp'])
+                is_fixed = bool(item.get('fixed', False))
+                
                 mask_ge_start = day_times >= t_start
                 day_targets[mask_ge_start] = temp
+                day_fixed[mask_ge_start] = is_fixed
                 
             targets[day_mask] = day_targets
+            fixed_mask[day_mask] = day_fixed
             
     # Apply HVAC Mode
     global_mode = schedule_data.get("mode", "heat").lower()
@@ -228,5 +236,8 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
              
              away_mask = ts_index < start_cmp
              targets[away_mask] = float(away_temp)
+             # During Away, setpoint is strictly ENFORCED? 
+             # For now, let's treat away mode as fixed/enforced too to prevent optimization overriding it
+             fixed_mask[away_mask] = True
              
-    return hvac_state, targets
+    return hvac_state, targets, fixed_mask

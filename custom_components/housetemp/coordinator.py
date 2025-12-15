@@ -622,7 +622,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # Run process_schedule_data in executor to avoid blocking event loop (pytz I/O)
         from functools import partial
-        hvac_state_arr, setpoint_arr = await self.hass.async_add_executor_job(
+        hvac_state_arr, setpoint_arr, fixed_mask_arr = await self.hass.async_add_executor_job(
             partial(
                 process_schedule_data,
                 timestamps, 
@@ -643,7 +643,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             solar_kw=solar_arr,
             hvac_state=np.array(hvac_state_arr),
             setpoint=np.array(setpoint_arr),
-             dt_hours=dt_values
+             dt_hours=dt_values,
+            is_setpoint_fixed=np.array(fixed_mask_arr)
         )
         
         return measurements, params, start_time
