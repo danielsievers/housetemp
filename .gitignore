@@ -28,4 +28,5 @@ htmlcov/
 
 # Ignore all hidden files in root
 /.*
-!.gitignore
+!/agent/
+!.agent/
