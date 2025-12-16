@@ -108,36 +108,3 @@ The cost function is asymmetric, penalizing only "bad" deviations while allowing
 
 $$ \text{Cost}_{comfort} = P_{center} \cdot \left(\text{EffectiveError}\right)^2 $$
 
-## 7. Away Mode & Smart Wake-Up
-The system supports a robust "Away Mode" that overrides the schedule with a safety temperature (e.g., 50°F) for extended durations.
-
-### 7.1 Smart Wake-Up Scheduling
-To prevent inefficient reheating (emergency heat / maximum power) when returning from a deep setback:
-1.  **Immediate Action**: Upon setting "Away", the system re-optimizes with the safety temperature as the target.
-2.  **Delayed Trigger**: A background timer is scheduled for **12 hours before** the return time (`AwayEnd`).
-3.  **Pre-Heating**: When the timer fires, the optimization runs again. Since `AwayEnd` is now within the forecast horizon, the optimizer "sees" the scheduled setpoint returning.
-4.  **Efficient Ramp**: The optimizer plans a gradual pre-heating ramp using the heat pump's most efficient capacity, ensuring the home is comfortable exactly upon return without energy waste.
-
-### 7.2 Persistence
-The Away state (End Time, Safety Temp) and the Smart Wake-Up timer are persisted in the configuration options to survive Home Assistant restarts.
-
-### 7.3 Energy Estimation
-When `set_away` is called, the service returns predicted energy usage if the away period is within the optimization horizon:
-*   `energy_used_schedule_kwh`: Est. consumption if the original schedule were followed.
-*   `energy_used_optimized_kwh`: Est. consumption using the new Away Setpoint (and smart return).
-*   Allows users/automations to immediately calculate "Savings" from the away action.
-
-### 7.4 Sensor Attributes
-The main temperature sensor reflects the Away status:
-*   `away` (boolean): `true` when Away Mode is active.
-*   `away_end` (datetime): The local time when Away Mode is scheduled to end (only present when active).
-
-## 8. Services & API
-The integration exposes custom services to interact with the model and scheduler.
-
-### 8.1 Safety & Targeting
-All services **require** a target entity (`entity_id`). This ensures that commands are sent only to the specific HouseTemp instance intended, preventing accidental overrides in multi-zone setups. Broadcasting to all instances is not supported.
-
-### 8.2 Available Services
-*   `housetemp.run_hvac_optimization`: Manually triggers the optimization process for a specific duration.
-*   `housetemp.set_away`: activating "Away Mode" with a specific duration and safety temperature.

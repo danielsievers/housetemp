@@ -30,11 +30,32 @@ This custom component integrates the HouseTemp thermal model into Home Assistant
     - **Settings**: Set the forecast duration (hours) and update interval (minutes).
     - **Smart Wake-Up**: The system automatically schedules a pre-heating optimization **12 hours before your return**. This ensures the house is warm when you arrive without using inefficient emergency heating.
 
+## Away Mode & Smart Wake-Up
+
+The system supports a robust "Away Mode" that overrides the schedule with a safety temperature (e.g., 50°F) for extended durations.
+
+1.  **Immediate Action**: Upon setting "Away", the system re-optimizes with the safety temperature as the target.
+2.  **Smart Wake-Up**: A background timer is scheduled for **12 hours before** the return time. When this fires, the unique optimization algorithm "sees" the return setpoint and plans a gradual, efficient pre-heating ramp properly timed for your arrival.
+3.  **Persistence**: The Away state (End Time, Safety Temp) and the Smart Wake-Up timer are persisted to survive system restarts.
+
+### Energy Estimation
+When `set_away` is activated, the system estimates:
+*   Consumption if the original schedule were followed.
+*   Consumption using the new Away Setpoint (and smart return).
+*   Allows calculation of "Savings" from the away action.
+
 ## Services
 
-### Set Away Mode
-The integration provides a `housetemp.set_away` service to temporarily override the schedule for a duration (e.g., for vacations or day trips).
+### Run HVAC Optimization
+`housetemp.run_hvac_optimization`
+Manually triggers the optimization process for a specific duration. Useful for testing or forcing a recalculation.
+- **Targeting**: Requires an `entity_id` (e.g., `sensor.indoor_temp_forecast`).
 
+### Set Away Mode
+`housetemp.set_away`
+Temporarily overrides the schedule for a duration.
+
+- **Targeting**: Requires an `entity_id`.
 - **Arguments**:
   - `duration`: Time to stay in away mode (e.g., "7 days", "12 hours").
   - `safety_temp`: Temperature to maintain (e.g., 50°F).
@@ -61,6 +82,8 @@ The integration creates a sensor: `sensor.indoor_temperature_forecast`.
 - **State**: The predicted temperature at the end of the forecast period.
 - **Attributes**:
     - `forecast`: A list of hourly/30-min predictions including temperature, HVAC state, and estimated energy usage.
+    - `away` (boolean): `true` when Away Mode is active.
+    - `away_end` (datetime): The local time when Away Mode is scheduled to end.
 
 ## Testing
 
