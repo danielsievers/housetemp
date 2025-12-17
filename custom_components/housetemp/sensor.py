@@ -50,19 +50,27 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         # Check Away Status for Fallback
         away_info = self.coordinator.data.get("away_info", {})
         
+        import math
+        
         optimized_setpoints = self.coordinator.data.get("optimized_setpoint")
         if optimized_setpoints is not None and len(optimized_setpoints) > 0:
             val = optimized_setpoints[0]
             if val is not None:
-                return round(float(val), 1)
+                f_val = float(val)
+                if math.isfinite(f_val):
+                    return round(f_val, 1)
         
         # Fallback: If optimization missing but Away is active, show Away Temp
         if away_info.get("active") and away_info.get("temp") is not None:
-             return round(float(away_info["temp"]), 1)
+             f_val = float(away_info["temp"])
+             if math.isfinite(f_val):
+                 return round(f_val, 1)
             
         setpoints = self.coordinator.data.get("setpoint")
         if setpoints is not None and len(setpoints) > 0:
-            return round(float(setpoints[0]), 1)
+            f_val = float(setpoints[0])
+            if math.isfinite(f_val):
+                return round(f_val, 1)
             
         return None
 
@@ -152,15 +160,25 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             
             if len(optimized_setpoints) > 0 and best_idx < len(optimized_setpoints):
                 val = optimized_setpoints[best_idx]
-                if val is not None:
+                if val is not None and math.isfinite(val):
                     item["ideal_setpoint"] = float(val)
                 elif is_point_away and away_info.get("temp") is not None:
                      # Gap in optimization but away is active
-                     item["ideal_setpoint"] = float(away_info["temp"])
+                     val = float(away_info["temp"])
+                     if math.isfinite(val):
+                         item["ideal_setpoint"] = val
             elif is_point_away and away_info.get("temp") is not None:
                  # No optimization data at all, but away is active
-                 item["ideal_setpoint"] = float(away_info["temp"])
+                 val = float(away_info["temp"])
+                 if math.isfinite(val):
+                     item["ideal_setpoint"] = val
             
+            # Sanitization for temperature and target_temp
+            if item["temperature"] is not None and not math.isfinite(item["temperature"]):
+                item["temperature"] = None
+            if item["target_temp"] is not None and not math.isfinite(item["target_temp"]):
+                item["target_temp"] = None
+
             forecast.append(item)
             current_dt += timedelta(minutes=15)
 
@@ -191,13 +209,21 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         opt_kwh = data.get("optimized_energy_kwh")
         
         if kwh is not None:
-            to_return["energy_kwh"] = round(float(kwh), 2)
+            f_kwh = float(kwh)
+            if math.isfinite(f_kwh):
+                to_return["energy_kwh"] = round(f_kwh, 2)
             
         if opt_kwh is not None:
-            to_return["optimized_energy_kwh"] = round(float(opt_kwh), 2)
+            f_opt = float(opt_kwh)
+            if math.isfinite(f_opt):
+                to_return["optimized_energy_kwh"] = round(f_opt, 2)
             
         if kwh is not None and opt_kwh is not None:
-            savings = kwh - opt_kwh
-            to_return["savings_kwh"] = round(float(savings), 2)
+            # Re-fetch floats in case checked above
+            f_kwh = float(kwh)
+            f_opt = float(opt_kwh)
+            if math.isfinite(f_kwh) and math.isfinite(f_opt):
+                savings = f_kwh - f_opt
+                to_return["savings_kwh"] = round(float(savings), 2)
 
         return to_return
