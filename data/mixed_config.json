@@ -1,0 +1,9 @@
+{
+    "description": "Mixed Config: Garage Shell + Default Heat",
+    "C_thermal": 5174,
+    "UA_overall": 490,
+    "K_solar": 3000,
+    "Q_int": 2000,
+    "H_factor": 3000,
+    "efficiency_derate": 1.0
+}
