@@ -38,113 +38,129 @@ class HeatPump:
     def get_cop(self, t_out_array):
         return np.interp(t_out_array, self.cop_x, self.cop_y)
 
-def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes: int = 0):
-    # --- 1. Unpack Parameters (The things we are optimizing) ---
-    C_thermal = params[0]   # Thermal Mass (BTU/F)
-    UA = params[1]          # Insulation Leakage (BTU/hr/F)
-    K_solar = params[2]     # Solar Gain Factor (BTU/hr per kW)
-    Q_int = params[3]       # Internal Heat (BTU/hr)
-    H_factor = params[4]    # Inverter Aggressiveness (BTU per degree gap)
+def run_model_fast(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
+    """
+    Fastest possible simulation loop for HA Green (ARM).
+    Accepts PURE PYTHON LISTS (not numpy arrays) for maximum scalar iteration speed.
+    """
+    # Unpack params
+    C_thermal = params[0]
+    UA = params[1]
+    K_solar = params[2]
+    Q_int = params[3]
+    H_factor = params[4]
     
-    # Optional: Efficiency Derate (Active Loss Factor)
-    # If params has 6 elements, the 6th is efficiency (default 1.0)
+    total_steps = len(t_out_list)
+    sim_temps_list = [0.0] * total_steps
+    hvac_outputs_list = [0.0] * total_steps
+    
+    current_temp = float(start_temp)
+    
+    # Pre-resolve len to avoid lookup
+    # Actually range(total_steps) is efficient enough
+    
+    for i in range(total_steps):
+        sim_temps_list[i] = current_temp
+        
+        # A. Passive Physics
+        q_leak = UA * (t_out_list[i] - current_temp)
+        q_solar = solar_kw_list[i] * K_solar
+        
+        # B. Active HVAC Physics
+        q_hvac = 0.0
+        mode = hvac_state_list[i]
+        
+        if mode != 0:
+            if mode > 0: # HEATING
+                gap = setpoint_list[i] - current_temp
+                if gap > 0:
+                    request = min_output + (H_factor * gap)
+                    cap = max_caps_list[i]
+                    if request > cap:
+                        q_hvac = cap
+                    else:
+                        q_hvac = request
+                else:
+                    q_hvac = 0.0
+                
+            elif mode < 0: # COOLING
+                gap = current_temp - setpoint_list[i]
+                if gap > 0:
+                    request = min_output + (H_factor * gap)
+                    if request > max_cool:
+                        q_hvac = -max_cool
+                    else:
+                        q_hvac = -request
+                else:
+                    q_hvac = 0.0
+            
+            if eff_derate != 1.0:
+                q_hvac *= eff_derate
+        
+        hvac_outputs_list[i] = q_hvac
+
+        # C. Total Energy / Integration
+        q_total = q_leak + q_solar + Q_int + q_hvac
+        delta_T = (q_total * dt_hours_list[i]) / C_thermal
+        current_temp += delta_T
+
+    return sim_temps_list, hvac_outputs_list
+
+def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes: int = 0):
+    # --- 1. Unpack Parameters ---
+    # Optional efficiency
     eff_derate = 1.0
     if len(params) > 5:
         eff_derate = params[5]
 
-    # --- 2. Pre-calculate Limits ---
-    # We know the max capacity for every hour based on weather
+    # --- 2. Determines Limits ---
+    # Convert to list for speed
+    t_out_list = data.t_out.tolist()
+    solar_kw_list = data.solar_kw.tolist()
+    dt_hours_list = data.dt_hours.tolist()
+    
     if hw:
-        max_caps = hw.get_max_capacity(data.t_out)
+        max_caps_list = hw.get_max_capacity(data.t_out).tolist()
+        min_output = hw.min_output_btu_hr
+        max_cool = hw.max_cool_btu_hr
+        setpoint_list = data.setpoint.tolist()
+        hvac_state_list = data.hvac_state.tolist()
     else:
-        # If no hardware model, we assume no active HVAC capability
-        # or infinite? For now, let's assume 0 capacity if no hardware defined.
-        # This effectively forces Passive Mode.
-        max_caps = np.zeros(len(data))
+        max_caps_list = [0.0] * len(data.t_out)
+        min_output = 0
+        max_cool = 0
+        setpoint_list = [0.0] * len(data.t_out)
+        hvac_state_list = [0] * len(data.t_out)
     
     # --- 3. Determine Simulation Steps ---
-    total_steps = len(data)
+    total_steps = len(data.t_out) # Default to full
+    
+    # Handle duration_minutes by truncation of input lists
     if duration_minutes > 0:
-        # Calculate steps based on actual dt
-        # dt_hours is in hours. duration_minutes is in minutes.
         avg_dt_minutes = np.mean(data.dt_hours) * 60
         if avg_dt_minutes > 0:
             steps_needed = int(duration_minutes / avg_dt_minutes)
             total_steps = min(total_steps, steps_needed)
-
-    # --- 4. Simulation Loop ---
-    sim_temps = np.zeros(total_steps)
-    hvac_outputs = np.zeros(total_steps) # Track Q_hvac for energy calc
-    current_temp = data.t_in[0] # Start at actual temp
-    
-    for i in range(total_steps):
-        sim_temps[i] = current_temp
-        
-        # A. Passive Physics
-        # Heat flowing IN/OUT through walls
-        q_leak = UA * (data.t_out[i] - current_temp)
-        
-        # Heat from Sun
-        q_solar = data.solar_kw[i] * K_solar
-        
-        # B. Active HVAC Physics (Inverter Logic)
-        q_hvac = 0
-        
-        if hw and data.hvac_state[i] != 0: # If HVAC is enabled AND we have hardware
-            # Calculate the "Gap" (Error)
-            gap = data.setpoint[i] - current_temp
             
-            mode = data.hvac_state[i]
-            
-            if mode > 0: # HEATING
-                gap = data.setpoint[i] - current_temp
-                if gap > 0:
-                    # Min output + turbo ramp based on gap
-                    request = hw.min_output_btu_hr + (H_factor * gap)
-                    # Clamp to hardware limits
-                    q_hvac = min(request, max_caps[i])
-                else:
-                    q_hvac = 0
-                
-            elif mode < 0: # COOLING
-                gap = current_temp - data.setpoint[i]
-                if gap > 0:
-                    request = hw.min_output_btu_hr + (H_factor * gap)
-                    # Cap to cooling limit
-                    q_hvac = -min(request, hw.max_cool_btu_hr)
-                else:
-                    q_hvac = 0
-                    
-            # Apply Efficiency Derate (Losses)
-            # This represents heat that was generated/consumed but lost to ducts/outside
-            # Note: We apply it to determining DELTA T, but usually energy consumption assumes full draw.
-            # But here q_hvac represents "Heat Added to House".
-            # So if efficiency is 0.8, we only add 80% of what the machine produced.
-            q_hvac *= eff_derate
-        
-        hvac_outputs[i] = q_hvac
+            # Truncate lists
+            t_out_list = t_out_list[:total_steps]
+            solar_kw_list = solar_kw_list[:total_steps]
+            dt_hours_list = dt_hours_list[:total_steps]
+            max_caps_list = max_caps_list[:total_steps]
+            setpoint_list = setpoint_list[:total_steps]
+            hvac_state_list = hvac_state_list[:total_steps]
 
-        # C. Total Energy Balance
-        q_total = q_leak + q_solar + Q_int + q_hvac
-        
-        # D. Temperature Change (Integration)
-        # delta_T = (Net Heat / Mass) * Time Step
-        delta_T = (q_total * data.dt_hours[i]) / C_thermal
-        
-        current_temp += delta_T
+    # --- 4. Call Kernel ---
+    sim_temps_list, hvac_outputs_list = run_model_fast(
+        params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, 
+        max_caps_list, min_output, max_cool, eff_derate, data.t_in[0]
+    )
 
-    # --- 5. Calculate Error (RMSE) ---
-    # Only calculate error for the steps we simulated
-    # And only if we have actual data (indoor_temp might be NaN or forecast)
-    # For now, assuming data.t_in is populated (even if dummy for forecast)
-    # If it's forecast data, t_in might be zeros or start temp, so error is meaningless?
-    # User asked to calculate error "from the data".
+    # --- 5. Calculate Error & Return ---
+    sim_temps = np.array(sim_temps_list)
+    hvac_outputs = np.array(hvac_outputs_list)
+    actual_temps = data.t_in[:len(sim_temps)]
     
-    # We need to slice the actual data to match the simulation length
-    actual_temps = data.t_in[:total_steps]
-    
-    # Check if actual_temps has meaningful data (not just start temp repeated or zeros)
-    # But for optimization, we rely on this.
     mse = np.mean((sim_temps - actual_temps)**2)
     rmse = np.sqrt(mse)
 
