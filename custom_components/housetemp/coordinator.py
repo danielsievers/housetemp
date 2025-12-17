@@ -518,7 +518,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
         
 
-        _LOGGER.warning("DEBUG_OPTIONS: %s", options)
+        _LOGGER.debug("DEBUG_OPTIONS: %s", options)
         
         # Parameters (Physics) - From Options
         params = [
@@ -528,7 +528,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             options.get(CONF_Q_INT, DEFAULT_Q_INT),
             options.get(CONF_H_FACTOR, DEFAULT_H_FACTOR),
         ]
-        _LOGGER.warning("DEBUG_PARAMS: %s", params)
+        _LOGGER.debug("DEBUG_PARAMS: %s", params)
+
         
         _LOGGER.debug("Preparing simulation inputs with params: %s", params)
 
