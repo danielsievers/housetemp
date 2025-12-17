@@ -121,29 +121,9 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 
 # Step 2: Modifiable Settings (Stored in OPTIONS)
 # Physics Defaults: UA=750, C=10000, K=3000, Q=2000, H=5000
-STEP_MODEL_SETTINGS_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_SCHEDULE_CONFIG, default=DEFAULT_SCHEDULE_CONFIG): selector.TextSelector(
-            selector.TextSelectorConfig(multiline=True)
-        ),
-        vol.Required(CONF_HVAC_MODE, default="heat"): selector.SelectSelector(
-            selector.SelectSelectorConfig(options=["heat", "cool"])
-        ),
-        vol.Required(CONF_AVOID_DEFROST, default=True): selector.BooleanSelector(),
-        vol.Required(CONF_UA, default=DEFAULT_UA): vol.Coerce(float),
-        vol.Required(CONF_C_THERMAL, default=DEFAULT_C_THERMAL): vol.Coerce(float),
-        vol.Required(CONF_K_SOLAR, default=DEFAULT_K_SOLAR): vol.Coerce(float),
-        vol.Required(CONF_Q_INT, default=DEFAULT_Q_INT): vol.Coerce(float),
-        vol.Required(CONF_H_FACTOR, default=DEFAULT_H_FACTOR): vol.Coerce(float),
-        vol.Required(CONF_CENTER_PREFERENCE, default=DEFAULT_CENTER_PREFERENCE): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
-        vol.Required(CONF_FORECAST_DURATION, default=DEFAULT_FORECAST_DURATION): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=24)
-        ),
-        vol.Required(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
-             vol.Coerce(int), vol.Range(min=1)
-        ),
-    }
-)
+# Step 2: Modifiable Settings (Previously used in setup, now Options Only)
+# Note: OptionsFlow uses dynamic schema, so this constant is technically unused
+# but we leave it commented or remove it. We will remove it.
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for House Temp Prediction."""
@@ -165,7 +145,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
              try:
                  json.loads(user_input[CONF_HEAT_PUMP_CONFIG])
                  self._data.update(user_input)
-                 return await self.async_step_model_settings()
+                 
+                 # DIRECT CREATION: Skip Model Settings Step
+                 return self.async_create_entry(
+                     title="House Temp Prediction", 
+                     data=self._data,
+                     # Initialize options as empty (Coordinator will use defaults)
+                     options={} 
+                 )
              except ValueError:
                  errors[CONF_HEAT_PUMP_CONFIG] = "invalid_json"
 
@@ -175,35 +162,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors
         )
 
-    async def async_step_model_settings(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the Settings step (Modifiable Options)."""
-        errors = {}
-        
-        if user_input is not None:
-            # Validate Schedule JSON
-            try:
-                schedule_data = json.loads(user_input[CONF_SCHEDULE_CONFIG])
-                SCHEDULE_SCHEMA(schedule_data)        # Validate Types/Structure
-                validate_schedule_timeline(schedule_data) # Validate Logic
-                
-                self._options.update(user_input)
-                
-                return self.async_create_entry(
-                    title="House Temp Prediction", 
-                    data=self._data,
-                    options=self._options
-                )
-            except (ValueError, vol.Invalid) as e:
-                errors[CONF_SCHEDULE_CONFIG] = "invalid_json"
-                _LOGGER.warning("Invalid schedule config: %s", e)
-
-        return self.async_show_form(
-            step_id="model_settings", 
-            data_schema=STEP_MODEL_SETTINGS_SCHEMA,
-            errors=errors
-        )
+    # async_step_model_settings Removed (Dead Code)
 
     @staticmethod
     @callback

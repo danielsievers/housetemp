@@ -43,31 +43,19 @@ async def test_flow_full_path(hass: HomeAssistant):
         CONF_HEAT_PUMP_CONFIG: "{}",
     }
     
-    # 2. Advance to Settings
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input=user_input
-    )
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "model_settings"
-    
-    # 3. Model Settings Step
-    settings_input = {
-        CONF_C_THERMAL: 15000.0,
-        CONF_SCHEDULE_CONFIG: '{"mode": "heat", "schedule": [{"weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"], "daily_schedule": [{"time": "00:00", "temp": 70}]}]}',
-        # ... other defaults are handled by vol.Optional/Required defaults
-    }
-    
+    # 2. Advance to Settings -> DIRECT CREATION (Refactored)
     with patch("custom_components.housetemp.async_setup_entry", return_value=True) as mock_setup:
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input=settings_input
+            result["flow_id"], user_input=user_input
         )
     
+    # Assert DIRECT Entry Creation
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "House Temp Prediction"
     
-    # Verify Split Storage
+    # Verify Split Storage: Data has Identity, Options is Empty
     assert result["data"][CONF_SENSOR_INDOOR_TEMP] == "sensor.indoor"
-    assert result["options"][CONF_C_THERMAL] == 15000.0
+    assert result["options"] == {} # Should be empty now
 
 @pytest.mark.asyncio
 async def test_solar_selector_schema(hass: HomeAssistant):

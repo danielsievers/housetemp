@@ -510,6 +510,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         else:
              duration_hours = options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
         
+
         # Parameters (Physics) - From Options
         params = [
             options.get(CONF_C_THERMAL, DEFAULT_C_THERMAL),
