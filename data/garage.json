@@ -1,0 +1,9 @@
+{
+    "description": "Garage Thermal Model Parameters",
+    "C_thermal": 5174,
+    "UA_overall": 490,
+    "K_solar": 100,
+    "Q_int": 0,
+    "H_factor": 3000,
+    "efficiency_derate": 1.0
+}

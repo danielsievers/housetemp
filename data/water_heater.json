@@ -1,0 +1,42 @@
+{
+    "description": "Rheem PROUH80 Hybrid Water Heater (HPWH)",
+    "max_capacity": {
+        "x_outdoor_f": [
+            50,
+            60,
+            70,
+            80
+        ],
+        "y_btu_hr": [
+            10000,
+            12500,
+            15000,
+            17500
+        ]
+    },
+    "cop": {
+        "x_outdoor_f": [
+            50,
+            60,
+            70,
+            80
+        ],
+        "y_cop": [
+            2.3,
+            2.9,
+            3.4,
+            4.0
+        ]
+    },
+    "defrost": {
+        "description": "Placeholder to meet model schema (HPWH is indoor, no defrost)",
+        "trigger_temp_f": 0,
+        "risk_zone_f": [
+            0,
+            0
+        ],
+        "cycle_duration_minutes": 0,
+        "cycle_interval_minutes": 0,
+        "power_kw": 0
+    }
+}

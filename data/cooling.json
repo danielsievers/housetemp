@@ -1,0 +1,24 @@
+{
+    "center_preference": 1.0,
+    "mode": "cool",
+    "avoid_defrost": true,
+    "schedule": [
+        {
+            "weekdays": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 95
+                }
+            ]
+        }
+    ]
+}
