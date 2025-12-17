@@ -14,7 +14,7 @@ TESTS = [
         "name": "Prediction (Occupied)",
         "golden": "occupied_pred.json",
         "cmd": [
-            "python3", "main.py", "data/occupied.csv", 
+            sys.executable, "main.py", "data/occupied.csv", 
             "-p", "data/occupied.json", 
             "--debug-output", "{temp_file}"
         ]
@@ -23,7 +23,7 @@ TESTS = [
         "name": "Optimization (Occupied)",
         "golden": "occupied_hvac.json",
         "cmd": [
-            "python3", "main.py", "data/occupied.csv", 
+            sys.executable, "main.py", "data/occupied.csv", 
             "-p", "data/occupied.json", 
             "--optimize-hvac", "--comfort", "data/comfort.json",
             "--debug-output", "{temp_file}"
@@ -136,6 +136,31 @@ def compare_data(golden, current, path=""):
             
     return None
 
+def regenerate_goldens():
+    """Regenerate all golden files."""
+    print(f"Regenerating {len(TESTS)} Golden Files...")
+    print("="*60)
+    
+    os.makedirs(GOLDEN_DIR, exist_ok=True)
+    
+    for test in TESTS:
+        name = test['name']
+        print(f"Regenerating: {name}")
+        
+        golden_path = os.path.join(GOLDEN_DIR, test['golden'])
+        cmd = [arg.format(temp_file=golden_path) for arg in test['cmd']]
+        
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print(f"  [DONE] {golden_path}")
+        except subprocess.CalledProcessError as e:
+            print(f"  [FAILED] Command crashed.")
+            print(e.stderr.decode())
+            sys.exit(1)
+    
+    print("="*60)
+    print("Golden files regenerated successfully.")
+
 def run_tests():
     # Setup temp dir
     if os.path.exists(TEMP_DIR):
@@ -202,7 +227,16 @@ def run_tests():
         sys.exit(1)
 
 if __name__ == "__main__":
-    run_tests()
+    import argparse
+    parser = argparse.ArgumentParser(description="Golden regression tests")
+    parser.add_argument("--regenerate", action="store_true", 
+                       help="Regenerate golden files instead of comparing")
+    args = parser.parse_args()
+    
+    if args.regenerate:
+        regenerate_goldens()
+    else:
+        run_tests()
 
 GOLDEN_DIR = "golden"
 TEMP_DIR = "tests/temp_regression"
@@ -212,7 +246,7 @@ TESTS = [
         "name": "Prediction (Occupied)",
         "golden": "occupied_pred.json",
         "cmd": [
-            "python3", "main.py", "data/occupied.csv", 
+            sys.executable, "main.py", "data/occupied.csv", 
             "-p", "data/occupied.json", 
             "--debug-output", "{temp_file}"
         ]
@@ -221,7 +255,7 @@ TESTS = [
         "name": "Optimization (Occupied)",
         "golden": "occupied_hvac.json",
         "cmd": [
-            "python3", "main.py", "data/occupied.csv", 
+            sys.executable, "main.py", "data/occupied.csv", 
             "-p", "data/occupied.json", 
             "--optimize-hvac", "--comfort", "data/comfort.json",
             "--debug-output", "{temp_file}"
