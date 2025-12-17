@@ -1,5 +1,5 @@
 {
-  "generated_at": "2025-12-11T21:57:00.662575",
+  "generated_at": "2025-12-17T09:08:24.335567",
   "mode": "optimize-hvac",
   "model_params": {
     "C_thermal": 4205.742083690787,
@@ -10,7 +10,7 @@
   },
   "summary": {
     "rmse": 4.215619182732125,
-    "energy_kwh": 95.09548163893699,
+    "energy_kwh": 27.8708914533812,
     "num_steps": 5740
   },
   "comfort_config": {

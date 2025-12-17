@@ -70,8 +70,8 @@ def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, cost_per_kwh=0
         final_cop = rated_cop * plf_correction
         
         # --- C. CONVERT TO KWH ---
-        # Watts = BTU / COP
-        watts_input = abs(q_output) / final_cop
+        # Watts = (BTU / COP) / 3.412
+        watts_input = (abs(q_output) / final_cop) / 3.412
         
         # kWh = (Watts / 1000) * Time Step Hours
         kwh_step = (watts_input / 1000) * data.dt_hours[i]
