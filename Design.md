@@ -108,3 +108,23 @@ The cost function is asymmetric, penalizing only "bad" deviations while allowing
 
 $$ \text{Cost}_{comfort} = P_{center} \cdot \left(\text{EffectiveError}\right)^2 $$
 
+
+## 7. Optimization Strategy
+To optimize the schedule efficiently on resource-constrained hardware (e.g., Home Assistant Green / ARM), we employ a **Multi-Scale Optimization Strategy** with specific solver tuning.
+
+### 7.1 Multi-Scale Approach (Coarse-to-Fine)
+The optimization problem is non-convex and noisy. A single high-resolution pass often gets stuck in local minima or takes too long.
+1.  **Pass 1 (Coarse)**: Optimizes 2-hour blocking intervals.
+    *   **Goal**: Find the global "shape" of the schedule (e.g., "Pre-heat at 4 PM").
+    *   **Settings**: Lazy (`eps=1.0`, `maxiter=50`). Speed is prioritized.
+2.  **Pass 2 (Fine)**: Optimizes 30-minute blocking intervals.
+    *   **Goal**: Refine edges and efficiency.
+    *   **Initialization**: Warm-starts from the interpolated result of Pass 1.
+    *   **Settings**: Precision (`eps=0.5`, `maxiter=500`).
+
+### 7.2 Numerical Tuning
+Standard solver defaults (e.g., `eps=1e-8`) fail for HVAC control because the cost function has "flat" regions (Deadbands) where small changes yield zero cost gradient.
+*   **Epsilon `eps=0.5`**: Forces the solver to take "Macro Steps" (0.5°F) to "see" past the deadband walls.
+*   **Tolerance `ftol=1e-4`**: Terminates early when cost improvements become negligible (< 0.01%), saving significant CPU cycles.
+*   **Robustness**: The solver explicitly handles `ABNORMAL_TERMINATION_IN_LNSRCH` as a valid "Good Enough" result, preventing infinite loops in flat cost landscapes.
+

@@ -226,4 +226,13 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
                 savings = f_kwh - f_opt
                 to_return["savings_kwh"] = round(float(savings), 2)
 
+                to_return["savings_kwh"] = round(float(savings), 2)
+                
+        # Optimization Status
+        opt_status = data.get("optimization_status")
+        if opt_status:
+            to_return["optimization_status"] = opt_status.get("message", "Unknown")
+            to_return["optimization_cost"] = opt_status.get("cost", 0.0)
+            to_return["optimization_converged"] = opt_status.get("success", False)
+
         return to_return

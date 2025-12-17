@@ -5,6 +5,7 @@ import time
 import logging
 import os
 import tempfile
+from functools import partial
 
 import numpy as np
 
@@ -53,6 +54,8 @@ from .const import (
     DEFAULT_SCHEDULE_CONFIG,
     DEFAULT_SCHEDULE_ENABLED,
     AWAY_WAKEUP_ADVANCE_HOURS,
+    CONF_ENABLE_MULTISCALE,
+    DEFAULT_ENABLE_MULTISCALE,
 )
 
 # Import from the installed package
@@ -391,39 +394,64 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         }
         
         try:
-            optimized_setpoints = await self.hass.async_add_executor_job(
-                optimize_hvac_schedule,
-                measurements,
-                params,
-                self.heat_pump,
-                target_temps,
-                comfort_config,
-                control_timestep
+            optimization_result = await self.hass.async_add_executor_job(
+                partial(
+                    optimize_hvac_schedule,
+                    measurements,
+                    params,
+                    self.heat_pump,
+                    target_temps,
+                    comfort_config,
+                    block_size_minutes=control_timestep,
+                    enable_multiscale=self.config_entry.options.get(CONF_ENABLE_MULTISCALE, DEFAULT_ENABLE_MULTISCALE)
+                )
             )
+            
+            # Unpack result (setpoints, meta)
+            if isinstance(optimization_result, tuple):
+                optimized_setpoints, meta = optimization_result
+                if self.data is None:
+                    self.data = {}
+                self.data["optimization_status"] = meta
+                
+                # Check for Failure (Strict Mode)
+                if optimized_setpoints is None:
+                     _LOGGER.error("Optimization Failed: %s. CLEARING CACHE.", meta.get("message"))
+                     self.optimized_setpoints_map.clear()
+                     return
+                else:
+                     if meta.get("success"):
+                         _LOGGER.info("Optimization converged (Cost: %.2f)", meta.get("cost", 0.0))
+                     else:
+                         _LOGGER.warning("Optimization warning: %s", meta.get("message"))
+            else:
+                # Legacy fallback
+                optimized_setpoints = optimization_result
+                self.data["optimization_status"] = {"success": True, "message": "Legacy Result"}
             
             opt_duration = time.time() - opt_start_time
             _LOGGER.info("Optimization completed in %.2f seconds", opt_duration)
             
             # Map optimized setpoints to timestamps
             timestamps = measurements.timestamps
-            new_cache = {}
-            if len(optimized_setpoints) == len(timestamps):
+            if optimized_setpoints is not None and len(optimized_setpoints) == len(timestamps):
+                 new_cache = {}
                  for i, ts in enumerate(timestamps):
                      ts_int = int(ts.timestamp())
                      new_cache[ts_int] = optimized_setpoints[i]
-            
-            self.optimized_setpoints_map.update(new_cache)
+                 self.optimized_setpoints_map.update(new_cache)
             
 
             
-            # Update data directly (race-condition free)
+            # Update data directly (Race-free rebuild from cache)
             sim_setpoints = []
-            for i, ts in enumerate(timestamps):
-                # Use optimized value if available (it should be for this window)
-                if i < len(optimized_setpoints):
-                     sim_setpoints.append(optimized_setpoints[i])
+            for ts in timestamps:
+                ts_int = int(ts.timestamp())
+                if ts_int in self.optimized_setpoints_map:
+                    sim_setpoints.append(self.optimized_setpoints_map[ts_int])
                 else:
-                     sim_setpoints.append(measurements.setpoint[i])
+                    # Missing (e.g. failure cleared it) -> None
+                    sim_setpoints.append(None)
             
             measurements.setpoint = np.array(sim_setpoints)
 
@@ -459,6 +487,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             # Update result data with optimized kwh
             result_data["optimized_energy_kwh"] = optimized_kwh
+            
+            # Preserve optimization status
+            if self.data and "optimization_status" in self.data:
+                result_data["optimization_status"] = self.data["optimization_status"]
+
             self.async_set_updated_data(result_data)
             
             # Return Forecast Structure (similar to sensor)

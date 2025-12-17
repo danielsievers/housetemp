@@ -51,6 +51,8 @@ from .const import (
     CONF_DEADBAND_SLACK,
     DEFAULT_COMFORT_MODE,
     DEFAULT_DEADBAND_SLACK,
+    CONF_ENABLE_MULTISCALE,
+    DEFAULT_ENABLE_MULTISCALE,
 )
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -287,6 +289,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_CONTROL_TIMESTEP,
                     default=get_opt(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP),
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CONTROL_TIMESTEP)),
+                vol.Required(
+                    CONF_ENABLE_MULTISCALE,
+                    default=get_opt(CONF_ENABLE_MULTISCALE, DEFAULT_ENABLE_MULTISCALE),
+                ): selector.BooleanSelector(),
             }
         )
 

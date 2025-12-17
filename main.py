@@ -233,8 +233,21 @@ def run_main(args_list=None):
             
             # Run Optimization
             block_size = 30
-            optimized_setpoints = optimize.optimize_hvac_schedule(measurements, params, hw, target_temps, comfort_config, block_size_minutes=block_size)
+            # Default to Legacy (Single-Scale) on Desktop unless flag added later
+            opt_result = optimize.optimize_hvac_schedule(measurements, params, hw, target_temps, comfort_config, block_size_minutes=block_size, enable_multiscale=False)
             
+            # Unpack
+            if isinstance(opt_result, tuple):
+                 optimized_setpoints, meta = opt_result
+            else:
+                 # Should not happen
+                 optimized_setpoints = opt_result
+                 meta = {'success': True}
+                 
+            if optimized_setpoints is None:
+                 print(f"Error: Optimization Failed: {meta.get('message')}")
+                 sys.exit(1)
+
             # Update Measurements with Optimized Schedule
             measurements.setpoint[:] = optimized_setpoints
             

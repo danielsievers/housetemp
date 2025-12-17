@@ -105,7 +105,7 @@ async def test_manual_trigger_optimizes(hass, coordinator, mock_data):
     # or return invalid outputs.
     # The previous failure was due to run_model executing logic on MagicMock.
     with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
-         patch("custom_components.housetemp.coordinator.optimize_hvac_schedule", return_value=optimized_setpoints) as mock_opt, \
+         patch("custom_components.housetemp.coordinator.optimize_hvac_schedule", return_value=(optimized_setpoints, {"success": True})) as mock_opt, \
          patch.object(coordinator, "async_request_refresh") as mock_refresh, \
          patch.object(coordinator, "async_set_updated_data") as mock_set_data, \
          patch("custom_components.housetemp.coordinator.run_model", return_value=([68.0]*4, 0.0, [])) as mock_run_model:

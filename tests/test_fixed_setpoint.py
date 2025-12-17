@@ -67,6 +67,7 @@ def test_optimize_fixed_bounds():
     data.hvac_state = np.full(48, 1)
     data.setpoint = np.full(48, 60.0)
     data.dt_hours = np.full(48, 0.5)
+    data.solar_kw = np.zeros(48)
     
     params = [5000, 200, 0, 0, 5000, 1.0] # Dummy physics
     comfort_config = {"center_preference": 1.0, "mode": "heat"}
@@ -89,7 +90,7 @@ def test_optimize_fixed_bounds():
         # Must match length 48
         mock_run.return_value = (np.full(48, 60.0), 0.0, np.full(48, 5000.0))
         
-        result_setpoints = optimize_hvac_schedule(
+        result_setpoints, _ = optimize_hvac_schedule(
             data, params, hw, target_temps, comfort_config, block_size_minutes=30, fixed_mask=fixed_mask
         )
     

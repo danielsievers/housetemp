@@ -35,6 +35,9 @@ CONF_CONTROL_TIMESTEP = "control_timestep"   # Control block size (minutes)
 DEFAULT_CONTROL_TIMESTEP = 30
 MIN_CONTROL_TIMESTEP = 30
 
+CONF_ENABLE_MULTISCALE = "enable_multiscale"
+DEFAULT_ENABLE_MULTISCALE = True
+
 # Default Temperatures (Fahrenheit)
 DEFAULT_AWAY_TEMP = 50.0
 
