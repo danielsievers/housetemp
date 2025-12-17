@@ -15,11 +15,13 @@ CONF_SOLAR_ENTITY = "solar_entity"
 
 CONF_HEAT_PUMP_CONFIG = "heat_pump_config"
 CONF_SCHEDULE_CONFIG = "schedule_config"
+CONF_SCHEDULE_ENABLED = "schedule_enabled"
 CONF_FORECAST_DURATION = "forecast_duration"
 CONF_UPDATE_INTERVAL = "update_interval"
 
 DEFAULT_FORECAST_DURATION = 8
 DEFAULT_UPDATE_INTERVAL = 15
+DEFAULT_SCHEDULE_ENABLED = True
 
 # Optimization
 

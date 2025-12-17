@@ -28,6 +28,7 @@ from .const import (
     CONF_SOLAR_ENTITY,
     CONF_HEAT_PUMP_CONFIG,
     CONF_SCHEDULE_CONFIG,
+    CONF_SCHEDULE_ENABLED,
     CONF_FORECAST_DURATION,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FORECAST_DURATION,
@@ -46,6 +47,7 @@ from .const import (
     DEFAULT_H_FACTOR,
     DEFAULT_CENTER_PREFERENCE,
     DEFAULT_SCHEDULE_CONFIG,
+    DEFAULT_SCHEDULE_ENABLED,
 
     AWAY_WAKEUP_ADVANCE_HOURS,
 )
@@ -53,7 +55,6 @@ from .const import (
 # Import from the installed package
 from .housetemp.run_model import run_model, HeatPump
 from .housetemp.measurements import Measurements
-from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.schedule import process_schedule_data
 from .housetemp.energy import estimate_consumption, calculate_energy_stats
@@ -338,6 +339,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # 1. Ensure heat pump is ready
         if not self.heat_pump:
             await self._setup_heat_pump()
+            
+        # Check Schedule Enabled
+        schedule_enabled = self.config_entry.options.get(CONF_SCHEDULE_ENABLED, DEFAULT_SCHEDULE_ENABLED)
+        if not schedule_enabled:
+            _LOGGER.warning("Optimization triggered but schedule is disabled. Ignoring.")
+            return # Should we raise or just return empty?
         
         try:
             # Pass duration override if provided
@@ -612,26 +619,54 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             raise UpdateFailed("No forecast data available for simulation period")
         
         schedule_json = self.config_entry.options.get(CONF_SCHEDULE_CONFIG, DEFAULT_SCHEDULE_CONFIG)
+        schedule_enabled = self.config_entry.options.get(CONF_SCHEDULE_ENABLED, DEFAULT_SCHEDULE_ENABLED)
         
-        try:
-            schedule_data = json.loads(schedule_json)
-        except Exception as e:
-            _LOGGER.error("Invalid Schedule JSON: %s", e)
-            raise ValueError(f"Invalid Schedule JSON: {e}")
-
-        is_away, away_end, away_temp = self._get_away_status()
-        
-        # Run process_schedule_data in executor to avoid blocking event loop (pytz I/O)
-        from functools import partial
-        hvac_state_arr, setpoint_arr, fixed_mask_arr = await self.hass.async_add_executor_job(
-            partial(
-                process_schedule_data,
-                timestamps, 
-                schedule_data, 
-                away_status=(is_away, away_end, away_temp),
-                timezone=self.hass.config.time_zone
-            )
-        )
+        # Prepare arrays
+        if not schedule_enabled:
+             # Disabled: HVAC OFF (0), Setpoint None/0, Fixed False
+             steps = len(timestamps)
+             hvac_state_arr = np.zeros(steps)
+             setpoint_arr = np.full(steps, None) # Or 0? Coordinator usually expects float. 
+             # Let's use 0.0 and handle display in frontend, or None if typed array supports it.
+             # numpy float array doesn't support None (NaN). 
+             # For now use 0.0 and we'll see. Actually measurements.setpoint is used in run_model.
+             # run_model needs valid float. If disabled, we probably want 0.0 or something that means "off semantics"
+             # But if hvac_state is 0, setpoint is ignored for energy/action, but might be used for error calc?
+             # Actually run_model uses setpoint just for control logic if it's deciding.
+             # If hvac_state is provided (from measurements), run_model might just output physics.
+             # Let's check run_model usage. It calculates heat/cool required based on setpoint if not provided?
+             # Actually run_model takes hvac_state from measurements if we are just simulating what happened?
+             # No, run_model is usually strictly thermodynamic response given inputs.
+             # If we pass measurements, it might use them.
+             
+             # Safest: 0.0 or a really low/high number that won't trigger?
+             # If HVAC state is 0, setpoint doesn't matter for energy calc.
+             setpoint_arr = np.full(steps, np.nan) 
+             fixed_mask_arr = np.zeros(steps, dtype=bool)
+             
+             # Log once per update?
+             # _LOGGER.debug("Schedule disabled, skipping processing.")
+             
+        else:
+             try:
+                 schedule_data = json.loads(schedule_json)
+             except Exception as e:
+                 _LOGGER.error("Invalid Schedule JSON: %s", e)
+                 raise ValueError(f"Invalid Schedule JSON: {e}")
+     
+             is_away, away_end, away_temp = self._get_away_status()
+             
+             # Run process_schedule_data in executor to avoid blocking event loop (pytz I/O)
+             from functools import partial
+             hvac_state_arr, setpoint_arr, fixed_mask_arr = await self.hass.async_add_executor_job(
+                 partial(
+                     process_schedule_data,
+                     timestamps, 
+                     schedule_data, 
+                     away_status=(is_away, away_end, away_temp),
+                     timezone=self.hass.config.time_zone
+                 )
+             )
 
         steps = len(timestamps)
         t_in_arr = np.zeros(steps)

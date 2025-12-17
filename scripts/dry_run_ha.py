@@ -26,7 +26,7 @@ homeassistant.helpers.frame.report_usage = lambda *args, **kwargs: None
 from custom_components.housetemp.coordinator import HouseTempCoordinator
 from custom_components.housetemp.const import *
 from custom_components.housetemp import async_setup_entry, async_setup
-from custom_components.housetemp.config_flow import STEP_USER_DATA_SCHEMA, STEP_MODEL_SETTINGS_SCHEMA
+from custom_components.housetemp.config_flow import STEP_USER_DATA_SCHEMA
 import voluptuous as vol
 
 # Data provided by user
@@ -232,10 +232,6 @@ async def main():
              if k.schema not in CONFIG_DATA:
                  print(f"ERROR: Missing required data key: {k.schema}")
         
-        required_opts = [k for k in STEP_MODEL_SETTINGS_SCHEMA.schema.keys() if isinstance(k, vol.Required)]
-        # We need to check defaults too?
-        # Let's just validate the manually provided OPTIONS in the script?
-        # or defaults.
         print("Schema keys check passed.")
     except Exception as e:
         print(f"Schema Validation Error: {e}")

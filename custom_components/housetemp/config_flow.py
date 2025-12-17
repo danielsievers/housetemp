@@ -28,6 +28,7 @@ from .const import (
     CONF_SOLAR_ENTITY,
     CONF_HEAT_PUMP_CONFIG,
     CONF_SCHEDULE_CONFIG,
+    CONF_SCHEDULE_ENABLED,
     CONF_FORECAST_DURATION,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FORECAST_DURATION,
@@ -38,7 +39,9 @@ from .const import (
     DEFAULT_Q_INT,
     DEFAULT_H_FACTOR,
     DEFAULT_CENTER_PREFERENCE,
+
     DEFAULT_SCHEDULE_CONFIG,
+    DEFAULT_SCHEDULE_ENABLED,
     CONF_MODEL_TIMESTEP,
     DEFAULT_MODEL_TIMESTEP,
     MIN_MODEL_TIMESTEP,
@@ -166,8 +169,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    @staticmethod
-    @callback
     def async_get_options_flow(config_entry):
         return OptionsFlowHandler()
 
@@ -178,22 +179,25 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         """Manage the options - main menu."""
+        errors = {} 
+
         if user_input is not None:
-             # Validate Schedule JSON
+            # Validate Schedule JSON
             try:
-                schedule_data = json.loads(user_input[CONF_SCHEDULE_CONFIG])
-                SCHEDULE_SCHEMA(schedule_data)        # Validate Types/Structure
-                validate_schedule_timeline(schedule_data) # Validate Logic
+                # NEW: Check if schedule is enabled
+                schedule_enabled = user_input.get(CONF_SCHEDULE_ENABLED, True)
+                
+                if schedule_enabled:
+                    schedule_data = json.loads(user_input[CONF_SCHEDULE_CONFIG])
+                    SCHEDULE_SCHEMA(schedule_data)        # Validate Types/Structure
+                    validate_schedule_timeline(schedule_data) # Validate Logic
                 
                 return self.async_create_entry(title="", data=user_input)
             except (ValueError, vol.Invalid) as e:
                 errors = {CONF_SCHEDULE_CONFIG: "invalid_json"}
                 _LOGGER.warning("Invalid schedule config in options: %s", e)
                 # Fall through to show form with errors
-                pass
-        else:
-            errors = {}
-
+        
         # Get current values from OPTIONS (tunable)
         # Fallback to DATA only if migrating (optional, but good for safety)
         opts = self.config_entry.options
@@ -206,6 +210,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Re-create schema with current values as defaults
         schema = vol.Schema(
             {
+                vol.Required(
+                    CONF_SCHEDULE_ENABLED,
+                    default=get_opt(CONF_SCHEDULE_ENABLED, DEFAULT_SCHEDULE_ENABLED),
+                ): selector.BooleanSelector(),
                 vol.Required(
                     CONF_SCHEDULE_CONFIG,
                     default=get_opt(CONF_SCHEDULE_CONFIG, DEFAULT_SCHEDULE_CONFIG),
