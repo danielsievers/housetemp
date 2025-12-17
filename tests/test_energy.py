@@ -44,6 +44,9 @@ def test_energy_conversion_factor():
     hw.get_max_capacity.return_value = np.array([target_q]) 
     # Set Rated COP = 1.0
     hw.get_cop.return_value = np.array([1.0])
+    # PLF curve: at full load (ratio=1), plf = 1.4 - 0.4 = 1.0
+    hw.plf_low_load = 1.4
+    hw.plf_slope = 0.4
     
     # 3. Setup Outputs
     hvac_outputs = np.array([target_q])
@@ -83,6 +86,8 @@ def test_energy_partial_load():
     # plf = 1.4 - 0.4(0.25) = 1.3
     hw.get_max_capacity.return_value = np.array([target_q * 4])
     hw.get_cop.return_value = np.array([1.0])
+    hw.plf_low_load = 1.4
+    hw.plf_slope = 0.4
     
     hvac_outputs = np.array([target_q])
     

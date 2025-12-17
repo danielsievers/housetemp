@@ -217,7 +217,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         # 4. Calculate Energy Cost (kWh)
         safe_max_caps = np.where(max_caps > 0, max_caps, 1.0)
         load_ratios = np.abs(hvac_outputs) / safe_max_caps
-        plf_corrections = 1.4 - (0.4 * load_ratios)
+        plf_corrections = hw.plf_low_load - (hw.plf_slope * load_ratios)
         final_cops = base_cops * plf_corrections
         
         watts = np.abs(hvac_outputs) / final_cops

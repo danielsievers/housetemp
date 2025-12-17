@@ -61,10 +61,9 @@ def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, cost_per_kwh=0
         else:
             load_ratio = 1.0 # Fallback
         
-        # Mitsubishi Inverter Correction Approximation:
-        # Low speed (30% load) is ~40% more efficient than Max speed.
-        # Curve: 1.4 at low load, tapering to 1.0 at full load.
-        plf_correction = 1.4 - (0.4 * load_ratio)
+        # Part-Load Factor Correction (Inverter Efficiency Curve):
+        # At low load, efficiency is better. Curve params from heat pump config.
+        plf_correction = hw.plf_low_load - (hw.plf_slope * load_ratio)
         
         # Real-world COP
         final_cop = rated_cop * plf_correction

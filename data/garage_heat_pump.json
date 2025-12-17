@@ -2,6 +2,8 @@
     "description": "Rheem ProTerra HPWH",
     "min_output_btu_hr": 4000,
     "max_cool_btu_hr": 4500,
+    "plf_low_load": 1.0,
+    "plf_slope": 0.0,
     "max_capacity": {
         "x_outdoor_f": [
             40,

@@ -36,6 +36,8 @@ class TestHvacOptimization(unittest.TestCase):
         self.hw.defrost_risk_zone = None # Disable defrost for tests
         self.hw.min_output_btu_hr = 3000
         self.hw.max_cool_btu_hr = 54000
+        self.hw.plf_low_load = 1.4
+        self.hw.plf_slope = 0.4
         
         # Params: C, UA, K, Q_int, H_fac
         self.params = [5000, 200, 1000, 0, 5000]
@@ -227,6 +229,8 @@ class TestHvacOptimization(unittest.TestCase):
         hw.defrost_risk_zone = None
         hw.min_output_btu_hr = 3000
         hw.max_cool_btu_hr = 54000
+        hw.plf_low_load = 1.4
+        hw.plf_slope = 0.4
         
         optimized = optimize.optimize_hvac_schedule(
             data, self.params, hw, target_temps, comfort_config,
@@ -278,6 +282,8 @@ class TestHvacOptimization(unittest.TestCase):
         hw.defrost_risk_zone = None
         hw.min_output_btu_hr = 3000
         hw.max_cool_btu_hr = 54000
+        hw.plf_low_load = 1.4
+        hw.plf_slope = 0.4
         
         optimized = optimize.optimize_hvac_schedule(
             data, self.params, hw, target_temps, comfort_config,

@@ -16,6 +16,11 @@ class HeatPump:
         self.min_output_btu_hr = data.get('min_output_btu_hr', 3000)
         self.max_cool_btu_hr = data.get('max_cool_btu_hr', 54000)
         
+        # Part-Load Factor correction curve: PLF = plf_low_load - (plf_slope * load_ratio)
+        # Mitsubishi inverters: 1.4 at low load, 1.0 at full load (slope = 0.4)
+        self.plf_low_load = data.get('plf_low_load', 1.4)
+        self.plf_slope = data.get('plf_slope', 0.4)
+        
         # Defrost parameters (optional - None if not specified)
         if 'defrost' in data:
             defrost = data['defrost']

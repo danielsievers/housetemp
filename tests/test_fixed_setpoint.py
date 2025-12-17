@@ -55,6 +55,8 @@ def test_optimize_fixed_bounds():
     hw.defrost_risk_zone = None
     hw.min_output_btu_hr = 3000
     hw.max_cool_btu_hr = 54000
+    hw.plf_low_load = 1.4
+    hw.plf_slope = 0.4
     
     data = MagicMock()
     start = datetime(2023, 1, 1, 0, 0, 0)
