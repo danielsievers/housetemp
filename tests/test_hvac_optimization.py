@@ -34,6 +34,8 @@ class TestHvacOptimization(unittest.TestCase):
         self.hw.get_max_capacity.return_value = np.full(24, 20000.0) # 20k BTU max
         self.hw.get_cop.return_value = np.full(24, 3.0) # COP 3
         self.hw.defrost_risk_zone = None # Disable defrost for tests
+        self.hw.min_output_btu_hr = 3000
+        self.hw.max_cool_btu_hr = 54000
         
         # Params: C, UA, K, Q_int, H_fac
         self.params = [5000, 200, 1000, 0, 5000]
@@ -223,6 +225,8 @@ class TestHvacOptimization(unittest.TestCase):
         hw.get_max_capacity.return_value = np.full(12, 20000.0)
         hw.get_cop.return_value = np.full(12, 3.0)
         hw.defrost_risk_zone = None
+        hw.min_output_btu_hr = 3000
+        hw.max_cool_btu_hr = 54000
         
         optimized = optimize.optimize_hvac_schedule(
             data, self.params, hw, target_temps, comfort_config,
@@ -272,6 +276,8 @@ class TestHvacOptimization(unittest.TestCase):
         hw.get_max_capacity.return_value = np.full(18, 20000.0)
         hw.get_cop.return_value = np.full(18, 3.0)
         hw.defrost_risk_zone = None
+        hw.min_output_btu_hr = 3000
+        hw.max_cool_btu_hr = 54000
         
         optimized = optimize.optimize_hvac_schedule(
             data, self.params, hw, target_temps, comfort_config,

@@ -12,6 +12,10 @@ class HeatPump:
         self.cop_x = data['cop']['x_outdoor_f']
         self.cop_y = data['cop']['y_cop']
         
+        # Min/max operating parameters (with sensible defaults)
+        self.min_output_btu_hr = data.get('min_output_btu_hr', 3000)
+        self.max_cool_btu_hr = data.get('max_cool_btu_hr', 54000)
+        
         # Defrost parameters (optional - None if not specified)
         if 'defrost' in data:
             defrost = data['defrost']
@@ -90,8 +94,8 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
             if mode > 0: # HEATING
                 gap = data.setpoint[i] - current_temp
                 if gap > 0:
-                    # Base load (3000) + Turbo Ramp
-                    request = 3000 + (H_factor * gap)
+                    # Min output + turbo ramp based on gap
+                    request = hw.min_output_btu_hr + (H_factor * gap)
                     # Clamp to hardware limits
                     q_hvac = min(request, max_caps[i])
                 else:
@@ -100,9 +104,9 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
             elif mode < 0: # COOLING
                 gap = current_temp - data.setpoint[i]
                 if gap > 0:
-                    request = 3000 + (H_factor * gap)
-                    # Cap cooling ~54k
-                    q_hvac = -min(request, 54000)
+                    request = hw.min_output_btu_hr + (H_factor * gap)
+                    # Cap to cooling limit
+                    q_hvac = -min(request, hw.max_cool_btu_hr)
                 else:
                     q_hvac = 0
                     

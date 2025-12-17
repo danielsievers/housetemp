@@ -1,5 +1,7 @@
 {
     "description": "Mitsubishi MXZ-SM60NAM (5-Ton Hyper-Heat)",
+    "min_output_btu_hr": 3000,
+    "max_cool_btu_hr": 54000,
     "max_capacity": {
         "x_outdoor_f": [
             -5,

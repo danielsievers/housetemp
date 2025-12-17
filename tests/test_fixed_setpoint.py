@@ -53,6 +53,8 @@ def test_optimize_fixed_bounds():
     hw.get_max_capacity.return_value = np.full(48, 10000)
     hw.get_cop.return_value = np.full(48, 3.0)
     hw.defrost_risk_zone = None
+    hw.min_output_btu_hr = 3000
+    hw.max_cool_btu_hr = 54000
     
     data = MagicMock()
     start = datetime(2023, 1, 1, 0, 0, 0)
