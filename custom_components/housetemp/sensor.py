@@ -1,6 +1,8 @@
 """Sensor platform for House Temp Prediction."""
 from __future__ import annotations
 
+import math
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -49,8 +51,6 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         
         # Check Away Status for Fallback
         away_info = self.coordinator.data.get("away_info", {})
-        
-        import math
         
         optimized_setpoints = self.coordinator.data.get("optimized_setpoint")
         if optimized_setpoints is not None and len(optimized_setpoints) > 0:
