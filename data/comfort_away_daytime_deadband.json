@@ -1,0 +1,46 @@
+{
+    "center_preference": 1.0,
+    "mode": "heat",
+    "avoid_defrost": true,
+    "comfort_mode": "deadband",
+    "deadband_slack": 1.5,
+    "schedule": [
+        {
+            "weekdays": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 62
+                },
+                {
+                    "time": "07:00",
+                    "temp": 66
+                },
+                {
+                    "time": "09:00",
+                    "temp": 62
+                },
+                {
+                    "time": "17:00",
+                    "temp": 69
+                },
+                {
+                    "time": "20:00",
+                    "temp": 68
+                },
+                {
+                    "time": "21:00",
+                    "temp": 62
+                }
+            ]
+        }
+    ]
+}

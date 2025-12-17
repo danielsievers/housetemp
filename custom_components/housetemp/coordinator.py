@@ -39,6 +39,10 @@ from .const import (
     DEFAULT_CONTROL_TIMESTEP,
     CONF_HVAC_MODE,
     CONF_AVOID_DEFROST,
+    CONF_COMFORT_MODE,
+    CONF_DEADBAND_SLACK,
+    DEFAULT_COMFORT_MODE,
+    DEFAULT_DEADBAND_SLACK,
     DEFAULT_AWAY_TEMP,
     DEFAULT_C_THERMAL,
     DEFAULT_UA,
@@ -48,7 +52,6 @@ from .const import (
     DEFAULT_CENTER_PREFERENCE,
     DEFAULT_SCHEDULE_CONFIG,
     DEFAULT_SCHEDULE_ENABLED,
-
     AWAY_WAKEUP_ADVANCE_HOURS,
 )
 
@@ -383,6 +386,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "mode": options.get(CONF_HVAC_MODE, "heat"),
             "center_preference": float(options.get(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE)),
             "avoid_defrost": options.get(CONF_AVOID_DEFROST, True),
+            "comfort_mode": options.get(CONF_COMFORT_MODE, DEFAULT_COMFORT_MODE),
+            "deadband_slack": float(options.get(CONF_DEADBAND_SLACK, DEFAULT_DEADBAND_SLACK)),
         }
         
         try:

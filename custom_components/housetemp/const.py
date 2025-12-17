@@ -44,6 +44,11 @@ AWAY_WAKEUP_ADVANCE_HOURS = 12
 
 CONF_HVAC_MODE = "hvac_mode"
 CONF_AVOID_DEFROST = "avoid_defrost"
+CONF_COMFORT_MODE = "comfort_mode"
+CONF_DEADBAND_SLACK = "deadband_slack"
+
+DEFAULT_COMFORT_MODE = "quadratic"
+DEFAULT_DEADBAND_SLACK = 1.5
 
 # Physics Defaults (US single-family home)
 DEFAULT_C_THERMAL = 10000.0

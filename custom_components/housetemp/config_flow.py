@@ -39,7 +39,6 @@ from .const import (
     DEFAULT_Q_INT,
     DEFAULT_H_FACTOR,
     DEFAULT_CENTER_PREFERENCE,
-
     DEFAULT_SCHEDULE_CONFIG,
     DEFAULT_SCHEDULE_ENABLED,
     CONF_MODEL_TIMESTEP,
@@ -48,6 +47,10 @@ from .const import (
     CONF_CONTROL_TIMESTEP,
     DEFAULT_CONTROL_TIMESTEP,
     MIN_CONTROL_TIMESTEP,
+    CONF_COMFORT_MODE,
+    CONF_DEADBAND_SLACK,
+    DEFAULT_COMFORT_MODE,
+    DEFAULT_DEADBAND_SLACK,
 )
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -230,6 +233,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_AVOID_DEFROST,
                     default=get_opt(CONF_AVOID_DEFROST, True),
                 ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_COMFORT_MODE,
+                    default=get_opt(CONF_COMFORT_MODE, DEFAULT_COMFORT_MODE),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=["quadratic", "deadband"])
+                ),
+                vol.Optional(
+                    CONF_DEADBAND_SLACK,
+                    default=get_opt(CONF_DEADBAND_SLACK, DEFAULT_DEADBAND_SLACK),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0.0, max=5.0, step=0.5, unit_of_measurement="°F")
+                ),
                 vol.Required(
                     CONF_UA,
                     default=get_opt(CONF_UA, DEFAULT_UA),

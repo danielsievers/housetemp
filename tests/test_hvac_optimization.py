@@ -309,5 +309,69 @@ class TestHvacOptimization(unittest.TestCase):
                 f"all points within a clock-aligned block should be identical"
             )
 
+    def test_deadband_mode_allows_slack(self):
+        """
+        Verify that deadband mode allows temp to drift within slack without penalty,
+        while quadratic mode penalizes any deviation from target.
+        """
+        # Create minimal 2-hour test data
+        timestamps = pd.date_range("2023-01-01 00:00", periods=4, freq="30min")
+        
+        data = Measurements(
+            timestamps=timestamps,
+            t_in=np.full(4, 68.0),  # Start at 68F (2 deg below 70F target)
+            t_out=np.full(4, 50.0),  # Cold outside
+            solar_kw=np.zeros(4),
+            hvac_state=np.zeros(4),
+            setpoint=np.full(4, 70.0),
+            dt_hours=np.full(4, 0.5)  # 30-min steps
+        )
+        
+        # Local mock with 4 elements
+        hw = MagicMock()
+        hw.get_max_capacity.return_value = np.full(4, 20000.0)
+        hw.get_cop.return_value = np.full(4, 3.0)
+        hw.defrost_risk_zone = None
+        hw.min_output_btu_hr = 3000
+        hw.max_cool_btu_hr = 54000
+        hw.plf_low_load = 1.4
+        hw.plf_slope = 0.4
+        
+        target_temps = np.full(4, 70.0)
+        
+        # Test 1: Quadratic mode - should try to reach target exactly
+        comfort_config_quad = {
+            "center_preference": 1.0, 
+            "mode": "heat",
+            "comfort_mode": "quadratic"
+        }
+        
+        optimized_quad = optimize.optimize_hvac_schedule(
+            data, self.params, hw, target_temps, comfort_config_quad, block_size_minutes=30
+        )
+        
+        # Test 2: Deadband mode with 2°F slack - should allow 68.5F without penalty
+        comfort_config_deadband = {
+            "center_preference": 1.0, 
+            "mode": "heat",
+            "comfort_mode": "deadband",
+            "deadband_slack": 2.0  # Floor is 68F, so 68F sim temp = no penalty
+        }
+        
+        optimized_deadband = optimize.optimize_hvac_schedule(
+            data, self.params, hw, target_temps, comfort_config_deadband, block_size_minutes=30
+        )
+        
+        # With deadband, optimizer has more freedom to lower setpoints (save energy)
+        # The average setpoint should be lower or equal compared to quadratic
+        avg_quad = np.mean(optimized_quad)
+        avg_deadband = np.mean(optimized_deadband)
+        
+        print(f"Quadratic avg setpoint: {avg_quad:.1f}F")
+        print(f"Deadband avg setpoint: {avg_deadband:.1f}F")
+        
+        # Deadband should allow equal or lower setpoints (more energy savings)
+        self.assertLessEqual(avg_deadband, avg_quad + 0.5)  # Small tolerance for optimizer noise
+
 if __name__ == '__main__':
     unittest.main()

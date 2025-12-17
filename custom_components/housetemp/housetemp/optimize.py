@@ -227,17 +227,30 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         # Asymmetric Penalty:
         # - Heating: No penalty if T_sim > T_target (overshoot is free/good, energy cost limits it)
         # - Cooling: No penalty if T_sim < T_target (undershoot is free/good)
+        #
+        # Comfort Modes:
+        # - "quadratic": Penalty starts immediately at any deviation from target
+        # - "deadband": Allow slack degrees of drift before penalty kicks in
         
-        errors = sim_temps - target_temps
+        comfort_mode = comfort_config.get('comfort_mode', 'quadratic')
+        deadband_slack = comfort_config.get('deadband_slack', 1.5)
         
-        if hvac_mode_val > 0: # Heating
-            # We want simn >= target. Error is negative if sim < target.
-            # If sim > target, error is positive -> clamp to 0 (no penalty)
-            effective_errors = np.minimum(0, errors) 
-        else: # Cooling
-            # We want sim <= target. Error is positive if sim > target.
-            # If sim < target, error is negative -> clamp to 0 (no penalty)
-            effective_errors = np.maximum(0, errors)
+        if hvac_mode_val > 0:  # Heating
+            if comfort_mode == 'deadband':
+                # Allow temp to drift down to (target - slack) without penalty
+                floor = target_temps - deadband_slack
+                effective_errors = np.minimum(0, sim_temps - floor)
+            else:
+                # Quadratic: penalize any undershoot
+                effective_errors = np.minimum(0, sim_temps - target_temps)
+        else:  # Cooling
+            if comfort_mode == 'deadband':
+                # Allow temp to drift up to (target + slack) without penalty
+                ceiling = target_temps + deadband_slack
+                effective_errors = np.maximum(0, sim_temps - ceiling)
+            else:
+                # Quadratic: penalize any overshoot
+                effective_errors = np.maximum(0, sim_temps - target_temps)
 
         comfort_cost = center_preference * (effective_errors**2)
         

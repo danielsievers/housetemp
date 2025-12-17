@@ -54,7 +54,9 @@
                     "optimization_enabled": "Determine optimized HVAC schedule",
                     "optimization_interval": "Optimization interval (minutes)",
                     "model_timestep": "Model timestep (minutes)",
-                    "control_timestep": "Control timestep (minutes)"
+                    "control_timestep": "Control timestep (minutes)",
+                    "comfort_mode": "Comfort Mode",
+                    "deadband_slack": "Deadband Slack (°F)"
                 }
             }
         }

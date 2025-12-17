@@ -1,0 +1,34 @@
+{
+    "center_preference": 1.0,
+    "mode": "heat",
+    "avoid_defrost": true,
+    "comfort_mode": "deadband",
+    "deadband_slack": 1.5,
+    "schedule": [
+        {
+            "weekdays": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 63
+                },
+                {
+                    "time": "07:00",
+                    "temp": 69
+                },
+                {
+                    "time": "21:00",
+                    "temp": 63
+                }
+            ]
+        }
+    ]
+}
