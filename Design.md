@@ -72,7 +72,7 @@ We find the unknown parameters ($C, UA, K_{solar}, Q_{internal}, H_{factor}, \et
 *   **Constraints**: Physical bounds (e.g., Mass > 0, UA > 0) are enforced to prevent non-physical solutions.
 
 ## 5. Advanced Energy Estimation
-Once the thermal load ($Q_{hvac}$) is known, we calculate Total Energy Consumption ($E_{total}$) using a component-based power model.
+Once the thermal load ($Q_{hvac}$) is known, we calculate Total Energy Consumption ($E_{total}$) using a component-based power model. The system calculates energy at each simulation time-step, allowing for granular hourly reporting and detailed efficiency analysis.
 
 ### 5.1 Power Components
 The total power consumption is the sum of four distinct components:

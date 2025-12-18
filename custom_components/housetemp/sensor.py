@@ -85,9 +85,31 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         temps = data.get("predicted_temp", [])
         setpoints = data.get("setpoint", [])  # Schedule setpoint (target_temp)
         optimized_setpoints = data.get("optimized_setpoint", [])  # From HVAC optimization
+        energy_steps = data.get("energy_kwh_steps", [])
 
         if timestamps is None or len(timestamps) == 0:
             return {}
+
+        # Calculate Hourly Energy
+        energy_per_hour = []
+        if energy_steps is not None and len(energy_steps) == len(timestamps):
+             hourly_map = {}
+             for ts, kwh in zip(timestamps, energy_steps):
+                 if kwh is None or not math.isfinite(kwh):
+                     continue
+                 
+                 # Round down to hour
+                 # ts is a datetime object (likely offset-aware from coordinator)
+                 hour_key = ts.replace(minute=0, second=0, microsecond=0)
+                 hourly_map[hour_key] = hourly_map.get(hour_key, 0.0) + kwh
+             
+             # Convert to list
+             for t in sorted(hourly_map.keys()):
+                 energy_per_hour.append({
+                     "datetime": t.isoformat(),
+                     "kwh": round(hourly_map[t], 3)
+                 })
+
 
         from homeassistant.util import dt as dt_util
         from datetime import timedelta
@@ -232,5 +254,8 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             to_return["optimization_status"] = opt_status.get("message", "Unknown")
             to_return["optimization_cost"] = opt_status.get("cost", 0.0)
             to_return["optimization_converged"] = opt_status.get("success", False)
+
+        if energy_per_hour:
+            to_return["energy_per_hour"] = energy_per_hour
 
         return to_return

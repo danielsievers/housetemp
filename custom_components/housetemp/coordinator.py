@@ -302,6 +302,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # Use 'hvac_produced' (Gross) for accurate billing
             current_energy_res = calculate_energy_stats(hvac_produced, measurements, self.heat_pump, params[4])
             current_energy_kwh = current_energy_res.get('total_kwh', 0.0)
+            current_energy_steps = current_energy_res.get('kwh_steps')
 
             if has_optimized_data:
                 # The run we just did was OPTIMIZED
@@ -331,10 +332,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # 8. Return Result
         return self._build_coordinator_data(
             timestamps, sim_temps, measurements, optimized_setpoint_arr if has_optimized_data else None,
-            naive_energy_kwh, optimized_energy_kwh, setpoint_arr
+            naive_energy_kwh, optimized_energy_kwh, setpoint_arr,
+            energy_kwh_steps=current_energy_steps if self.heat_pump else None
         )
 
-    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, naive_kwh=None, optimized_kwh=None, original_schedule=None):
+    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, naive_kwh=None, optimized_kwh=None, original_schedule=None, energy_kwh_steps=None):
         """Build the coordinator data dict from simulation results."""
         
         # Use provided original_schedule if available, otherwise fallback to measurements.setpoint 
@@ -349,7 +351,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "solar": measurements.solar_kw,
             "outdoor": measurements.t_out,
             "energy_kwh": naive_kwh,
-            "optimized_energy_kwh": optimized_kwh
+            "optimized_energy_kwh": optimized_kwh,
+            "energy_kwh_steps": energy_kwh_steps
         }
         
         # Add Away Info for Sensor

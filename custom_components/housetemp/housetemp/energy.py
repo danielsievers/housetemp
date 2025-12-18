@@ -143,6 +143,7 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     
     return {
         'kwh': np.sum(kwh_steps),
+        'kwh_steps': kwh_steps,
         'load_ratios': load_ratios
     }
 
@@ -180,4 +181,8 @@ def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=1.0
     # --- REPORTING ---
     total_cost = total_kwh * cost_per_kwh
     
-    return {'total_kwh': total_kwh, 'total_cost': total_cost}
+    return {
+        'total_kwh': total_kwh, 
+        'total_cost': total_cost,
+        'kwh_steps': res['kwh_steps']
+    }
