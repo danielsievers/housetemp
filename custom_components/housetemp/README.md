@@ -111,116 +111,106 @@ Here is an example configuration for the [ApexCharts Card](https://github.com/Ro
 type: custom:apexcharts-card
 graph_span: 24h
 span:
-  start: minute
+  start: hour
 header:
-  show: true
-  title: Temperature Forecast
-  show_states: true
-  colorize_states: true
+  show: false
+
+yaxis:
+  - id: temp
+    opposite: false
+    decimals: 1
+    min: 60
+    max: 75
+  - id: energy
+    opposite: true
+    decimals: 1
+    min: 0
+    max: 2.5
+
 series:
   - entity: sensor.indoor_temperature_forecast
-    attribute: energy_kwh
-    name: Target Energy
+    name: Energy (Hourly)
+    type: column
+    yaxis_id: energy
     unit: kWh
-    color: steelblue
-    float_precision: 2
-    show:
-      in_header: true
-      in_chart: false
-  - entity: sensor.indoor_temperature_forecast
-    attribute: optimized_energy_kwh
-    name: Opt. Energy
-    unit: kWh
-    color: "#00E396"
-    float_precision: 2
-    show:
-      in_header: true
-      in_chart: false
-  - entity: sensor.indoor_temperature_forecast
-    attribute: savings_kwh
-    name: Savings
-    unit: kWh
-    color: green
-    float_precision: 2
-    show:
-      in_header: true
-      in_chart: false
+    color: "#775DD0"
+    extend_to: false
+    data_generator: |
+      const pts = (entity.attributes.energy_per_hour || []);
+      return pts
+        .filter(p => p && p.datetime && p.kwh !== undefined && p.kwh !== null)
+        .map(p => [new Date(p.datetime).getTime(), Number(p.kwh)]);
+
   - entity: sensor.indoor_temperature_forecast
     name: Predicted
     type: line
+    yaxis_id: temp
     stroke_width: 2
     color: orange
     extend_to: false
-    show:
-      in_header: false
-      in_chart: true
     data_generator: |
-      return entity.attributes.forecast.map(p => [
-        new Date(p.datetime).getTime(), 
+      return (entity.attributes.forecast || []).map(p => [
+        new Date(p.datetime).getTime(),
         p.temperature
       ]);
+
   - entity: sensor.indoor_temperature_forecast
     name: Target
     type: line
+    yaxis_id: temp
     stroke_width: 2
     color: steelblue
     curve: stepline
     extend_to: false
-    show:
-      in_header: false
-      in_chart: true
     data_generator: |
-      return entity.attributes.forecast
-        .map(p => [
-          new Date(p.datetime).getTime(), 
-          p.target_temp
-        ]);
+      return (entity.attributes.forecast || []).map(p => [
+        new Date(p.datetime).getTime(),
+        p.target_temp
+      ]);
+
   - entity: sensor.indoor_temperature_forecast
     name: Optimized
     type: line
+    yaxis_id: temp
     stroke_width: 2
     color: "#00E396"
     curve: stepline
     extend_to: false
-    show:
-      in_header: false
-      in_chart: true
     data_generator: |
-      return entity.attributes.forecast
+      return (entity.attributes.forecast || [])
         .filter(p => p.ideal_setpoint !== undefined && p.ideal_setpoint !== null)
-        .map(p => [
-          new Date(p.datetime).getTime(), 
-          p.ideal_setpoint
-        ]);
+        .map(p => [new Date(p.datetime).getTime(), p.ideal_setpoint]);
+
 apex_config:
   chart:
     height: 300
-  stroke:
-    width:
-      - 2
-      - 2
-      - 2
-    dashArray:
-      - 0
-      - 5
-      - 0
+    stacked: false
+  plotOptions:
+    bar:
+      columnWidth: "70%"
   markers:
     size: 0
+  stroke:
+    width: [0, 2, 2, 2]
   xaxis:
     type: datetime
     tooltip:
       enabled: false
     labels:
-      formatter: |
-        EVAL: (value) => {
-          return new Date(value).toLocaleTimeString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            hour: 'numeric', 
-            minute: '2-digit' 
-          });
-        }
+      datetimeFormatter:
+        hour: "ha"
+  yaxis:
+    - tickAmount: 6
+      decimalsInFloat: 0
+      title:
+        text: "Temp (°F)"
+    - tickAmount: 6
+      opposite: true
+      decimalsInFloat: 1
+      title:
+        text: "Energy (kWh/hr)"
   tooltip:
+    shared: true
     x:
       format: dd MMM h:mm tt
 ```
