@@ -286,7 +286,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
 
         
-        sim_temps, _, hvac_outputs = await self.hass.async_add_executor_job(
+        sim_temps, _, hvac_delivered, hvac_produced = await self.hass.async_add_executor_job(
             run_model, params, measurements, self.heat_pump, duration_hours*60
         )
         
@@ -299,7 +299,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         if self.heat_pump:
             # 1. Calculate energy for the run we just did
-            current_energy_res = calculate_energy_stats(hvac_outputs, measurements, self.heat_pump, params[4])
+            # Use 'hvac_produced' (Gross) for accurate billing
+            current_energy_res = calculate_energy_stats(hvac_produced, measurements, self.heat_pump, params[4])
             current_energy_kwh = current_energy_res.get('total_kwh', 0.0)
 
             if has_optimized_data:
@@ -311,11 +312,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 optimized_setpoint_array = measurements.setpoint
                 measurements.setpoint = np.array(setpoint_arr)
                 
-                _, _, hvac_outputs_naive = await self.hass.async_add_executor_job(
+                _, _, _, hvac_produced_naive = await self.hass.async_add_executor_job(
                     run_model, params, measurements, self.heat_pump, duration_hours*60
                 )
                 
-                naive_res = calculate_energy_stats(hvac_outputs_naive, measurements, self.heat_pump, params[4])
+                naive_res = calculate_energy_stats(hvac_produced_naive, measurements, self.heat_pump, params[4])
                 naive_energy_kwh = naive_res.get('total_kwh', 0.0)
                 
                 # Restore Optimized Array for consistency if needed downstream
@@ -495,7 +496,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                  
             # Run Model for Temp Curve
             _LOGGER.info("Running simulation for service response (duration: %.1f h)...", sim_duration_hours)
-            sim_temps, _, hvac_outputs = await self.hass.async_add_executor_job(
+            sim_temps, _, hvac_delivered, hvac_produced = await self.hass.async_add_executor_job(
                 run_model, params, measurements, self.heat_pump, sim_duration_hours*60
             )
             
@@ -512,8 +513,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # Now measurements.setpoint is OPTIMIZED.
             optimized_kwh = 0.0
             try:
-                 # Reuse HVAC outputs from the simulation we just ran!
-                 opt_res = calculate_energy_stats(hvac_outputs, measurements, self.heat_pump, params[4])
+                 # Reuse HVAC PRODUCED outputs from the simulation we just ran!
+                 opt_res = calculate_energy_stats(hvac_produced, measurements, self.heat_pump, params[4])
                  optimized_kwh = opt_res.get('total_kwh', 0.0)
             except Exception as e:
                  _LOGGER.warning("Failed to estimate optimized energy: %s", e)

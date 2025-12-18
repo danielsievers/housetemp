@@ -5,5 +5,6 @@
     "K_solar": 835.8492862699268,
     "Q_int": 1485.2324599861356,
     "H_factor": 9999.917061396874,
-    "efficiency_derate": 1.0
+    "efficiency_derate": 0.75
+    // 0.75 represents 25% passive duct loss (conduction/leakage), separate from Blower/Defrost/Cycling losses.
 }

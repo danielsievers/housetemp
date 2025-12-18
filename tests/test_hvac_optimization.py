@@ -38,6 +38,10 @@ class TestHvacOptimization(unittest.TestCase):
         self.hw.max_cool_btu_hr = 54000
         self.hw.plf_low_load = 1.4
         self.hw.plf_slope = 0.4
+        self.hw.plf_slope = 0.4
+        self.hw.plf_min = 0.5
+        self.hw.blower_active_kw = 0.0
+        self.hw.idle_power_kw = 0.0
         
         # Params: C, UA, K, Q_int, H_fac
         self.params = [5000, 200, 1000, 0, 5000]
@@ -129,13 +133,13 @@ class TestHvacOptimization(unittest.TestCase):
         )
         
         # Run for 30 minutes
-        sim_temps, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=30)
+        sim_temps, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=30)
         
         # Should return 30 steps
         self.assertEqual(len(sim_temps), 30)
         
         # Run for full duration (0)
-        sim_temps, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=0)
+        sim_temps, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=0)
         self.assertEqual(len(sim_temps), 60)
 
     def test_setpoints_only_change_at_block_boundaries(self):
@@ -231,6 +235,9 @@ class TestHvacOptimization(unittest.TestCase):
         hw.max_cool_btu_hr = 54000
         hw.plf_low_load = 1.4
         hw.plf_slope = 0.4
+        hw.plf_min = 0.5
+        hw.blower_active_kw = 0.0
+        hw.idle_power_kw = 0.0
         
         optimized, _ = optimize.optimize_hvac_schedule(
             data, self.params, hw, target_temps, comfort_config,
@@ -285,6 +292,9 @@ class TestHvacOptimization(unittest.TestCase):
         hw.max_cool_btu_hr = 54000
         hw.plf_low_load = 1.4
         hw.plf_slope = 0.4
+        hw.plf_min = 0.5
+        hw.blower_active_kw = 0.0
+        hw.idle_power_kw = 0.0
         
         optimized, _ = optimize.optimize_hvac_schedule(
             data, self.params, hw, target_temps, comfort_config,
@@ -337,6 +347,9 @@ class TestHvacOptimization(unittest.TestCase):
         hw.max_cool_btu_hr = 54000
         hw.plf_low_load = 1.4
         hw.plf_slope = 0.4
+        hw.plf_min = 0.5
+        hw.blower_active_kw = 0.0
+        hw.idle_power_kw = 0.0
         
         target_temps = np.full(4, 70.0)
         

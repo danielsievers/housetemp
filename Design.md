@@ -57,7 +57,8 @@ $$ Q_{request} = Q_{base} + (H_{factor} \cdot |T_{set} - T_{in}|) $$
 ### 3.1 Constraints
 The requested output is limited by two real-world factors:
 1.  **Hardware Capacity**: The unit cannot exceed its maximum output at a given outdoor temperature.
-2.  **System Efficiency (Derate)**: Real-world losses (e.g., duct leakage, heat exchanger scaling) reduce the effective output.
+2.  **Modulation Floor**: The unit defines a minimum continuous output (e.g., 12,000 BTU/hr). Any demand below this floor forces the system to **Cycle** (Pulse On/Off) rather than modulate efficiently.
+3.  **System Efficiency (Derate)**: Real-world losses (e.g., duct leakage, heat exchanger scaling) reduce the effective output.
 
 $$ Q_{hvac} = \eta_{eff} \cdot \min(Q_{request}, \text{MaxCapacity}(T_{out})) $$
 
@@ -70,17 +71,49 @@ We find the unknown parameters ($C, UA, K_{solar}, Q_{internal}, H_{factor}, \et
 *   **Loss Function**: Root Mean Square Error (RMSE) of $T_{in}$.
 *   **Constraints**: Physical bounds (e.g., Mass > 0, UA > 0) are enforced to prevent non-physical solutions.
 
-## 5. Energy Estimation
-Once the thermal load ($Q_{hvac}$) is known, we calculate Energy Consumption ($E$) using the Coefficient of Performance (COP).
+## 5. Advanced Energy Estimation
+Once the thermal load ($Q_{hvac}$) is known, we calculate Total Energy Consumption ($E_{total}$) using a component-based power model.
 
-$$ E_{kWh} = \frac{Q_{hvac}}{\text{COP} \cdot 3412} \cdot \Delta t_{hours} $$
+### 5.1 Power Components
+The total power consumption is the sum of four distinct components:
 
-*   $Q_{hvac}$: **Thermal Output** (BTU). Calculated by the simulation loop and passed to the energy estimator.
-*   $3412$: **Conversion Factor** (BTU per kWh).
-*   The **COP** is dynamic and depends on two factors:
-1.  **Outdoor Temperature**: Lower $T_{out}$ reduces efficiency (lookup table).
-2.  **Part-Load Ratio**: Running at partial capacity is *more* efficient than full capacity.
-    *   Modeled as a linear correction factor (e.g., +40% efficiency at 30% load).
+$$ P_{total} = P_{compressor} + P_{blower} + P_{idle} + P_{defrost} $$
+
+#### 1. Compressor Power ($P_{compressor}$)
+Calculated from the thermal output ($Q_{hvac}$) and the system's efficiency:
+
+$$ P_{compressor} = \frac{Q_{hvac} / \eta_{derate}}{\text{COP}_{effective} \cdot 3412} \quad (kW) $$
+
+*   $\eta_{derate}$: **System Derate** (e.g., 0.75). Accounts for duct thermal losses.
+*   $\text{COP}_{effective}$: Base COP $\times$ Part-Load Factor (PLF).
+    *   **PLF Clipping**: PLF is clamped to $[P_{min}, 1.4]$ to prevent efficiency hallucinations at near-zero loads.
+
+#### 2. Blower Power ($P_{blower}$)
+Modeled as a discrete state based on system activity:
+*   **Active**: High-static fan power (e.g., 900W) whenever $Q_{hvac} > 0$.
+    *   This is an **Extra Electrical Draw** added *on top* of the Compressor input derived from COP.
+    *   *Note:* Only use this if your manufacturer COP table excludes fan power (or if measuring fan separately).
+    *   Default: 0.0 (Assumes COP includes fan).
+
+#### 3. Idle Power ($P_{idle}$)
+Constant sampling load (e.g., 250W) when the system is enabled but the compressor is off ($Q_{hvac} = 0$).
+*   This is additive to any standby power implicit in SEER/HSPF ratings.
+*   Default: 0.0.
+
+#### 4. Defrost Penalty ($P_{defrost}$) for Heating
+Modeled as a reverse-cycle penalty when $T_{out}$ falls within the risk zone (e.g., 28-42°F):
+*   Logic: Applies a heavy load (e.g., 4.5 kW) for a duty cycle fraction (e.g., 10 mins/hour).
+
+### 5.2 Thermal Inertia (Soft Start)
+To prevent the optimizer from suggesting unrealistic "micro-bursts" of heat, the model imposes a **Soft Start Ramp**:
+*   The first 5 minutes of any active cycle are "dampened" (linear ramp 0-100%).
+*   This incentivizes longer run times by making short cycles thermally ineffective.
+
+**Crucial Distinction:**
+The model separates **Delivered Heat** (Ramped, used for $T_{in}$ simulation) from **Produced Heat** (Unramped, used for Energy Billing).
+*   The compressor draws full power immediately (Produced).
+*   The house receives heat slowly (Delivered).
+*   This ensures the energy cost of "warming up the ducts" is correctly billed, preventing an efficiency hallucination during short cycles.
 
 ## 6. HVAC Schedule Optimization
 The system can optimize the thermostat schedule to minimize energy consumption while maintaining comfort.

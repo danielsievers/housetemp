@@ -1,13 +1,14 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import sys
 from . import run_model
 from . import run_model
 
-def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0, marker_interval_minutes=None, target_temps=None):
+def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0, marker_interval_minutes=None, target_temps=None, energy_stats=None):
     # hw is passed in
     
     # Run final simulation with best params
-    simulated_t_in, rmse, hvac_outputs = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)
+    simulated_t_in, rmse, hvac_outputs, _ = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)
     
     # Calculate Error (Manual Verification)
     # We need to slice data.t_in to match simulation length if duration was limited
@@ -27,7 +28,13 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     print(f"Inverter Gain (H_fac): {optimized_params[4]:.0f} BTU/deg")
     if len(optimized_params) > 5:
         print(f"Efficiency Derate:     {optimized_params[5]*100:.1f}%")
+    
+    if energy_stats:
+        print("-" * 40)
+        print(f"Est. Energy:           {energy_stats['total_kwh']:.2f} kWh")
+        print(f"Est. Cost:             ${energy_stats['total_cost']:.2f}")
     print("="*40)
+    sys.stdout.flush()
 
     # --- PLOT ---
     plt.figure(figsize=(14, 8))

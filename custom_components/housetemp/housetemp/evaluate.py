@@ -65,7 +65,7 @@ def run_rolling_evaluation(data: Measurements, params, hw):
         
         # 2. Run Simulation (12 hours)
         # We don't need to pass duration_minutes because the slice is exactly 12h
-        sim_temps, _, _ = run_model.run_model(params, sliced_data, hw)
+        sim_temps, _, _, _ = run_model.run_model(params, sliced_data, hw)
         
         # 3. Calculate Errors
         actual_temps = sliced_data.t_in

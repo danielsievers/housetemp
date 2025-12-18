@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import os
+import re
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
@@ -100,7 +101,10 @@ with open("data/comfort.json") as f:
     COMFORT_CONFIG = f.read()
 
 with open("data/occupied.json") as f:
-    params = json.load(f)
+    # Strip comments
+    content = f.read()
+    content_clean = re.sub(r"//.*", "", content)
+    params = json.loads(content_clean)
     
 CONFIG_DATA = {
     CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",

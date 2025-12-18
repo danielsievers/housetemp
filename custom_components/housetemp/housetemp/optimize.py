@@ -28,7 +28,7 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
         full_params = list(active_params) + [1.0] # Default efficiency_derate
 
     # 1. Run Simulation
-    predicted_temps, sim_error, _ = run_model.run_model(full_params, data, hw)
+    predicted_temps, sim_error, _, _ = run_model.run_model(full_params, data, hw)
     
     # 2. Compare to Reality (RMSE)
     error = sim_error
@@ -134,7 +134,10 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     # For Cost Calculation (Vectorized NumPy still fastest for arrays outside the loop)
     # We keep these as numpy arrays for the cost function math
     max_caps_np = hw.get_max_capacity(data.t_out)
-    base_cops_np = hw.get_cop(data.t_out)
+    if hvac_mode_val < 0:
+        base_cops_np = hw.get_cooling_cop(data.t_out)
+    else:
+        base_cops_np = hw.get_cop(data.t_out)
     dt_hours_np = data.dt_hours
     
     # Shared config & Vectorized Time Mapping
@@ -235,18 +238,19 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             setpoint_list = full_res_setpoints.tolist()
             
             # 2. Run THIN Kernel
-            sim_temps_list, hvac_outputs_list = run_model.run_model_fast(
+            sim_temps_list, hvac_delivered_list, hvac_produced_list = run_model.run_model_fast(
                 params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list,
                 max_caps_list, min_output, max_cool, eff_derate, start_temp
             )
             
             # 3. Vectorized Cost Calculation (NumPy)
             # Convert results back to numpy for vectorized math
-            hvac_outputs = np.array(hvac_outputs_list)
-            sim_temps = np.array(sim_temps_list)
+            hvac_produced = np.array(hvac_produced_list) # Unramped for Energy Bill
+            sim_temps = np.array(sim_temps_list)         # Ramped for Comfort
             
-            # Energy
-            res = calculate_energy_vectorized(hvac_outputs, dt_hours_np, max_caps_np, base_cops_np, hw, eff_derate=eff_derate)
+            # Energy (Use PRODUCED/UNRAMPED heat for cost calculation)
+            # hvac_produced is GROSS (Pre-Derate). Pass eff_derate=1.0 to avoid double-division.
+            res = calculate_energy_vectorized(hvac_produced, dt_hours_np, max_caps_np, base_cops_np, hw, eff_derate=1.0, hvac_states=data.hvac_state)
             kwh = res['kwh']
             load_ratios = res['load_ratios']
             
