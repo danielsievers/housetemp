@@ -1,7 +1,9 @@
 """Sensor platform for House Temp Prediction."""
 from __future__ import annotations
-
 import math
+from datetime import datetime, timedelta
+import numpy as np
+from homeassistant.util import dt as dt_util
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,

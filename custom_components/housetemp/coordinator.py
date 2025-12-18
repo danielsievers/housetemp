@@ -503,27 +503,26 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 run_model, params, measurements, self.heat_pump, sim_duration_hours*60
             )
             
-            # --- Update Coordinator Data Immediately ---
-            # Update data directly to avoid timestamp mismatches from a refresh request
-            
-            result_data = self._build_coordinator_data(
-                timestamps, sim_temps, measurements, optimized_setpoints,
-                naive_kwh=baseline_kwh, optimized_kwh=None, # We calculate opt below
-                original_schedule=target_temps
-            )
-            
             # -- Optimized Energy Calculation --
             # Now measurements.setpoint is OPTIMIZED.
             optimized_kwh = 0.0
+            optimized_steps = None
             try:
                  # Reuse HVAC PRODUCED outputs from the simulation we just ran!
                  opt_res = calculate_energy_stats(hvac_produced, measurements, self.heat_pump, params[4])
                  optimized_kwh = opt_res.get('total_kwh', 0.0)
+                 optimized_steps = opt_res.get('kwh_steps')
             except Exception as e:
                  _LOGGER.warning("Failed to estimate optimized energy: %s", e)
-            
-            # Update result data with optimized kwh
-            result_data["optimized_energy_kwh"] = optimized_kwh
+
+            # --- Update Coordinator Data Immediately ---
+            # Update data directly to avoid timestamp mismatches from a refresh request
+            result_data = self._build_coordinator_data(
+                timestamps, sim_temps, measurements, optimized_setpoints,
+                naive_kwh=baseline_kwh, optimized_kwh=optimized_kwh,
+                original_schedule=target_temps,
+                energy_kwh_steps=optimized_steps
+            )
             
             # Preserve optimization status
             if self.data and "optimization_status" in self.data:
