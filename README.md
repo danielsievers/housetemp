@@ -59,6 +59,8 @@ python3 main.py data.csv -p my_house.json --optimize-hvac --comfort data/comfort
 {
     "center_preference": 0.5,
     "mode": "heat",
+    "comfort_mode": "deadband",
+    "deadband_slack": 1.5,
     "schedule": [
         {"time": "08:00", "temp": 70},
         {"time": "22:00", "temp": 60}

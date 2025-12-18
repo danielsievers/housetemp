@@ -157,3 +157,43 @@ async def test_cache_application_in_update(hass, coordinator, mock_data):
         assert "optimized_setpoint" in result
         assert result["optimized_setpoint"][0] == 75.0
         assert result["optimized_setpoint"][1] is None
+@pytest.mark.asyncio
+async def test_gap_neutrality_in_simulation(hass, coordinator, mock_data):
+    """Test that gaps in both cache and schedule are forced to HVAC off and indoor temp."""
+    ms, params, start_time = mock_data
+    
+    # Copy arrays to avoid mutating shared fixture state across tests
+    ms.target_temp = ms.target_temp.copy()
+    ms.hvac_state = ms.hvac_state.copy()
+    ms.setpoint = ms.setpoint.copy()
+    
+    # Introduce a gap in the schedule (NaN) at index 2
+    ms.target_temp[2] = np.nan
+    ms.hvac_state[2] = 1 # Would be heating if it weren't for the gap
+    
+    # Cache is empty for index 2
+    coordinator.optimized_setpoints_map = {}
+    
+    fake_now = ms.timestamps[0] - timedelta(hours=1)
+    fake_temps = np.array([68.0, 68.0, 68.0, 68.0], dtype=float)
+    fake_hvac_out = np.zeros_like(fake_temps)
+    
+    with patch("custom_components.housetemp.coordinator.dt_util.now", return_value=fake_now), \
+         patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
+         patch("custom_components.housetemp.coordinator.run_model", return_value=(fake_temps, 0.0, fake_hvac_out)) as mock_run:
+         
+        await coordinator._async_update_data()
+        
+        args, _ = mock_run.call_args
+        measurements_arg = args[1]
+        
+        # Index 2 had a gap in both cache and schedule.
+        # 1. Should be clamped to current indoor temp (ms.t_in[0] == 68.0)
+        assert float(measurements_arg.setpoint[2]) == 68.0
+        # 2. HVAC state should be forced to 0 for this index, even though original schedule had 1
+        assert int(measurements_arg.hvac_state[2]) == 0
+        
+        # Index 0 was not a gap (target_temp exists).
+        # It should preserve its original hvac_state and use target_temp for setpoint.
+        assert float(measurements_arg.setpoint[0]) == 70.0
+        assert int(measurements_arg.hvac_state[0]) == int(ms.hvac_state[0])
