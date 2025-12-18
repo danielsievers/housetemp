@@ -51,6 +51,18 @@ def coordinator(hass):
     with patch("custom_components.housetemp.coordinator.HeatPump") as mock_hp:
         # Mock the instance returned by the class constructor
         instance = MagicMock()
+        # Return proper numpy arrays matching input shape
+        instance.get_cop.side_effect = lambda x: np.full(len(x), 3.0)
+        instance.get_cooling_cop.side_effect = lambda x: np.full(len(x), 3.0)
+        instance.get_max_capacity.side_effect = lambda x: np.full(len(x), 10000.0)
+        instance.min_output_btu_hr = 3000
+        instance.max_cool_btu_hr = 54000
+        instance.plf_low_load = 1.4
+        instance.plf_slope = 0.4
+        instance.plf_min = 0.5
+        instance.idle_power_kw = 0.25
+        instance.blower_active_kw = 0.9
+        instance.defrost_risk_zone = None
         mock_hp.return_value = instance
         coord = HouseTempCoordinator(hass, entry)
         # Manually ensure heat_pump is set if setup fails silently or we need to force it
@@ -63,6 +75,8 @@ def mock_data(coordinator):
     measurements = MagicMock()
     measurements.timestamps = [datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc) + timedelta(minutes=i*15) for i in range(4)]
     measurements.setpoint = np.array([70.0, 70.0, 70.0, 70.0])
+    measurements.target_temp = np.array([70.0, 70.0, 70.0, 70.0])
+    measurements.t_in = np.array([68.0, 68.0, 68.0, 68.0])
     measurements.t_out = np.array([50.0, 50.0, 50.0, 50.0])
     measurements.solar_kw = np.array([0.0, 0.0, 0.0, 0.0])
     measurements.hvac_state = np.array([0, 0, 0, 0])
@@ -83,7 +97,7 @@ async def test_auto_update_does_not_optimize(hass, coordinator, mock_data):
          patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule") as mock_opt:
         
-        mock_run.return_value = ([], 0.0, [])
+        mock_run.return_value = ([], 0.0, [], [])
         
         await coordinator._async_update_data()
         
@@ -108,7 +122,7 @@ async def test_manual_trigger_optimizes(hass, coordinator, mock_data):
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule", return_value=(optimized_setpoints, {"success": True})) as mock_opt, \
          patch.object(coordinator, "async_request_refresh") as mock_refresh, \
          patch.object(coordinator, "async_set_updated_data") as mock_set_data, \
-         patch("custom_components.housetemp.coordinator.run_model", return_value=([68.0]*4, 0.0, [])) as mock_run_model:
+         patch("custom_components.housetemp.coordinator.run_model", return_value=([68.0]*4, 0.0, [], [])) as mock_run_model:
         
         await coordinator.async_trigger_optimization()
         
@@ -143,7 +157,7 @@ async def test_cache_application_in_update(hass, coordinator, mock_data):
     
     with patch("homeassistant.util.dt.now", return_value=fake_now), \
          patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
-         patch("custom_components.housetemp.coordinator.run_model", return_value=([], 0.0, [])) as mock_run:
+         patch("custom_components.housetemp.coordinator.run_model", return_value=([], 0.0, [], [])) as mock_run:
     
         result = await coordinator._async_update_data()
         
@@ -180,7 +194,7 @@ async def test_gap_neutrality_in_simulation(hass, coordinator, mock_data):
     
     with patch("custom_components.housetemp.coordinator.dt_util.now", return_value=fake_now), \
          patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
-         patch("custom_components.housetemp.coordinator.run_model", return_value=(fake_temps, 0.0, fake_hvac_out)) as mock_run:
+         patch("custom_components.housetemp.coordinator.run_model", return_value=(fake_temps, 0.0, fake_hvac_out, fake_hvac_out)) as mock_run:
          
         await coordinator._async_update_data()
         

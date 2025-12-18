@@ -70,10 +70,25 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
          patch("custom_components.housetemp.coordinator.HeatPump") as mock_hp_cls:
         
         # Setup Mock Return
-        # run_model returns (sim_temps, rmse)
+        # run_model returns (sim_temps, rmse, hvac_delivered, hvac_produced)
         # sim_temps should be array of length steps
         steps = 8 * 2 # 8 hours * 2 per hour
-        mock_run_model.return_value = (np.full(steps, 72.5), 0.0, np.zeros(steps))
+        mock_run_model.return_value = (np.full(steps, 72.5), 0.0, np.zeros(steps), np.zeros(steps))
+        
+        # Properly mock HeatPump instance with required methods and attributes
+        mock_hp_instance = MagicMock()
+        mock_hp_instance.get_cop.side_effect = lambda x: np.full(len(x), 3.0)
+        mock_hp_instance.get_cooling_cop.side_effect = lambda x: np.full(len(x), 3.0)
+        mock_hp_instance.get_max_capacity.side_effect = lambda x: np.full(len(x), 10000.0)
+        mock_hp_instance.min_output_btu_hr = 3000
+        mock_hp_instance.max_cool_btu_hr = 54000
+        mock_hp_instance.plf_low_load = 1.4
+        mock_hp_instance.plf_slope = 0.4
+        mock_hp_instance.plf_min = 0.5
+        mock_hp_instance.idle_power_kw = 0.25
+        mock_hp_instance.blower_active_kw = 0.9
+        mock_hp_instance.defrost_risk_zone = None
+        mock_hp_cls.return_value = mock_hp_instance
         
         # 3. Setup Integration
         await hass.config_entries.async_setup(entry.entry_id)

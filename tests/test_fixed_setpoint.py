@@ -57,6 +57,9 @@ def test_optimize_fixed_bounds():
     hw.max_cool_btu_hr = 54000
     hw.plf_low_load = 1.4
     hw.plf_slope = 0.4
+    hw.plf_min = 0.5
+    hw.idle_power_kw = 0.25
+    hw.blower_active_kw = 0.9
     
     data = MagicMock()
     start = datetime(2023, 1, 1, 0, 0, 0)

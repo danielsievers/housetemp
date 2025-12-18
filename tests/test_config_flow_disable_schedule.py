@@ -9,7 +9,9 @@ from custom_components.housetemp.const import (
     DOMAIN, 
     CONF_SCHEDULE_CONFIG, 
     CONF_SCHEDULE_ENABLED, 
-    DEFAULT_SCHEDULE_ENABLED
+    CONF_HEAT_PUMP_CONFIG,
+    DEFAULT_SCHEDULE_ENABLED,
+    DEFAULT_HEAT_PUMP_CONFIG,
 )
 from custom_components.housetemp.config_flow import ConfigFlow
 
@@ -100,6 +102,7 @@ async def test_options_flow_enable_schedule_validation(hass: HomeAssistant):
     user_input = {
         CONF_SCHEDULE_ENABLED: True,
         CONF_SCHEDULE_CONFIG: "INVALID JSON",
+        CONF_HEAT_PUMP_CONFIG: DEFAULT_HEAT_PUMP_CONFIG,
         # Add other required fields
         "hvac_mode": "heat",
         "avoid_defrost": True,

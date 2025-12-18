@@ -359,7 +359,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # 8. Return Result
         return self._build_coordinator_data(
-            timestamps, sim_temps, measurements, optimized_setpoint_arr if has_optimized_data else None,
+            timestamps, sim_temps, measurements, optimized_setpoint_attr if has_optimized_data else None,
             naive_energy_kwh, optimized_energy_kwh, setpoint_arr,
             energy_kwh_steps=current_energy_steps if self.heat_pump else None
         )

@@ -188,29 +188,30 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         errors = {} 
 
         if user_input is not None:
-            # Validate Schedule JSON
-            try:
-                # NEW: Check if schedule is enabled
-                schedule_enabled = user_input.get(CONF_SCHEDULE_ENABLED, True)
-                
-                if schedule_enabled:
+            # Validate Schedule JSON (if enabled)
+            schedule_enabled = user_input.get(CONF_SCHEDULE_ENABLED, True)
+            
+            if schedule_enabled:
+                try:
                     schedule_data = json.loads(user_input[CONF_SCHEDULE_CONFIG])
                     SCHEDULE_SCHEMA(schedule_data)        # Validate Types/Structure
                     validate_schedule_timeline(schedule_data) # Validate Logic
-                
-                # Check Heat Pump JSON
-                hp_config = user_input.get(CONF_HEAT_PUMP_CONFIG)
-                if hp_config:
+                except (ValueError, vol.Invalid) as e:
+                    errors[CONF_SCHEDULE_CONFIG] = "invalid_json"
+                    _LOGGER.warning("Invalid schedule configuration: %s", e)
+            
+            # Validate Heat Pump JSON (always)
+            hp_config = user_input.get(CONF_HEAT_PUMP_CONFIG)
+            if hp_config:
+                try:
                     json.loads(hp_config)
-                
+                except ValueError as e:
+                    errors[CONF_HEAT_PUMP_CONFIG] = "invalid_json"
+                    _LOGGER.warning("Invalid heat pump configuration: %s", e)
+            
+            # Only create entry if no errors
+            if not errors:
                 return self.async_create_entry(title="", data=user_input)
-            except (ValueError, vol.Invalid) as e:
-                if "schedule" in str(e) or CONF_SCHEDULE_CONFIG in str(e):
-                    errors = {CONF_SCHEDULE_CONFIG: "invalid_json"}
-                else:
-                    errors = {CONF_HEAT_PUMP_CONFIG: "invalid_json"}
-                _LOGGER.warning("Invalid configuration in options: %s", e)
-                # Fall through to show form with errors
         
         # Get current values from OPTIONS (tunable)
         # Fallback to DATA only if migrating (optional, but good for safety)
