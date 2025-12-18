@@ -129,14 +129,19 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
         # Defrost happens when Heating is Active in Risk Zone
         # Penalty: Reversing cycle uses power (hw.defrost_power_kw) for duration/interval fraction
         # e.g. 10 mins every 60 mins = 1/6th of time
-        ratio = hw.defrost_duration_min / hw.defrost_interval_min
-        defrost_kw = hw.defrost_power_kw * ratio
+        defrost_interval = getattr(hw, 'defrost_interval_min', 0)
+        defrost_duration = getattr(hw, 'defrost_duration_min', 0)
+        defrost_power = getattr(hw, 'defrost_power_kw', 0)
         
-        # Apply only when Heating (Output > 0)
-        is_heating = hvac_outputs > 0
-        
-        # Add to watts
-        watts = np.where(in_risk & is_heating, watts + (defrost_kw * 1000.0), watts)
+        if defrost_interval > 0 and defrost_duration > 0 and defrost_power > 0:
+            ratio = defrost_duration / defrost_interval
+            defrost_kw = defrost_power * ratio
+            
+            # Apply only when Heating (Output > 0)
+            is_heating = hvac_outputs > 0
+            
+            # Add to watts
+            watts = np.where(in_risk & is_heating, watts + (defrost_kw * 1000.0), watts)
 
     # kWh = (Watts / 1000) * Hours
     kwh_steps = (watts / 1000.0) * dt_hours
