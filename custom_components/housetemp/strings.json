@@ -56,7 +56,9 @@
                     "model_timestep": "Model timestep (minutes)",
                     "control_timestep": "Control timestep (minutes)",
                     "comfort_mode": "Comfort Mode",
-                    "deadband_slack": "Deadband Slack (°F)"
+                    "deadband_slack": "Deadband Slack (°F)",
+                    "min_setpoint": "Min Setpoint (°F)",
+                    "max_setpoint": "Max Setpoint (°F)"
                 }
             }
         }

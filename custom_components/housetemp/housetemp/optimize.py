@@ -206,13 +206,15 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
              current_guess[block_fixed_flags] = np.interp(control_times[block_fixed_flags], sim_minutes, target_temps)
 
         # --- Bounds ---
+        min_setpoint = comfort_config.get('min_setpoint', 60.0)
+        max_setpoint = comfort_config.get('max_setpoint', 75.0)
         bounds = []
         for i in range(num_blocks):
             if block_fixed_flags[i]:
                 val = current_guess[i]
                 bounds.append((val, val))
             else:
-                bounds.append((50.0, 90.0))
+                bounds.append((min_setpoint, max_setpoint))
         
         # --- Loss Function ---
         user_preference = comfort_config.get('center_preference', 1.0)
@@ -221,6 +223,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         comfort_mode = comfort_config.get('comfort_mode', 'quadratic')
         deadband_slack = comfort_config.get('deadband_slack', 1.5)
         avoid_defrost = comfort_config.get('avoid_defrost', False)
+        snap_weight = 0.001  # Tie-breaker weight for snap-to-boundary
 
         def schedule_loss(candidate_blocks):
             # 1. Update Setpoints via Hoisted Map (Fast)
@@ -270,7 +273,20 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                     effective_errors = np.maximum(0, sim_temps - target_temps)
 
             comfort_cost = center_preference * (effective_errors**2)
-            total_penalty = np.sum(comfort_cost * dt_hours_np)
+            
+            # Snap-to-boundary regularization for "off" state visualization
+            # When setpoint is well below (heating) or above (cooling) room temp,
+            # nudge it toward the cap boundary for cleaner UI presentation
+            if hvac_mode_val > 0:  # Heating
+                # "Off" = setpoint well below room temp (won't trigger heat)
+                is_off = full_res_setpoints < (sim_temps - 1.0)
+                snap_cost = np.where(is_off, snap_weight * (full_res_setpoints - min_setpoint)**2, 0)
+            else:  # Cooling
+                # "Off" = setpoint well above room temp (won't trigger cool)
+                is_off = full_res_setpoints > (sim_temps + 1.0)
+                snap_cost = np.where(is_off, snap_weight * (full_res_setpoints - max_setpoint)**2, 0)
+            
+            total_penalty = np.sum((comfort_cost + snap_cost) * dt_hours_np)
             
             # Defrost
             defrost_cost = 0.0

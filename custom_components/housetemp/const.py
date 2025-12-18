@@ -46,6 +46,13 @@ DEFAULT_AWAY_TEMP = 50.0
 # Away Mode
 AWAY_WAKEUP_ADVANCE_HOURS = 12
 
+# Optimizer Setpoint Bounds (Fahrenheit)
+CONF_MIN_SETPOINT = "min_setpoint"
+CONF_MAX_SETPOINT = "max_setpoint"
+DEFAULT_MIN_SETPOINT = 60.0
+DEFAULT_MAX_SETPOINT = 75.0
+SNAP_REG_WEIGHT = 0.001  # Tie-breaker weight for snap-to-boundary
+
 CONF_HVAC_MODE = "hvac_mode"
 CONF_AVOID_DEFROST = "avoid_defrost"
 CONF_COMFORT_MODE = "comfort_mode"

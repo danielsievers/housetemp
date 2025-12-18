@@ -389,5 +389,49 @@ class TestHvacOptimization(unittest.TestCase):
         # Deadband should allow equal or lower setpoints (more energy savings)
         self.assertLessEqual(avg_deadband, avg_quad + 0.5)  # Small tolerance for optimizer noise
 
+    def test_setpoint_caps_respected(self):
+        """Verify optimizer respects configurable min/max setpoint caps."""
+        timestamps = pd.date_range("2023-01-01 00:00", periods=4, freq="30min")
+        
+        data = Measurements(
+            timestamps=timestamps,
+            t_in=np.full(4, 68.0),
+            t_out=np.full(4, 50.0),
+            solar_kw=np.zeros(4),
+            hvac_state=np.zeros(4),
+            setpoint=np.full(4, 70.0),
+            dt_hours=np.full(4, 0.5)
+        )
+        
+        hw = MagicMock()
+        hw.get_max_capacity.return_value = np.full(4, 20000.0)
+        hw.get_cop.return_value = np.full(4, 3.0)
+        hw.defrost_risk_zone = None
+        hw.min_output_btu_hr = 3000
+        hw.max_cool_btu_hr = 54000
+        hw.plf_low_load = 1.4
+        hw.plf_slope = 0.4
+        hw.plf_min = 0.5
+        hw.blower_active_kw = 0.0
+        hw.idle_power_kw = 0.0
+        
+        target_temps = np.full(4, 70.0)
+        
+        # Custom caps: 62-72°F
+        comfort_config = {
+            "mode": "heat",
+            "center_preference": 1.0,
+            "min_setpoint": 62.0,
+            "max_setpoint": 72.0,
+        }
+        
+        optimized, _ = optimize.optimize_hvac_schedule(
+            data, self.params, hw, target_temps, comfort_config, block_size_minutes=30
+        )
+        
+        # All setpoints must be within configured bounds
+        self.assertTrue(np.all(optimized >= 62.0), f"Values below min: {optimized[optimized < 62.0]}")
+        self.assertTrue(np.all(optimized <= 72.0), f"Values above max: {optimized[optimized > 72.0]}")
+
 if __name__ == '__main__':
     unittest.main()

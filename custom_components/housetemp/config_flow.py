@@ -56,6 +56,10 @@ from .const import (
     CONF_ENABLE_MULTISCALE,
     DEFAULT_ENABLE_MULTISCALE,
     DEFAULT_HEAT_PUMP_CONFIG,
+    CONF_MIN_SETPOINT,
+    CONF_MAX_SETPOINT,
+    DEFAULT_MIN_SETPOINT,
+    DEFAULT_MAX_SETPOINT,
 )
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -287,6 +291,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_CENTER_PREFERENCE,
                     default=get_opt(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+                vol.Optional(
+                    CONF_MIN_SETPOINT,
+                    default=get_opt(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=40, max=80, step=1, unit_of_measurement="°F")
+                ),
+                vol.Optional(
+                    CONF_MAX_SETPOINT,
+                    default=get_opt(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=50, max=95, step=1, unit_of_measurement="°F")
+                ),
                 vol.Required(
                     CONF_FORECAST_DURATION,
                     default=get_opt(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION),

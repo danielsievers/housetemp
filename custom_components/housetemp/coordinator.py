@@ -61,6 +61,10 @@ from .const import (
     CONF_ENABLE_MULTISCALE,
     DEFAULT_ENABLE_MULTISCALE,
     DEFAULT_HEAT_PUMP_CONFIG,
+    CONF_MIN_SETPOINT,
+    CONF_MAX_SETPOINT,
+    DEFAULT_MIN_SETPOINT,
+    DEFAULT_MAX_SETPOINT,
 )
 
 # Import from the installed package
@@ -510,6 +514,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "avoid_defrost": options.get(CONF_AVOID_DEFROST, True),
             "comfort_mode": options.get(CONF_COMFORT_MODE, DEFAULT_COMFORT_MODE),
             "deadband_slack": float(options.get(CONF_DEADBAND_SLACK, DEFAULT_DEADBAND_SLACK)),
+            "min_setpoint": float(options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)),
+            "max_setpoint": float(options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)),
         }
         
         try:
