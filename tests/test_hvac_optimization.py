@@ -113,9 +113,11 @@ class TestHvacOptimization(unittest.TestCase):
         avg_setpoint = np.mean(optimized_setpoints)
         print(f"Average Optimized Setpoint: {avg_setpoint}")
         
-        # It should be lower than 70 (to save energy)
-        self.assertLess(avg_setpoint, 70.0)
-        self.assertGreaterEqual(avg_setpoint, 67.0) # Allow some tolerance
+        # With high weight (5.1), it should prioritize staying AT or ABOVE the target
+        # since undershoot is penalized but overshoot is free.
+        # It may no longer prioritize energy savings (lower setpoints) at this setting.
+        self.assertGreaterEqual(avg_setpoint, 69.0) 
+        self.assertLessEqual(avg_setpoint, 72.0)
 
     def test_run_model_duration(self):
         # Test that duration_minutes works correctly with 1-minute data

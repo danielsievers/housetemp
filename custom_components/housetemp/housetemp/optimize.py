@@ -216,7 +216,8 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         
         # --- Loss Function ---
         user_preference = comfort_config.get('center_preference', 1.0)
-        center_preference = 0.1 + (user_preference * 0.4)
+        # Map 0-1 input to a 0.1-5.1 range to compete with high energy costs (0.75 derate)
+        center_preference = 0.1 + (user_preference * 5.0)
         comfort_mode = comfort_config.get('comfort_mode', 'quadratic')
         deadband_slack = comfort_config.get('deadband_slack', 1.5)
         avoid_defrost = comfort_config.get('avoid_defrost', False)
