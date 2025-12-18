@@ -60,7 +60,36 @@ DEFAULT_K_SOLAR = 3000.0
 DEFAULT_Q_INT = 2000.0
 DEFAULT_H_FACTOR = 5000.0
 DEFAULT_CENTER_PREFERENCE = 1.0
-DEFAULT_SCHEDULE_CONFIG = "[]"
+DEFAULT_SCHEDULE_CONFIG = """{
+  "schedule": [
+    {
+      "weekdays": [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday"
+      ],
+      "daily_schedule": [
+        {
+          "time": "00:00",
+          "temp": 63.0
+        },
+        {
+          "time": "07:00",
+          "temp": 69.0
+        },
+        {
+          "time": "21:00",
+          "temp": 63.0
+        }
+      ]
+    }
+  ]
+}"""
+
 
 # Heat Pump Specification Defaults (Mitsubishi MXZ-SM60NAM)
 DEFAULT_HP_MIN_OUTPUT = 12000
