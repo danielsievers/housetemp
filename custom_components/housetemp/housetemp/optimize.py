@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from . import run_model
-from . import run_model
+from .energy import calculate_energy_vectorized
 
 def loss_function(active_params, data, hw, fixed_passive_params=None):
     # Construct full params vector
@@ -246,12 +246,9 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             sim_temps = np.array(sim_temps_list)
             
             # Energy
-            safe_max_caps = np.where(max_caps_np > 0, max_caps_np, 1.0)
-            load_ratios = np.abs(hvac_outputs) / safe_max_caps
-            plf_corrections = hw.plf_low_load - (hw.plf_slope * load_ratios)
-            final_cops = base_cops_np * plf_corrections
-            watts = np.abs(hvac_outputs) / final_cops
-            kwh = np.sum((watts / 1000) * dt_hours_np)
+            res = calculate_energy_vectorized(hvac_outputs, dt_hours_np, max_caps_np, base_cops_np, hw, eff_derate=eff_derate)
+            kwh = res['kwh']
+            load_ratios = res['load_ratios']
             
             # Comfort
             if hvac_mode_val > 0:  # Heating

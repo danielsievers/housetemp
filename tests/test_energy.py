@@ -100,3 +100,30 @@ def test_energy_partial_load():
     
     expected_kwh = 1.0 / 1.3
     assert result['total_kwh'] == pytest.approx(expected_kwh, rel=1e-3)
+    def test_energy_derate(self):
+        """Test with an efficiency derate (e.g., duct losses)."""
+        # Create output that requires 10,000 BTU input (if COP=1)
+        # With COP=3 and derate=0.8, input should be higher.
+        hvac_outputs = np.array([3000.0]) # 1 hour
+        data = MagicMock()
+        data.dt_hours = np.array([1.0])
+        data.t_out = np.array([50.0])
+        data.__len__.return_value = 1
+        
+        hw = MagicMock()
+        hw.get_max_capacity.return_value = np.array([20000.0])
+        hw.get_cop.return_value = np.array([3.0])
+        hw.plf_low_load = 1.0 # Simplify (no PLF)
+        hw.plf_slope = 0.0
+        
+        # 1. Base case: Derate = 1.0
+        res_base = energy.calculate_energy_stats(hvac_outputs, data, hw, h_factor=5000, eff_derate=1.0)
+        kwh_base = res_base['total_kwh']
+        
+        # 2. Derated case: Derate = 0.8
+        res_derate = energy.calculate_energy_stats(hvac_outputs, data, hw, h_factor=5000, eff_derate=0.8)
+        kwh_derate = res_derate['total_kwh']
+        
+        # With derate=0.8, we expect usage to be 1/0.8 = 1.25x higher
+        ratio = kwh_derate / kwh_base
+        self.assertAlmostEqual(ratio, 1.25, places=5)
