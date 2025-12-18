@@ -24,6 +24,7 @@ from .const import (
     CONF_K_SOLAR,
     CONF_Q_INT,
     CONF_H_FACTOR,
+    CONF_EFF_DERATE,
     CONF_SENSOR_INDOOR_TEMP,
     CONF_CENTER_PREFERENCE,
     CONF_WEATHER_ENTITY,
@@ -51,6 +52,7 @@ from .const import (
     DEFAULT_K_SOLAR,
     DEFAULT_Q_INT,
     DEFAULT_H_FACTOR,
+    DEFAULT_EFF_DERATE,
     DEFAULT_CENTER_PREFERENCE,
     DEFAULT_SCHEDULE_CONFIG,
     DEFAULT_SCHEDULE_ENABLED,
@@ -630,6 +632,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             options.get(CONF_K_SOLAR, DEFAULT_K_SOLAR),
             options.get(CONF_Q_INT, DEFAULT_Q_INT),
             options.get(CONF_H_FACTOR, DEFAULT_H_FACTOR),
+            options.get(CONF_EFF_DERATE, DEFAULT_EFF_DERATE),  # Duct delivery efficiency
         ]
         _LOGGER.debug("DEBUG_PARAMS: %s", params)
 

@@ -38,6 +38,8 @@ from .const import (
     DEFAULT_K_SOLAR,
     DEFAULT_Q_INT,
     DEFAULT_H_FACTOR,
+    CONF_EFF_DERATE,
+    DEFAULT_EFF_DERATE,
     DEFAULT_CENTER_PREFERENCE,
     DEFAULT_SCHEDULE_CONFIG,
     DEFAULT_SCHEDULE_ENABLED,
@@ -283,6 +285,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_H_FACTOR,
                     default=get_opt(CONF_H_FACTOR, DEFAULT_H_FACTOR),
                 ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_EFF_DERATE,
+                    default=get_opt(CONF_EFF_DERATE, DEFAULT_EFF_DERATE),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=1.0)),
                 vol.Required(
                     CONF_CENTER_PREFERENCE,
                     default=get_opt(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE),

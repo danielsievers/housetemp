@@ -7,6 +7,7 @@ CONF_UA = "ua"
 CONF_K_SOLAR = "k_solar"
 CONF_Q_INT = "q_int"
 CONF_H_FACTOR = "h_factor"
+CONF_EFF_DERATE = "eff_derate"
 CONF_CENTER_PREFERENCE = "center_preference"
 
 CONF_SENSOR_INDOOR_TEMP = "sensor_indoor_temp"
@@ -59,6 +60,7 @@ DEFAULT_UA = 750.0
 DEFAULT_K_SOLAR = 3000.0
 DEFAULT_Q_INT = 2000.0
 DEFAULT_H_FACTOR = 5000.0
+DEFAULT_EFF_DERATE = 0.75
 DEFAULT_CENTER_PREFERENCE = 1.0
 DEFAULT_SCHEDULE_CONFIG = """{
   "schedule": [
