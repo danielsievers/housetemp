@@ -96,8 +96,33 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # New Input Handler
         self.input_handler = SimulationInputHandler(hass)
         
-        # Track model timestep to invalidate cache on change
-        self._last_model_timestep = config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
+        # Track config state to invalidate cache on change
+        self._last_config_id = self._get_config_id()
+        self._optimization_status = None # Store status separately from data 
+
+    def _get_config_id(self):
+        """Returns a stable tuple representing the current optimization-relevant config."""
+        opts = self.config_entry.options
+        data = self.config_entry.data
+        
+        def _get_stable_val(val):
+            if isinstance(val, (dict, list)):
+                 return json.dumps(val, sort_keys=True)
+            return val
+
+        return (
+            _get_stable_val(opts.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)),
+            _get_stable_val(opts.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)),
+            _get_stable_val(opts.get(CONF_ENABLE_MULTISCALE, DEFAULT_ENABLE_MULTISCALE)),
+            _get_stable_val(opts.get(CONF_COMFORT_MODE)),
+            _get_stable_val(data.get(CONF_C_THERMAL)),
+            _get_stable_val(data.get(CONF_UA)),
+            _get_stable_val(data.get(CONF_K_SOLAR)),
+            _get_stable_val(data.get(CONF_Q_INT)),
+            _get_stable_val(data.get(CONF_H_FACTOR)),
+            _get_stable_val(data.get(CONF_HEAT_PUMP_CONFIG)),
+            _get_stable_val(data.get(CONF_SCHEDULE_CONFIG)),
+        )
 
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
@@ -170,13 +195,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Clean up cache before processing
         self._expire_cache()
         
-        # Check for Model Timestep change (invalidates cache)
-        current_model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
-        if current_model_timestep != self._last_model_timestep:
-            _LOGGER.info("Model timestep changed from %s to %s. Clearing optimization cache.", 
-                         self._last_model_timestep, current_model_timestep)
+        # Check for Configuration changes (invalidates optimization cache)
+        current_config_id = self._get_config_id()
+        if current_config_id != self._last_config_id:
+            _LOGGER.info("Optimization parameters changed. Clearing cache.")
             self.optimized_setpoints_map.clear()
-            self._last_model_timestep = current_model_timestep
+            self._last_config_id = current_config_id
 
         if not self.heat_pump:
             await self._setup_heat_pump()

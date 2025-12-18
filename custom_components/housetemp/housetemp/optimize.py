@@ -398,7 +398,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
 
     # Strict Failure Handling
     if not debug_info['success']:
-        print(f"Optimization FAILED: {debug_info['message']}")
+        _LOGGER.error(f"Optimization FAILED: {debug_info['message']}")
         return None, debug_info
 
     return final_setpoints, debug_info
