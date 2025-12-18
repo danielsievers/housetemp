@@ -140,8 +140,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = HouseTempCoordinator(hass, entry)
     
-    # Fetch initial data so we have data when entities subscribe
-    await coordinator.async_config_entry_first_refresh()
+    # 1. Setup reactive trackers so we catch any state changes during/after setup
+    coordinator.async_setup_trackers()
+
+    # 2. Fetch initial data
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception as e:
+        # Check if it's a transient "not ready" state
+        # We know if it's None in prepare_simulation_inputs it might return self.data (which is None)
+        # but async_config_entry_first_refresh might raise UpdateFailed if it doesn't get data.
+        # Actually coordinator.py:245 might return self.data (None if first run)
+        _LOGGER.debug("First refresh failed: %s", e)
+        from homeassistant.exceptions import ConfigEntryNotReady
+        raise ConfigEntryNotReady(f"Input sensors not ready: {e}") from e
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator

@@ -143,6 +143,10 @@ async def main():
     hass.services.async_register = MagicMock(side_effect=capture_service_register)
     hass.services.has_service = MagicMock(return_value=False) # Simulate service not existing so it registers
 
+    # Mock Event Bus for state tracking
+    hass.bus = MagicMock()
+    hass.bus.async_listen = MagicMock(return_value=lambda: None)
+
     hass.config.path = lambda *x: os.path.join(os.getcwd(), *x)
     
     # Configure Timezone for dt_util

@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -103,6 +104,49 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Track config state to invalidate cache on change
         self._last_config_id = self._get_config_id()
         self._optimization_status = None # Store status separately from data 
+        self._unsub_state_trackers = []
+
+    def async_setup_trackers(self):
+        """Setup trackers for dependent entities."""
+        # Clean up existing trackers if any
+        for unsub in self._unsub_state_trackers:
+            unsub()
+        self._unsub_state_trackers = []
+
+        data = self.config_entry.data
+        entities = []
+        if sensor_indoor := data.get(CONF_SENSOR_INDOOR_TEMP):
+            entities.append(sensor_indoor)
+        if weather_entity := data.get(CONF_WEATHER_ENTITY):
+            entities.append(weather_entity)
+        if solar_entities := data.get(CONF_SOLAR_ENTITY):
+            if isinstance(solar_entities, str):
+                entities.append(solar_entities)
+            else:
+                entities.extend(solar_entities)
+
+        # Filter out empty/None
+        entities = [e for e in entities if e]
+
+        _LOGGER.debug("Setting up state trackers for entities: %s", entities)
+        
+        async def _async_state_changed(event):
+            """Handle state changes of dependent entities."""
+            old_state = event.data.get("old_state")
+            new_state = event.data.get("new_state")
+            
+            if not new_state or new_state.state in ("unknown", "unavailable"):
+                return
+
+            if not old_state or old_state.state in ("unknown", "unavailable"):
+                # Transition from unusable to usable -> Refresh
+                _LOGGER.info("Entity %s became available. Requesting refresh.", event.data.get("entity_id"))
+                self.async_set_updated_data(self.data) # Briefly update to trigger UI? Or just refresh.
+                await self.async_request_refresh()
+
+        self._unsub_state_trackers.append(
+            async_track_state_change_event(self.hass, entities, _async_state_changed)
+        )
 
     def _get_config_id(self):
         """Returns a stable tuple representing the current optimization-relevant config."""
@@ -239,7 +283,15 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # 1. Get Inputs & Prepare Simulation Data
         try:
-            measurements, params, start_time = await self._prepare_simulation_inputs()
+            res = await self._prepare_simulation_inputs()
+            if res is None:
+                 # Signals transient "not ready" - we don't want to raise UpdateFailed 
+                 # which might trigger annoying UI error toast if it's just a startup race.
+                 # But coordinator needs something. In HASS, returning None from _async_update_data 
+                 # keeps the old data. If no data exists yet, it stays in 'initializing'.
+                 _LOGGER.debug("Inputs not ready, skipping update.")
+                 return self.data 
+            measurements, params, start_time = res
         except Exception as e:
             _LOGGER.error("Error preparing simulation inputs: %s", e)
             raise UpdateFailed(f"Error preparing simulation inputs: {e}")
@@ -641,18 +693,27 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # 2. Get Current State
         indoor_state = self.hass.states.get(sensor_indoor)
-        if not indoor_state or indoor_state.state in ("unknown", "unavailable"):
-            raise UpdateFailed(f"Indoor sensor {sensor_indoor} unavailable")
+        if not indoor_state:
+             raise UpdateFailed(f"Indoor sensor {sensor_indoor} not found in state machine")
+             
+        if indoor_state.state in ("unknown", "unavailable"):
+             # This is a transient error during startup/update
+             _LOGGER.debug("Indoor sensor %s is currently unavailable", sensor_indoor)
+             return None # Signal 'not ready' clearly if we want, or raise specific error
         
         try:
             current_temp = float(indoor_state.state)
         except ValueError:
-            raise UpdateFailed(f"Invalid indoor temp: {indoor_state.state}")
+            raise UpdateFailed(f"Invalid indoor temp (not a number): {indoor_state.state}")
 
         # 3. Get Weather Forecast
         weather_state = self.hass.states.get(weather_entity)
         if not weather_state:
             raise UpdateFailed(f"Weather entity {weather_entity} not found")
+        
+        if weather_state.state in ("unknown", "unavailable"):
+             _LOGGER.debug("Weather entity %s is currently unavailable", weather_entity)
+             return None # Signal 'not ready'
         
         # Try Attribute first (Legacy)
         forecast = weather_state.attributes.get("forecast")
