@@ -225,8 +225,6 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             if math.isfinite(f_kwh) and math.isfinite(f_opt):
                 savings = f_kwh - f_opt
                 to_return["savings_kwh"] = round(float(savings), 2)
-
-                to_return["savings_kwh"] = round(float(savings), 2)
                 
         # Optimization Status
         opt_status = data.get("optimization_status")

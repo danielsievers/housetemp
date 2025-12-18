@@ -222,64 +222,69 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         duration_hours = self.config_entry.options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
 
-        # 6. Apply Cached Optimization Results (if available)
-        # We do NOT run optimization here. We strictly lookup the cache.
-        
-        # optimized_setpoints_map is {timestamp (float): setpoint (float)}
-        # We need to build an array aligned with 'timestamps'
-        optimized_setpoint_arr = []
+        # Reconstruct setpoints for display and simulation
+        # 1. Attribute for display (fallback to 'current behavior' baseline)
+        # 2. Simulation input (fallback to 'intended schedule' baseline)
+        optimized_setpoint_attr = []
+        sim_setpoints = []
         has_optimized_data = False
         
-        if self.optimized_setpoints_map:
-            # We must be careful with floating point timestamps.
-            # Let's assume exact match since they come from the same generation process,
-            # BUT if the main loop has slightly different timestamps (due to weather update time shifting),
-            # we need to likely use nearest neighbour or just map by ISO string if possible.
-            # However, usually simulation starts at 'now' upsampled.
+        found_count = 0
+        for i, ts in enumerate(timestamps):
+            ts_int = int(ts.timestamp())
+            val = self.optimized_setpoints_map.get(ts_int)
             
-            # Robust approach: Find value for each timestamp if it exists in map
-            # We can use a small tolerance or just round to minute.
-            
-            # Better: When we run optimization, we store result keyed by int(timestamp) (seconds)
-            # Here we lookup by int(timestamp).
-            
-            # Let's try to populate
-            found_count = 0
-            for ts in timestamps:
-                ts_int = int(ts.timestamp())
-                # Try exact match first
-                val = self.optimized_setpoints_map.get(ts_int)
+            # Optimized value from cache
+            if val is not None:
+                optimized_setpoint_attr.append(val)
+                sim_setpoints.append(val)
+                found_count += 1
+            else:
+                # Optimized attribute strictly shows None for missing points
+                optimized_setpoint_attr.append(None)
                 
-                # If not found, maybe try +- 30 seconds? 
-                # (Upsampling is usually aligned to model_timestep minutes)
-                if val is None:
-                     # fallback logic if needed, but for now simple lookup
-                     pass
-                
-                if val is not None:
-                    optimized_setpoint_arr.append(val)
-                    found_count += 1
+                # Simulation policy: Prefer Schedule -> Off (NaN)
+                target = measurements.target_temp[i]
+                if target is not None and not np.isnan(target):
+                    sim_setpoints.append(target)
                 else:
-                    optimized_setpoint_arr.append(None)
-            
-            if found_count > 0:
-                has_optimized_data = True
-                _LOGGER.debug(f"Found {found_count} cached optimized setpoints for current window.")
-
-        # 7. Run Model (in executor to avoid blocking)
-        # Use the optimized setpoints for simulation IF we have them, otherwise use schedule
-        # The 'measurements' object currently has 'setpoint' from schedule.
-        # If we have optimized setpoints, we should use them for the simulation to show the prediction *if* the plan were followed.
+                    sim_setpoints.append(np.nan)
         
-        if has_optimized_data:
-            # fill Nones with schedule as fallback for simulation
-            sim_setpoints = []
-            for i, opt_val in enumerate(optimized_setpoint_arr):
-                if opt_val is not None:
-                    sim_setpoints.append(opt_val)
-                else:
-                    sim_setpoints.append(setpoint_arr[i])
-            measurements.setpoint = np.array(sim_setpoints)
+        # Explicit No-Schedule Policy: 
+        # If all targets are NaN and no optimized data, force HVAC off for safety (avoid NaN propagation)
+        targets = measurements.target_temp
+        has_schedule = targets is not None and np.any(~np.isnan(targets))
+        
+        if found_count > 0:
+            has_optimized_data = True
+            _LOGGER.debug(f"Found {found_count} cached optimized setpoints for current window.")
+        elif not has_schedule:
+            _LOGGER.debug("No schedule and no optimized setpoints available. Disabling HVAC in simulation.")
+            measurements.hvac_state[:] = 0
+            # Explicit status for UX transparency
+            self._optimization_status = {
+                "success": False, 
+                "message": "No schedule available; HVAC disabled for simulation",
+                "code": "no_schedule",
+                "scope": "simulation"
+            }
+        elif self._optimization_status and self._optimization_status.get("code") == "no_schedule":
+            # Schedule is back! Clear the old error status
+            self._optimization_status = None
+
+        # Use best available setpoints (Optimized -> Target -> Clamped Input)
+        measurements.setpoint = np.array(sim_setpoints, dtype=float)
+        
+        # Universal NaN-Clamping: Replace ALL NaNs in the setpoint array (partial gaps) with safe constant
+        # AND force HVAC off for those specific points to avoid spurious action
+        mask = np.isnan(measurements.setpoint)
+        if np.any(mask):
+            measurements.setpoint[mask] = float(measurements.t_in[0])
+            # Defensive check: ensure hvac_state is aligned and mutable
+            if isinstance(measurements.hvac_state, np.ndarray) and len(measurements.hvac_state) == len(mask):
+                 measurements.hvac_state[mask] = 0
+
+
         
         sim_temps, _, hvac_outputs = await self.hass.async_add_executor_job(
             run_model, params, measurements, self.heat_pump, duration_hours*60
@@ -359,6 +364,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         if optimized_setpoints is not None:
             result["optimized_setpoint"] = optimized_setpoints
+        
+        # Include current optimization status in data for sensor attributes
+        if self._optimization_status:
+            result["optimization_status"] = self._optimization_status
         
         return result
 
@@ -740,13 +749,14 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         measurements = Measurements(
             timestamps=np.array(timestamps),
-            t_in=t_in_arr,
-            t_out=t_out_arr,
-            solar_kw=solar_arr,
-            hvac_state=np.array(hvac_state_arr),
-            setpoint=np.array(setpoint_arr),
-             dt_hours=dt_values,
-            is_setpoint_fixed=np.array(fixed_mask_arr)
+            t_in=t_in_arr.astype(float),
+            t_out=t_out_arr.astype(float),
+            solar_kw=solar_arr.astype(float),
+            hvac_state=np.array(hvac_state_arr, dtype=int),
+            setpoint=np.array(setpoint_arr, dtype=float),
+            dt_hours=np.array(dt_values, dtype=float),
+            is_setpoint_fixed=np.array(fixed_mask_arr, dtype=bool),
+            target_temp=np.array(setpoint_arr, dtype=float).copy()
         )
         
         return measurements, params, start_time
