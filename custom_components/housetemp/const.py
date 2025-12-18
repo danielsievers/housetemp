@@ -61,3 +61,36 @@ DEFAULT_Q_INT = 2000.0
 DEFAULT_H_FACTOR = 5000.0
 DEFAULT_CENTER_PREFERENCE = 1.0
 DEFAULT_SCHEDULE_CONFIG = "[]"
+
+# Heat Pump Specification Defaults (Mitsubishi MXZ-SM60NAM)
+DEFAULT_HP_MIN_OUTPUT = 12000
+DEFAULT_HP_MAX_COOL = 54000
+DEFAULT_HP_PLF_LOW = 1.4
+DEFAULT_HP_PLF_SLOPE = 0.4
+DEFAULT_HP_IDLE_KW = 0.25
+DEFAULT_HP_BLOWER_KW = 0.9
+
+DEFAULT_HEAT_PUMP_CONFIG = """{
+  "description": "Mitsubishi MXZ-SM60NAM (5-Ton Hyper-Heat)",
+  "min_output_btu_hr": 12000,
+  "max_cool_btu_hr": 54000,
+  "plf_low_load": 1.4,
+  "plf_slope": 0.4,
+  "idle_power_kw": 0.25,
+  "blower_active_kw": 0.9,
+  "max_capacity": {
+    "x_outdoor_f": [-13, -5, 5, 17, 47, 65],
+    "y_btu_hr": [38000, 45000, 60000, 54000, 66000, 72000]
+  },
+  "cop": {
+    "x_outdoor_f": [5, 17, 47, 65],
+    "y_cop": [1.75, 2.10, 3.40, 4.20]
+  },
+  "defrost": {
+    "trigger_temp_f": 32,
+    "risk_zone_f": [28, 42],
+    "cycle_duration_minutes": 10,
+    "cycle_interval_minutes": 60,
+    "power_kw": 4.5
+  }
+}"""

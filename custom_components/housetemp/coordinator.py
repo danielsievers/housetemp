@@ -4,6 +4,7 @@ import json
 import time
 import logging
 import os
+import re
 import tempfile
 from functools import partial
 
@@ -56,6 +57,7 @@ from .const import (
     AWAY_WAKEUP_ADVANCE_HOURS,
     CONF_ENABLE_MULTISCALE,
     DEFAULT_ENABLE_MULTISCALE,
+    DEFAULT_HEAT_PUMP_CONFIG,
 )
 
 # Import from the installed package
@@ -127,9 +129,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
         # Heat Pump Config is FIXED (Data)
-        hp_config_str = self.config_entry.data.get(CONF_HEAT_PUMP_CONFIG)
+        hp_config_str = self.config_entry.data.get(CONF_HEAT_PUMP_CONFIG, DEFAULT_HEAT_PUMP_CONFIG)
         if not hp_config_str:
-            return
+            hp_config_str = DEFAULT_HEAT_PUMP_CONFIG
 
         # Run file I/O in executor
         def save_and_init():
@@ -138,17 +140,43 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             os.makedirs(storage_dir, exist_ok=True)
             hp_config_path = os.path.join(storage_dir, f"heat_pump_{self.config_entry.entry_id}.json")
             
-            # Validate JSON first
+            # Validate and Patch JSON
             try:
-                data = json.loads(hp_config_str)
-                # Basic validation - check for expected keys from heat_pump.json format
+                # Strip comments for robust loading
+                clean_config = re.sub(r"//.*", "", hp_config_str)
+                data = json.loads(clean_config)
+                
+                # Check for mandatory keys required by the newer library version
+                needs_patch = False
+                mandatory_keys = [
+                    'min_output_btu_hr', 'max_cool_btu_hr', 
+                    'plf_low_load', 'plf_slope', 
+                    'idle_power_kw', 'blower_active_kw'
+                ]
+                
+                # Load defaults for patching
+                default_data = json.loads(re.sub(r"//.*", "", DEFAULT_HEAT_PUMP_CONFIG))
+                
+                for key in mandatory_keys:
+                    if key not in data:
+                        _LOGGER.warning("Missing key '%s' in Heat Pump config. Patching with default. Please visit integration settings to update permanently.", key)
+                        data[key] = default_data[key]
+                        needs_patch = True
+                
+                # If we patched it, we should use the patched version
+                if needs_patch:
+                    final_config = json.dumps(data, indent=2)
+                else:
+                    final_config = hp_config_str
+                
+                # Basic validation 
                 if "cop" not in data or "max_capacity" not in data:
-                     _LOGGER.warning("Heat Pump Config might be missing required keys (cop, max_capacity)")
+                     _LOGGER.error("Heat Pump Config is missing core curves (cop, max_capacity). Sensors will be inaccurate.")
             except Exception as e:
                 raise ValueError(f"Invalid Heat Pump JSON: {e}")
             
             with open(hp_config_path, "w") as f:
-                f.write(hp_config_str)
+                f.write(final_config)
             
             return HeatPump(hp_config_path)
 
@@ -540,7 +568,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     "outdoor_temp": float(measurements.t_out[i]),
                     "solar_kw": float(measurements.solar_kw[i]),
                     "ideal_setpoint": float(optimized_setpoints[i]) if i < len(optimized_setpoints) else None,
-                    "predicted_temp": float(sim_temps[i]) if i < len(sim_temps) else None
+                    "predicted_temp": float(sim_temps[i]) if i < len(sim_temps) else None,
+                    "energy_kwh": float(optimized_steps[i]) if optimized_steps is not None and i < len(optimized_steps) else None
                 }
                 # hvac_action from schedule
                 state_val = measurements.hvac_state[i]

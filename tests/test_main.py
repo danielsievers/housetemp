@@ -18,29 +18,18 @@ class TestMainIntegration(unittest.TestCase):
         # Create a temporary directory
         self.test_dir = tempfile.mkdtemp()
         self.csv_path = os.path.join(self.test_dir, 'test_data.csv')
-        self.csv_path = os.path.join(self.test_dir, 'test_data.csv')
         self.model_path = os.path.join(self.test_dir, 'test_model.json')
         self.hp_path = os.path.join(self.test_dir, 'test_hp.json')
         
-        # Create Dummy Heat Pump Config
+        # Create Dummy Heat Pump Config (60NAM specs)
         hp_data = {
             "description": "Test Heat Pump",
-            "max_capacity": {
-                "x_outdoor_f": [-10, 100],
-                "y_btu_hr": [50000, 50000]
-            },
-            "cop": {
-                "x_outdoor_f": [-10, 100],
-                "y_cop": [3.0, 3.0]
-            }
-        }
-        with open(self.hp_path, 'w') as f:
-            json.dump(hp_data, f)
-        self.hp_path = os.path.join(self.test_dir, 'test_hp.json')
-        
-        # Create Dummy Heat Pump Config
-        hp_data = {
-            "description": "Test Heat Pump",
+            "min_output_btu_hr": 12000,
+            "max_cool_btu_hr": 54000,
+            "plf_low_load": 1.4,
+            "plf_slope": 0.4,
+            "idle_power_kw": 0.25,
+            "blower_active_kw": 0.9,
             "max_capacity": {
                 "x_outdoor_f": [-10, 100],
                 "y_btu_hr": [50000, 50000]

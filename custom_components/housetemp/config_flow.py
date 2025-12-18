@@ -53,6 +53,7 @@ from .const import (
     DEFAULT_DEADBAND_SLACK,
     CONF_ENABLE_MULTISCALE,
     DEFAULT_ENABLE_MULTISCALE,
+    DEFAULT_HEAT_PUMP_CONFIG,
 )
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -121,7 +122,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_SOLAR_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor", device_class=["power", "energy"], multiple=True)
         ),
-        vol.Required(CONF_HEAT_PUMP_CONFIG): selector.TextSelector(
+        vol.Required(CONF_HEAT_PUMP_CONFIG, default=DEFAULT_HEAT_PUMP_CONFIG): selector.TextSelector(
             selector.TextSelectorConfig(multiline=True)
         ),
     }
@@ -197,10 +198,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     SCHEDULE_SCHEMA(schedule_data)        # Validate Types/Structure
                     validate_schedule_timeline(schedule_data) # Validate Logic
                 
+                # Check Heat Pump JSON
+                hp_config = user_input.get(CONF_HEAT_PUMP_CONFIG)
+                if hp_config:
+                    json.loads(hp_config)
+                
                 return self.async_create_entry(title="", data=user_input)
             except (ValueError, vol.Invalid) as e:
-                errors = {CONF_SCHEDULE_CONFIG: "invalid_json"}
-                _LOGGER.warning("Invalid schedule config in options: %s", e)
+                if "schedule" in str(e) or CONF_SCHEDULE_CONFIG in str(e):
+                    errors = {CONF_SCHEDULE_CONFIG: "invalid_json"}
+                else:
+                    errors = {CONF_HEAT_PUMP_CONFIG: "invalid_json"}
+                _LOGGER.warning("Invalid configuration in options: %s", e)
                 # Fall through to show form with errors
         
         # Get current values from OPTIONS (tunable)
@@ -246,6 +255,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=get_opt(CONF_DEADBAND_SLACK, DEFAULT_DEADBAND_SLACK),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0.0, max=5.0, step=0.5, unit_of_measurement="°F")
+                ),
+                vol.Required(
+                    CONF_HEAT_PUMP_CONFIG,
+                    default=get_opt(CONF_HEAT_PUMP_CONFIG, DEFAULT_HEAT_PUMP_CONFIG),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(multiline=True)
                 ),
                 vol.Required(
                     CONF_UA,

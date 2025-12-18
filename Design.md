@@ -64,6 +64,7 @@ $$ Q_{hvac} = \eta_{eff} \cdot \min(Q_{request}, \text{MaxCapacity}(T_{out})) $$
 
 *   $\eta_{eff}$: **Efficiency/Derate Factor** (0.0 - 1.0). Accounts for duct leaks and system degradation.
 
+
 ## 4. Parameter Optimization
 We find the unknown parameters ($C, UA, K_{solar}, Q_{internal}, H_{factor}, \eta_{eff}$) by minimizing the error between the *simulated* temperature and the *actual* historical temperature.
 
@@ -169,17 +170,4 @@ Standard solver defaults (e.g., `eps=1e-8`) fail for HVAC control because the co
 *   **Epsilon `eps=0.5`**: Forces the solver to take "Macro Steps" (0.5°F) to "see" past the deadband walls.
 *   **Tolerance `ftol=1e-4`**: Terminates early when cost improvements become negligible (< 0.01%), saving significant CPU cycles.
 *   **Robustness**: The solver explicitly handles `ABNORMAL_TERMINATION_IN_LNSRCH` as a valid "Good Enough" result, preventing infinite loops in flat cost landscapes.
-
-## 8. Data Integrity & Safety
-The system is designed to be "Fail-Neutral" when encountering missing data or configuration gaps.
-
-### 8.1 Gap Neutrality (NaN Safety)
-If a simulation period lacks both an optimized plan and a fallback schedule (e.g., during configuration transitions), the system enforces a **Neutral State**:
-1.  **Setpoint Clamping**: The setpoint is clamped to the current measured indoor temperature ($T_{in}[0]$).
-2.  **HVAC Lockout**: Active heating/cooling is explicitly disabled (`hvac_state = 0`).
-
-This prevents "NaN Propagation" into the physics model and ensures the forecast reflects a safely idle state rather than undefined behavior.
-
-### 8.2 Configuration-Aware Caching
-Caches of optimized schedules are keyed by a **Global Configuration Hash**. Any change to the heat pump specs, thermal parameters, or comfort settings immediately invalidates existing plans to ensure the forecast is always physically consistent with current settings.
 

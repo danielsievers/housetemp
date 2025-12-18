@@ -164,10 +164,15 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
                     best_idx = idx
             
             local_dt = dt_util.as_local(current_dt)
+            # Get energy for this point
+            energy_steps = data.get("energy_kwh_steps")
+            energy_val = float(energy_steps[best_idx]) if energy_steps is not None and best_idx < len(energy_steps) else None
+
             item = {
                 "datetime": local_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                 "temperature": float(round(temps[best_idx], 1)) if best_idx < len(temps) else None,
                 "target_temp": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
+                "energy_kwh": round(energy_val, 3) if energy_val is not None else None,
             }
             
             # Check if this specific point is within the generic "Away" window

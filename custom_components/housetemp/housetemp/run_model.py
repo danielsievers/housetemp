@@ -14,12 +14,22 @@ class HeatPump:
             content = re.sub(r'//.*', '', content)
             data = json.loads(content)
         
+        # Mandatory Physics/Config Parameters
         self.cap_x = data['max_capacity']['x_outdoor_f']
         self.cap_y = data['max_capacity']['y_btu_hr']
         self.cop_x = data['cop']['x_outdoor_f']
         self.cop_y = data['cop']['y_cop']
         
-        # Optional Cooling COP (Fallback to Heat COP if missing, though likely different)
+        # Performance/Load parameters (Must be in JSON)
+        self.min_output_btu_hr = data['min_output_btu_hr']
+        self.max_cool_btu_hr = data['max_cool_btu_hr']
+        self.plf_low_load = data['plf_low_load']
+        self.plf_slope = data['plf_slope']
+        self.plf_min = data.get('plf_min', 0.5) # Still use .get for minor safety if preferred, else data['plf_min']
+        self.idle_power_kw = data['idle_power_kw']
+        self.blower_active_kw = data['blower_active_kw']
+        
+        # Optional Cooling COP (Fallback to Heat COP if missing)
         if 'cooling_cop' in data:
             self.cool_cop_x = data['cooling_cop']['x_outdoor_f']
             self.cool_cop_y = data['cooling_cop']['y_cop']
@@ -27,18 +37,6 @@ class HeatPump:
             _LOGGER.info("Note: No 'cooling_cop' defined in heat_pump.json. Using Heating COP curve for cooling.")
             self.cool_cop_x = self.cop_x
             self.cool_cop_y = self.cop_y
-        
-        # Min/max operating parameters (with sensible defaults)
-        self.min_output_btu_hr = data.get('min_output_btu_hr', 3000)
-        self.max_cool_btu_hr = data.get('max_cool_btu_hr', 54000)
-        
-        # Part-Load Factor correction curve: PLF = plf_low_load - (plf_slope * load_ratio)
-        # Mitsubishi inverters: 1.4 at low load, 1.0 at full load (slope = 0.4)
-        self.plf_low_load = data.get('plf_low_load', 1.4)
-        self.plf_slope = data.get('plf_slope', 0.4)
-        self.plf_min = data.get('plf_min', 0.5) # Conservative floor for PLF
-        self.idle_power_kw = data.get('idle_power_kw', 0.0)
-        self.blower_active_kw = data.get('blower_active_kw', 0.0)
         
         # Defrost parameters (optional - None if not specified)
         if 'defrost' in data:
