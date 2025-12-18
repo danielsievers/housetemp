@@ -119,6 +119,10 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     original_hvac_state = data.hvac_state.copy()
     data.hvac_state[:] = hvac_mode_val
     
+    # Fallback: If no explicit fixed_mask passed, check data object
+    if fixed_mask is None and data.is_setpoint_fixed is not None:
+         fixed_mask = data.is_setpoint_fixed
+    
     # --- 1. PRE-EXTRACT RAW ARRAYS (Hoisting) ---
     # Convert everything to Python lists ONCE for the kernel
     t_out_list = data.t_out.tolist()
