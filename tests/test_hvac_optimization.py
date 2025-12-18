@@ -247,9 +247,9 @@ class TestHvacOptimization(unittest.TestCase):
         )
         
         # All output values should be integers (rounded thermostat values)
-        # All output values should be floats (rounding removed for gradient stability)
-        # for val in optimized:
-        #     self.assertEqual(val, round(val), f"Value {val} is not an integer")
+        # All output values should be integers (rounded thermostat values)
+        for val in optimized:
+            self.assertEqual(val, round(val), f"Value {val} is not an integer")
         
         # Count unique values - should be small (1 per 30-min block, so max 2 for 1 hour)
         unique_values = set(optimized)

@@ -237,9 +237,18 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # Using numpy indexing is fast:
             full_res_setpoints = candidate_blocks[sim_to_block_map]
             
+            # --- Late Rounding Strategy ---
+            # 1. Round setpoints for honest physics simulation
+            effective_setpoints = np.round(full_res_setpoints)
+            
+            # 2. Add continuity penalty so solver sees a gradient on the floats
+            # This guides the solver towards integers without stalling on flat plateaus
+            continuity_penalty = 0.0001 * np.sum((full_res_setpoints - effective_setpoints)**2)
+            
             # Convert to list for the kernel (Overhead here is inevitable if kernel uses lists)
             # But converting simple float array to list is reasonable (~ms for 1000 items)
-            setpoint_list = full_res_setpoints.tolist()
+            # Use EFFECTIVE (rounded) setpoints for physics
+            setpoint_list = effective_setpoints.tolist()
             
             # 2. Run THIN Kernel
             sim_temps_list, hvac_delivered_list, hvac_produced_list = run_model.run_model_fast(
@@ -303,7 +312,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                     defrost_cost_val *= 10.0
                 defrost_cost = defrost_cost_val
 
-            return kwh + total_penalty + defrost_cost
+            return kwh + total_penalty + defrost_cost + continuity_penalty
 
         # --- Run Minimize ---
         # User suggested tuning 'eps' (step size) and 'ftol'
@@ -390,7 +399,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         print(f"Optimization Converged Successfully (Cost: {result.fun:.4f})")
     
     # Return Upsampled Schedule
-    final_blocks = result.x # Keep floats (no rounding)
+    final_blocks = np.round(result.x) # Round to nearest integer (thermostats don't do floats)
     indices = np.searchsorted(control_times, sim_minutes, side='right') - 1
     indices = np.clip(indices, 0, len(final_blocks) - 1)
     

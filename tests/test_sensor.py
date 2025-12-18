@@ -101,7 +101,7 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
              pass
         assert state is not None
         # Now returns current target temp (70.0 from schedule), not predicted (72.5)
-        assert state.state == "70.0"
+        assert state.state == "70"
         
         # Verify Attributes
         attrs = state.attributes
@@ -385,3 +385,39 @@ async def test_sensor_energy_attributes(hass: HomeAssistant):
     assert attrs["energy_kwh"] == 10.5
     assert "optimized_energy_kwh" not in attrs
     assert "savings_kwh" not in attrs
+
+@pytest.mark.asyncio
+async def test_sensor_state_is_integer(hass: HomeAssistant):
+    """Test that sensor state is strictly an integer string (e.g. '72' not '72.0')."""
+    from custom_components.housetemp.sensor import HouseTempPredictionSensor
+    from datetime import datetime, timedelta, timezone
+    
+    config_data = {
+        CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
+        CONF_C_THERMAL: 1000.0,
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+    
+    now = datetime.now(timezone.utc)
+    mock_coord = MagicMock()
+    mock_coord.hass = hass
+    mock_coord.data = {
+        "timestamps": [now],
+        "predicted_temp": [70.0],
+        "setpoint": [72.0], # Float in data
+        "optimized_setpoint": [72.0], # Float in data
+        "energy_kwh": 0.5,
+    }
+    
+    sensor = HouseTempPredictionSensor(mock_coord, entry)
+    
+    # 1. Check Native Value (State)
+    val = sensor.native_value
+    assert isinstance(val, int), f"State value {val} should be int, got {type(val)}"
+    assert val == 72
+    
+    # 2. Check string representation logic (simulating HASS state machine)
+    # HASS converts native_value to string for the .state attribute
+    state_str = str(val)
+    assert "." not in state_str, f"State string '{state_str}' should not contain decimals"

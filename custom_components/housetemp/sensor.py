@@ -60,19 +60,19 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             if val is not None:
                 f_val = float(val)
                 if math.isfinite(f_val):
-                    return round(f_val, 1)
+                    return int(round(f_val))
         
         # Fallback: If optimization missing but Away is active, show Away Temp
         if away_info.get("active") and away_info.get("temp") is not None:
              f_val = float(away_info["temp"])
              if math.isfinite(f_val):
-                 return round(f_val, 1)
+                 return int(round(f_val))
             
         setpoints = self.coordinator.data.get("setpoint")
         if setpoints is not None and len(setpoints) > 0:
             f_val = float(setpoints[0])
             if math.isfinite(f_val):
-                return round(f_val, 1)
+                return int(round(f_val))
             
         return None
 
