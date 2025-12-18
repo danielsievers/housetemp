@@ -130,8 +130,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
     async def _setup_heat_pump(self):
         """Initialize the HeatPump object from the config JSON."""
-        # Heat Pump Config is FIXED (Data)
-        hp_config_str = self.config_entry.data.get(CONF_HEAT_PUMP_CONFIG, DEFAULT_HEAT_PUMP_CONFIG)
+        # Heat Pump Config now lives in OPTIONS (migrated from data if needed)
+        hp_config_str = self.config_entry.options.get(CONF_HEAT_PUMP_CONFIG, DEFAULT_HEAT_PUMP_CONFIG)
         if not hp_config_str:
             hp_config_str = DEFAULT_HEAT_PUMP_CONFIG
 

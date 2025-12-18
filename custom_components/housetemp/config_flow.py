@@ -113,6 +113,7 @@ def validate_schedule_timeline(schedule_data):
     return True
 
 # Step 1: Fixed Identity (Stored in DATA)
+# Note: HEAT_PUMP_CONFIG is now options-only (configured after setup, with default)
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_SENSOR_INDOOR_TEMP): selector.EntitySelector(
@@ -123,9 +124,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         ),
         vol.Optional(CONF_SOLAR_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor", device_class=["power", "energy"], multiple=True)
-        ),
-        vol.Required(CONF_HEAT_PUMP_CONFIG, default=DEFAULT_HEAT_PUMP_CONFIG): selector.TextSelector(
-            selector.TextSelectorConfig(multiline=True)
         ),
     }
 )
@@ -152,20 +150,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-             # Validate Heat Pump JSON
-             try:
-                 json.loads(user_input[CONF_HEAT_PUMP_CONFIG])
-                 self._data.update(user_input)
-                 
-                 # DIRECT CREATION: Skip Model Settings Step
-                 return self.async_create_entry(
-                     title="House Temp Prediction", 
-                     data=self._data,
-                     # Initialize options as empty (Coordinator will use defaults)
-                     options={} 
-                 )
-             except ValueError:
-                 errors[CONF_HEAT_PUMP_CONFIG] = "invalid_json"
+            self._data.update(user_input)
+            
+            # DIRECT CREATION: Skip Model Settings Step
+            # Heat pump config is now options-only (defaults used until configured)
+            return self.async_create_entry(
+                title="House Temp Prediction", 
+                data=self._data,
+                # Initialize options as empty (Coordinator will use defaults)
+                options={} 
+            )
 
         return self.async_show_form(
             step_id="user", 

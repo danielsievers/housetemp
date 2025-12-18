@@ -40,7 +40,7 @@ async def test_flow_full_path(hass: HomeAssistant):
         CONF_SENSOR_INDOOR_TEMP: "sensor.indoor",
         CONF_WEATHER_ENTITY: "weather.home",
         CONF_SOLAR_ENTITY: ["sensor.solar"],
-        CONF_HEAT_PUMP_CONFIG: "{}",
+        # Note: heat_pump_config is now options-only (not in initial setup)
     }
     
     # 2. Advance to Settings -> DIRECT CREATION (Refactored)
@@ -55,6 +55,7 @@ async def test_flow_full_path(hass: HomeAssistant):
     
     # Verify Split Storage: Data has Identity, Options is Empty
     assert result["data"][CONF_SENSOR_INDOOR_TEMP] == "sensor.indoor"
+    assert CONF_HEAT_PUMP_CONFIG not in result["data"]  # Now options-only
     assert result["options"] == {} # Should be empty now
 
 @pytest.mark.asyncio
