@@ -227,7 +227,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         comfort_mode = comfort_config.get('comfort_mode', 'quadratic')
         deadband_slack = comfort_config.get('deadband_slack', 1.5)
         avoid_defrost = comfort_config.get('avoid_defrost', False)
-        snap_weight = 0.001  # Tie-breaker weight for snap-to-boundary
+        snap_weight = 0.04  # 0.04 incentivizes closing a 2F gap (0.16 cost) vs. paying 0.15kW idle power
 
         def schedule_loss(candidate_blocks):
             # 1. Update Setpoints via Hoisted Map (Fast)
