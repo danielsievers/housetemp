@@ -148,6 +148,7 @@ def run_main(args_list=None):
     # HVAC Optimization Flags
     parser.add_argument("--optimize-hvac", action="store_true", help="Optimize HVAC schedule to minimize energy (requires -p)")
     parser.add_argument("--comfort", metavar="JSON_FILE", help="Path to comfort schedule JSON (required for --optimize-hvac)")
+    parser.add_argument("--control-timestep", type=int, default=30, help="Optimization setpoint block size in minutes (default: 30)")
     
     
     # Output Options
@@ -236,7 +237,7 @@ def run_main(args_list=None):
             target_temps, comfort_config = schedule.load_comfort_schedule(args.comfort, measurements.timestamps)
             
             # Run Optimization
-            block_size = 30
+            block_size = args.control_timestep
             # Default to Legacy (Single-Scale) on Desktop unless flag added later
             opt_result = optimize.optimize_hvac_schedule(measurements, params, hw, target_temps, comfort_config, block_size_minutes=block_size, enable_multiscale=False)
             

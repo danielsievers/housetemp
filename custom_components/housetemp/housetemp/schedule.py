@@ -3,6 +3,13 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, time
 
+# --- DEFAULT OVERRIDES (Fallbacks) ---
+# --- DEFAULT OVERRIDES (Fallbacks) ---
+DEFAULT_WEEKDAYS_MAP = {
+    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+    'friday': 4, 'saturday': 5, 'sunday': 6
+}
+
 def parse_time(t_str):
     return datetime.strptime(t_str, "%H:%M").time()
 
@@ -36,10 +43,7 @@ def load_comfort_schedule(json_path, timestamps):
     
     # Enforce Nested Schema: Items must have 'weekdays' and 'daily_schedule'
     
-    weekdays_map = {
-        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
-        'friday': 4, 'saturday': 5, 'sunday': 6
-    }
+    weekdays_map = DEFAULT_WEEKDAYS_MAP
     
     daily_schedules = {} # Map weekday_index -> list of {time, temp}
     seen_days = set()
@@ -98,7 +102,7 @@ def load_comfort_schedule(json_path, timestamps):
     
     return targets, config
 
-def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=None):
+def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=None, default_mode=None):
     """
     Process schedule data (dict) into setpoints and hvac state arrays.
     
@@ -108,6 +112,8 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
         away_status: Optional tuple (is_away, away_end, away_temp).
         timezone: Optional timezone string or object. If provided, timestamps will be 
                  converted to this timezone before extracting time-of-day.
+        default_mode: Optional string ('heat', 'cool') to use if schedule_data['mode'] is missing.
+                      Must be provided if 'mode' is strictly required (it is).
         
     Returns:
         hvac_state (np.array), setpoint (np.array)
@@ -130,10 +136,7 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
     # To keep it DRY, we could extract the mapping logic, but for now copying the
     # vectorized filling logic is safest.
     
-    weekdays_map = {
-        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
-        'friday': 4, 'saturday': 5, 'sunday': 6
-    }
+    weekdays_map = DEFAULT_WEEKDAYS_MAP
     
     daily_schedules = {}
     seen_days = set()
@@ -196,7 +199,19 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
             fixed_mask[day_mask] = day_fixed
             
     # Apply HVAC Mode
-    global_mode = schedule_data.get("mode", "heat").lower()
+    # Priority: 
+    # 1. schedule_data['mode'] (Explicit JSON override)
+    # 2. default_mode (Argument fallback)
+    # Fail if neither
+    
+    global_mode = schedule_data.get("mode") # Explicit config wins
+    if not global_mode:
+        global_mode = default_mode # Fallback
+        
+    if not global_mode:
+        raise ValueError("HVAC Mode ('heat' or 'cool') must be specified in schedule JSON or provided as default.")
+        
+    global_mode = global_mode.lower()
     hvac_state_val = 1 if global_mode == 'heat' else (-1 if global_mode == 'cool' else 0)
     hvac_state = np.full(len(timestamps), hvac_state_val)
     

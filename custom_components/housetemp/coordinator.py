@@ -833,6 +833,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
      
              is_away, away_end, away_temp = self._get_away_status()
              
+             # Get HVAC Mode from Options (Tunable setting)
+             configured_mode = self.config_entry.options.get(CONF_HVAC_MODE, "heat")
+             
              # Run process_schedule_data in executor to avoid blocking event loop (pytz I/O)
              from functools import partial
              hvac_state_arr, setpoint_arr, fixed_mask_arr = await self.hass.async_add_executor_job(
@@ -841,7 +844,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                      timestamps, 
                      schedule_data, 
                      away_status=(is_away, away_end, away_temp),
-                     timezone=self.hass.config.time_zone
+                     timezone=self.hass.config.time_zone,
+                     default_mode=configured_mode
                  )
              )
 

@@ -33,7 +33,7 @@ def test_process_schedule_fixed_mask():
     timestamps = [start + timedelta(minutes=30*i) for i in range(48)] # 24 hours in 30min steps
     
     # 3. Run
-    hvac, targets, fixed_mask = process_schedule_data(timestamps, schedule_json)
+    hvac, targets, fixed_mask = process_schedule_data(timestamps, schedule_json, default_mode="heat")
     
     # 4. Verify
     # 00:00 - 12:00 (Indices 0-23) -> Fixed=False

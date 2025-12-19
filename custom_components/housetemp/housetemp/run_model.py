@@ -5,6 +5,23 @@ from .measurements import Measurements
 
 _LOGGER = logging.getLogger(__name__)
 
+# --- DEFAULT OVERRIDES (Fallbacks) ---
+DEFAULT_EFFICIENCY_DERATE = 1.0
+
+# --- TRUE CONSTANTS (Physical/Mathematical) ---
+# Soft Start / Thermal Inertia Logic
+SOFT_START_RAMP_MINUTES = 5.0  # Time to reach full capacity
+SOFT_START_MIN_FACTOR = 0.01   # Minimum ramp factor (avoid zero)
+
+# Defrost Defaults
+DEFAULT_DEFROST_TRIGGER = 32
+DEFAULT_DEFROST_RISK_ZONE = [28, 42]
+DEFAULT_DEFROST_DURATION = 10
+DEFAULT_DEFROST_INTERVAL = 60
+DEFAULT_DEFROST_POWER = 4.5
+DEFAULT_PLF_MIN = 0.5
+
+
 class HeatPump:
     def __init__(self, json_path):
         with open(json_path, 'r') as f:
@@ -25,7 +42,7 @@ class HeatPump:
         self.max_cool_btu_hr = data['max_cool_btu_hr']
         self.plf_low_load = data['plf_low_load']
         self.plf_slope = data['plf_slope']
-        self.plf_min = data.get('plf_min', 0.5) # Still use .get for minor safety if preferred, else data['plf_min']
+        self.plf_min = data.get('plf_min', DEFAULT_PLF_MIN)
         self.idle_power_kw = data['idle_power_kw']
         self.blower_active_kw = data['blower_active_kw']
         
@@ -41,11 +58,11 @@ class HeatPump:
         # Defrost parameters (optional - None if not specified)
         if 'defrost' in data:
             defrost = data['defrost']
-            self.defrost_trigger_temp = defrost.get('trigger_temp_f', 32)
-            self.defrost_risk_zone = defrost.get('risk_zone_f', [28, 42])
-            self.defrost_duration_min = defrost.get('cycle_duration_minutes', 10)
-            self.defrost_interval_min = defrost.get('cycle_interval_minutes', 60)
-            self.defrost_power_kw = defrost.get('power_kw', 4.5)
+            self.defrost_trigger_temp = defrost.get('trigger_temp_f', DEFAULT_DEFROST_TRIGGER)
+            self.defrost_risk_zone = defrost.get('risk_zone_f', DEFAULT_DEFROST_RISK_ZONE)
+            self.defrost_duration_min = defrost.get('cycle_duration_minutes', DEFAULT_DEFROST_DURATION)
+            self.defrost_interval_min = defrost.get('cycle_interval_minutes', DEFAULT_DEFROST_INTERVAL)
+            self.defrost_power_kw = defrost.get('power_kw', DEFAULT_DEFROST_POWER)
         else:
             self.defrost_risk_zone = None  # Signals no defrost modeling
 
@@ -143,9 +160,9 @@ def run_model_fast(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_li
             
             # 5-minute ramp up to full capacity
             ramp_factor = 1.0
-            if elapsed_active_minutes < 5.0:
-                ramp_factor = elapsed_active_minutes / 5.0
-                if ramp_factor < 0.01: ramp_factor = 0.01 # Avoid true zero if dt is tiny? No, 0 is fine.
+            if elapsed_active_minutes < SOFT_START_RAMP_MINUTES:
+                ramp_factor = elapsed_active_minutes / SOFT_START_RAMP_MINUTES
+                if ramp_factor < SOFT_START_MIN_FACTOR: ramp_factor = SOFT_START_MIN_FACTOR # Avoid true zero if dt is tiny? No, 0 is fine.
 
             
             if mode > 0: # HEATING
@@ -195,7 +212,7 @@ def run_model_fast(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_li
 def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes: int = 0):
     # --- 1. Unpack Parameters ---
     # Optional efficiency
-    eff_derate = 1.0
+    eff_derate = DEFAULT_EFFICIENCY_DERATE
     if len(params) > 5:
         eff_derate = params[5]
 
