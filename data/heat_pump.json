@@ -5,7 +5,7 @@
     "plf_low_load": 1.4,
     "plf_slope": 0.4,
     "idle_power_kw": 0.25,
-    "blower_active_kw": 0.9,
+    "blower_active_kw": 0.45,
     "max_capacity": {
         "x_outdoor_f": [
             -13,
