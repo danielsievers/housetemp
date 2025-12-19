@@ -1,5 +1,5 @@
 {
-  "generated_at": "2025-12-18T14:24:36.329447",
+  "generated_at": "2025-12-18T18:59:43.173085",
   "mode": "predict",
   "model_params": {
     "C_thermal": 4205.742083690787,
@@ -10,7 +10,7 @@
   },
   "summary": {
     "rmse": 1.2435016276164674,
-    "energy_kwh": 71.90535819258791,
+    "energy_kwh": 71.9039208287841,
     "num_steps": 5740
   },
   "comfort_config": null,

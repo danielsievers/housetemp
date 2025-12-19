@@ -1,8 +1,60 @@
 import numpy as np
 import pandas as pd
+import logging
 from scipy.optimize import minimize
 from . import run_model
 from .energy import calculate_energy_vectorized
+
+_LOGGER = logging.getLogger(__name__)
+
+# --- CONFIGURATION (Tuning Parameters) ---
+CONFIG_SNAP_WEIGHT = 0.01  # Incentivizes closing a 2F gap (0.16 cost) vs. paying 0.15kW idle power
+CONFIG_CONTINUITY_WEIGHT = 0.0001  # Small penalty to guide solver towards integer setpoints
+
+# --- DEFAULT OVERRIDES (Fallbacks) ---
+DEFAULT_EFFICIENCY_DERATE = 1.0
+DEFAULT_MIN_SETPOINT = 60.0
+DEFAULT_MAX_SETPOINT = 75.0
+DEFAULT_CENTER_PREFERENCE = 1.0  # User preference for hitting the exact target
+DEFAULT_DEADBAND_SLACK = 1.5  # Degrees of freedom without penalty
+DEFAULT_COMFORT_MODE = 'quadratic'
+DEFAULT_AVOID_DEFROST = False
+
+# Optimization Solver Defaults
+DEFAULT_SOLVER_MAXITER = 500
+DEFAULT_SOLVER_FTOL = 1e-4
+DEFAULT_SOLVER_GTOL = 1e-4
+DEFAULT_SOLVER_EPS = 0.5  # Large step size to jump over deadbands
+
+# Coarse Pass Defaults (Multi-Scale)
+DEFAULT_COARSE_BLOCK_SIZE = 120  # Minutes
+DEFAULT_COARSE_MAXITER = 50
+DEFAULT_COARSE_FTOL = 1e-2
+DEFAULT_COARSE_GTOL = 1e-2
+DEFAULT_COARSE_EPS = 1.0
+
+# --- TRUE CONSTANTS (Physical/Mathematical) ---
+# Parameter Optimization Bounds
+# See Design.md Section 4 (Parameter Optimization)
+BOUNDS_MASS_C = (4000, 20000)      # BTU/F
+BOUNDS_UA = (200, 1500)            # BTU/hr/F
+BOUNDS_UA_ACTIVE = (200, 600)      # Tighter bounds for active optimization
+BOUNDS_K_SOLAR = (700, 2000)       # BTU/hr per kW/m^2
+BOUNDS_Q_INT = (200, 10000)        # BTU/hr
+BOUNDS_H_FACTOR = (5000, 20000)    # BTU/hr/F (Aggressiveness)
+BOUNDS_H_FACTOR_ACTIVE = (2000, 30000) # Wider bounds for active
+BOUNDS_EFFICIENCY = (0.5, 1.2)     # Derate factor
+
+# Initial Guesses
+GUESS_FULL_OPT = [4732, 213, 836, 600, 10000] # [C, UA, K, Q, H]
+GUESS_ACTIVE_H = 10000
+GUESS_ACTIVE_EFF = 0.9
+
+# Soft Constraint Penalties (Physics Violations)
+PENALTY_PHYSICS_VIOLATION = 1e6
+MIN_MASS_C = 1000
+MIN_UA = 50
+
 
 def loss_function(active_params, data, hw, fixed_passive_params=None):
     # Construct full params vector
@@ -12,7 +64,7 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
         
         ua_opt = active_params[0]
         h_factor = active_params[1]
-        eff_derate = active_params[2] if len(active_params) > 2 else 1.0
+        eff_derate = active_params[2] if len(active_params) > 2 else DEFAULT_EFFICIENCY_DERATE
         
         # Construct using fixed C, K, Q
         c = fixed_passive_params[0]
@@ -25,7 +77,7 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
         # Optimizing EVERYTHING
         # active_params = [C, UA, K_solar, Q_int, H_factor]
         # We need to add a default efficiency_derate for the run_model call
-        full_params = list(active_params) + [1.0] # Default efficiency_derate
+        full_params = list(active_params) + [DEFAULT_EFFICIENCY_DERATE] # Default efficiency_derate
 
     # 1. Run Simulation
     predicted_temps, sim_error, _, _ = run_model.run_model(full_params, data, hw)
@@ -36,8 +88,8 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
     # 3. Penalize Physics Violations (Soft Constraints)
     # If fixing passive params, we don't check them here (assumed good)
     if not fixed_passive_params:
-        if full_params[0] < 1000: return 1e6 # Mass too low
-        if full_params[1] < 50: return 1e6   # UA too low
+        if full_params[0] < MIN_MASS_C: return PENALTY_PHYSICS_VIOLATION # Mass too low
+        if full_params[1] < MIN_UA: return PENALTY_PHYSICS_VIOLATION   # UA too low
     
     return error
 
@@ -48,26 +100,26 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
         print(f"--- ACTIVE PARAMETER OPTIMIZATION MODE ---")
         print("Optimizing Active Parameters + Floating UA (Occupied Infiltration).")
          # Initial Guess for [UA, H_factor, efficiency_derate]
-         # Start UA at fixed value (189), H at 10k, Eff at 0.9
-        initial_guess = [fixed_passive_params[1], 10000, 0.9]
+         # Start UA at fixed value, H at 10k, Eff at 0.9
+        initial_guess = [fixed_passive_params[1], GUESS_ACTIVE_H, GUESS_ACTIVE_EFF]
         
         bounds = [
-            (200, 600),    # UA (Constrain slightly to help convergence: 200-600)
-            (2000, 30000), # H_factor
-            (0.5, 1.2)     # Efficiency
+            BOUNDS_UA_ACTIVE,
+            BOUNDS_H_FACTOR_ACTIVE,
+            BOUNDS_EFFICIENCY
         ]
     else:
         # Full Optimization
         # [C, UA, K_solar, Q_int, H_factor]
         if initial_guess is None:
-            initial_guess = [4732, 213, 836, 600, 10000]
+            initial_guess = GUESS_FULL_OPT
         
         bounds = [
-            (4000, 20000),  # C (Mass)
-            (200, 1500),    # UA (Leakage)
-            (700, 2000),    # K_solar
-            (200, 10000),   # Q_int
-            (5000, 20000)   # H_factor
+            BOUNDS_MASS_C,
+            BOUNDS_UA,
+            BOUNDS_K_SOLAR,
+            BOUNDS_Q_INT,
+            BOUNDS_H_FACTOR
         ]   
 
     print("Starting Optimization...")
@@ -83,7 +135,7 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
         # Reconstruct full parameter set for return
         best_active = result.x
         
-         # best_active = [UA, H, Eff]
+        # best_active = [UA, H, Eff]
         ua = best_active[0]
         h = best_active[1]
         eff = best_active[2]
@@ -165,7 +217,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     # Unpack Optimization Params (Needed for kernel)
     # We pass the full params tuple to kernel
     # Params: [C, UA, K, Q, H, (eff)]
-    eff_derate = 1.0
+    eff_derate = DEFAULT_EFFICIENCY_DERATE
     if len(params) > 5:
         eff_derate = params[5]
     start_temp = float(data.t_in[0])
@@ -210,8 +262,8 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
              current_guess[block_fixed_flags] = np.interp(control_times[block_fixed_flags], sim_minutes, target_temps)
 
         # --- Bounds ---
-        min_setpoint = comfort_config.get('min_setpoint', 60.0)
-        max_setpoint = comfort_config.get('max_setpoint', 75.0)
+        min_setpoint = comfort_config.get('min_setpoint', DEFAULT_MIN_SETPOINT)
+        max_setpoint = comfort_config.get('max_setpoint', DEFAULT_MAX_SETPOINT)
         bounds = []
         for i in range(num_blocks):
             if block_fixed_flags[i]:
@@ -221,23 +273,18 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 bounds.append((min_setpoint, max_setpoint))
         
         # --- Loss Function ---
-        user_preference = comfort_config.get('center_preference', 1.0)
+        user_preference = comfort_config.get('center_preference', DEFAULT_CENTER_PREFERENCE)
         # Map 0-1 input to a 0.1-5.1 range to compete with high energy costs (0.75 derate)
         center_preference = 0.1 + (user_preference * 5.0)
-        comfort_mode = comfort_config.get('comfort_mode', 'quadratic')
-        deadband_slack = comfort_config.get('deadband_slack', 1.5)
-        avoid_defrost = comfort_config.get('avoid_defrost', False)
-        snap_weight = 0.04  # 0.04 incentivizes closing a 2F gap (0.16 cost) vs. paying 0.15kW idle power
+        comfort_mode = comfort_config.get('comfort_mode', DEFAULT_COMFORT_MODE)
+        deadband_slack = comfort_config.get('deadband_slack', DEFAULT_DEADBAND_SLACK)
+        avoid_defrost = comfort_config.get('avoid_defrost', DEFAULT_AVOID_DEFROST)
+        
+        # Tuning weights
+        snap_weight = CONFIG_SNAP_WEIGHT
 
         def schedule_loss(candidate_blocks):
             # 1. Update Setpoints via Hoisted Map (Fast)
-            # data.setpoint (numpy) -> list conversion overhead? 
-            # run_model_fast needs a list for setpoints. 
-            # Generating a massive list from numpy array every iteration is slow.
-            # OPTIMIZATION: operate on the list directly?
-            # Python lists don't support vectorized indexing.
-            # So we MUST generate the full resolution array first.
-            
             # Using numpy indexing is fast:
             full_res_setpoints = candidate_blocks[sim_to_block_map]
             
@@ -247,10 +294,9 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             
             # 2. Add continuity penalty so solver sees a gradient on the floats
             # This guides the solver towards integers without stalling on flat plateaus
-            continuity_penalty = 0.0001 * np.sum((full_res_setpoints - effective_setpoints)**2)
+            continuity_penalty = CONFIG_CONTINUITY_WEIGHT * np.sum((full_res_setpoints - effective_setpoints)**2)
             
             # Convert to list for the kernel (Overhead here is inevitable if kernel uses lists)
-            # But converting simple float array to list is reasonable (~ms for 1000 items)
             # Use EFFECTIVE (rounded) setpoints for physics
             setpoint_list = effective_setpoints.tolist()
             
@@ -319,19 +365,16 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             return kwh + total_penalty + defrost_cost + continuity_penalty
 
         # --- Run Minimize ---
-        # User suggested tuning 'eps' (step size) and 'ftol'
-        # Landscape is noisy due to discrete minute steps and time-aliasing.
-        # Relax tolerance to prevent excessive evaluations.
+        # Settings for optimization
         if optimization_options:
              opts = optimization_options
         else:
-             # Default Fallback (should typically be passed)
              opts = {
                  'disp': False, 
-                 'maxiter': 500,  
-                 'ftol': 1e-4,    
-                 'gtol': 1e-4,    
-                 'eps': 0.5       
+                 'maxiter': DEFAULT_SOLVER_MAXITER,  
+                 'ftol': DEFAULT_SOLVER_FTOL,    
+                 'gtol': DEFAULT_SOLVER_GTOL,    
+                 'eps': DEFAULT_SOLVER_EPS       
              }
         
         result = minimize(
@@ -347,7 +390,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     
     if enable_multiscale:
         # Pass 1: Coarse (120-min blocks)
-        coarse_block_size = 120
+        coarse_block_size = DEFAULT_COARSE_BLOCK_SIZE
         if block_size_minutes >= coarse_block_size:
             print("Skipping Multi-Scale: Target resolution is already coarse.")
             final_result, final_times = _run_pass(block_size_minutes)
@@ -355,7 +398,13 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             print("Strategy: Multi-Scale (Coarse -> Fine)")
             
             # Coarse Options
-            coarse_opts = {'disp': False, 'maxiter': 50, 'ftol': 1e-2, 'gtol': 1e-2, 'eps': 1.0}
+            coarse_opts = {
+                'disp': False,
+                'maxiter': DEFAULT_COARSE_MAXITER,
+                'ftol': DEFAULT_COARSE_FTOL,
+                'gtol': DEFAULT_COARSE_GTOL,
+                'eps': DEFAULT_COARSE_EPS
+            }
             coarse_res, coarse_times = _run_pass(coarse_block_size, optimization_options=coarse_opts)
             
             # Pass 2: Fine (Warm Start)
@@ -378,15 +427,25 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 warm_start_guess = None
             
             # Fine Options (Precision)
-            fine_opts = {'disp': False, 'maxiter': 500, 'ftol': 1e-4, 'gtol': 1e-4, 'eps': 0.5}
+            # Re-use default solver settings
+            fine_opts = {
+                'disp': False,
+                'maxiter': DEFAULT_SOLVER_MAXITER,
+                'ftol': DEFAULT_SOLVER_FTOL,
+                'gtol': DEFAULT_SOLVER_GTOL,
+                'eps': DEFAULT_SOLVER_EPS
+            }
             final_result, final_times = _run_pass(block_size_minutes, initial_guess_blocks=warm_start_guess, optimization_options=fine_opts)
     else:
         # Legacy Single Pass
         print("Strategy: Single-Scale (Cold Start)")
-        # Legacy Single Pass
-        print("Strategy: Single-Scale (Cold Start)")
-        # Legacy opts (same as fine)
-        legacy_opts = {'disp': False, 'maxiter': 500, 'ftol': 1e-4, 'gtol': 1e-4, 'eps': 0.5}
+        legacy_opts = {
+            'disp': False,
+            'maxiter': DEFAULT_SOLVER_MAXITER,
+            'ftol': DEFAULT_SOLVER_FTOL,
+            'gtol': DEFAULT_SOLVER_GTOL,
+            'eps': DEFAULT_SOLVER_EPS
+        }
         final_result, final_times = _run_pass(block_size_minutes, optimization_options=legacy_opts)
 
     # --- Final Output Processing ---
