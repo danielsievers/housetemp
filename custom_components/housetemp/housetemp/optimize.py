@@ -328,7 +328,9 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 min_output=min_output, 
                 max_cool=max_cool, 
                 eff_derate=eff_derate, 
-                start_temp=start_temp
+                start_temp=start_temp,
+                min_setpoint=min_setpoint,
+                max_setpoint=max_setpoint
             )
             
             sim_temps = np.array(sim_temps_list)

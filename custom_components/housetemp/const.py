@@ -122,7 +122,7 @@ DEFAULT_HP_MAX_COOL = 54000
 DEFAULT_HP_PLF_LOW = 1.4
 DEFAULT_HP_PLF_SLOPE = 0.4
 DEFAULT_HP_IDLE_KW = 0.25
-DEFAULT_HP_BLOWER_KW = 0.9
+DEFAULT_HP_BLOWER_KW = 0.0
 
 DEFAULT_HEAT_PUMP_CONFIG = """{
   "description": "Mitsubishi MXZ-SM60NAM (5-Ton Hyper-Heat)",
@@ -131,7 +131,7 @@ DEFAULT_HEAT_PUMP_CONFIG = """{
   "plf_low_load": 1.4,
   "plf_slope": 0.4,
   "idle_power_kw": 0.25,
-  "blower_active_kw": 0.9,
+  "blower_active_kw": 0.0,
   "max_capacity": {
     "x_outdoor_f": [-13, -5, 5, 17, 47, 65],
     "y_btu_hr": [38000, 45000, 60000, 54000, 66000, 72000]
