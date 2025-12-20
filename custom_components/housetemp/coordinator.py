@@ -848,7 +848,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             result_data = self._build_coordinator_data(
                 timestamps, sim_temps, measurements, optimized_setpoints,
                 metrics=metrics,
-                original_schedule=target_temps
+                original_schedule=target_temps,
+                energy_kwh_steps=optimized_steps  # Per-step energy for hourly aggregation
             )
             
             # Preserve optimization status
