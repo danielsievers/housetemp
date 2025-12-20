@@ -106,16 +106,7 @@ class HeatPump:
         # This is optimistic (efficiency should drop), but we logged the warning above.
         return cop
 
-    def get_cooling_cop(self, t_out_array):
-        # Base interpolation using cooling curve
-        cop = np.interp(t_out_array, self.cool_cop_x, self.cool_cop_y)
-        
-        # Safety: Check bounds
-        self._check_bounds(t_out_array, self.cool_cop_x, "Cooling COP")
-        
-        # Note: High temp extrapolation for cooling is handled by np.interp holding the last value.
-        # This is optimistic (efficiency should drop), but we logged the warning above.
-        return cop
+
 
 def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
     """
@@ -408,6 +399,8 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
       Or better: existing tests expect 5 values (we updated them recently).
       So we should return 5 values.
     """
+    _LOGGER.warning("run_model() wrapper is deprecated; usage is discouraged in favor of run_model_continuous or run_model_discrete.")
+    
     # --- 1. Unpack Parameters ---
     eff_derate = DEFAULT_EFFICIENCY_DERATE
     if len(params) > 5:

@@ -39,11 +39,29 @@ def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, se
     # rather than noisy sensor jitter.
     # Note: hvac_outputs is the DELIVERED heat (ramped).
     # hvac_produced is the PRODUCED heat (unramped) -> Correct for Energy Bill.
-    sim_temps, _, hvac_delivered, hvac_produced, _ = run_model.run_model(params, data, hw)
+    sim_temps, _, hvac_produced = run_model.run_model_continuous(
+        params, 
+        t_out_list=data.t_out.flatten().tolist(),
+        solar_kw_list=data.solar_kw.flatten().tolist(),
+        dt_hours_list=data.dt_hours.flatten().tolist(),
+        setpoint_list=data.setpoint.flatten().tolist(),
+        hvac_state_list=data.hvac_state.flatten().tolist(),
+        max_caps_list=hw.get_max_capacity(data.t_out).flatten().tolist(),
+        min_output=hw.min_output_btu_hr,
+        max_cool=hw.max_cool_btu_hr,
+        eff_derate=params[5] if len(params) > 5 else 1.0,
+        start_temp=float(data.t_in[0])
+    )
+    # run_model_continuous returns (temps, delivered, produced)
+    # It does not return actual_hvac_state (uses intent) or rmse.
+    # We only need hvac_produced for energy.
     
     if hw is None:
         _LOGGER.warning("No Heat Pump model provided. Skipping energy calculation.")
         return {'total_kwh': 0.0, 'total_cost': 0.0}
+        
+    # Cast to numpy array for vectorized calculation
+    hvac_produced = np.array(hvac_produced)
 
     
     if len(params) > 5:

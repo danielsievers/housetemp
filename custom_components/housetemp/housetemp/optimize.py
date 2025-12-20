@@ -347,7 +347,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 hw, 
                 eff_derate=1.0, # Produced is Gross (Pre-Derate)
                 hvac_states=data.hvac_state, # Raw intent for Idle/Blower enablement
-                setpoints=full_res_setpoints, # Use full_res_setpoints for True-Off accounting
+                setpoints=effective_setpoints, # Use rounded setpoints for stable True-Off accounting
                 hvac_mode_val=hvac_mode_val, 
                 min_setpoint=min_setpoint,
                 max_setpoint=max_setpoint,
