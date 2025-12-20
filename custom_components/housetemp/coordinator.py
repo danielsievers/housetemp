@@ -70,7 +70,7 @@ from .const import (
     DEFAULT_SWING_TEMP,
     CONF_MIN_CYCLE_DURATION,
     DEFAULT_MIN_CYCLE_MINUTES,
-    CONF_OFF_INTENT_EPS
+    DEFAULT_OFF_INTENT_EPS
 )
 
 # Import from the installed package
@@ -449,7 +449,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                  hvac_mode_val=hvac_mode_val,
                  min_setpoint=self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
                  max_setpoint=self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
-                 off_intent_eps=CONF_OFF_INTENT_EPS
+                 off_intent_eps=DEFAULT_OFF_INTENT_EPS
              )
 
         # Config Mode
@@ -667,7 +667,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                  hvac_mode_val_baseline,
                  min_setpoint_val,
                  max_setpoint_val,
-                 CONF_OFF_INTENT_EPS
+                 DEFAULT_OFF_INTENT_EPS
              )
              baseline_kwh = baseline_res.get('total_kwh', 0.0)
         except Exception as e:
@@ -791,7 +791,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                      hvac_mode_val=1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1,
                      min_setpoint=self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
                      max_setpoint=self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
-                     off_intent_eps=CONF_OFF_INTENT_EPS
+                     off_intent_eps=DEFAULT_OFF_INTENT_EPS
                  )
             
             hvac_mode_val_svc = 1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1

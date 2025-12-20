@@ -81,7 +81,7 @@ DEFAULT_EFFICIENCY_DERATE = 0.9
 DEFAULT_EFF_DERATE = 0.9
 DEFAULT_SWING_TEMP = 1.0
 DEFAULT_MIN_CYCLE_MINUTES = 15.0
-CONF_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" accounting
+DEFAULT_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" accounting
 
 # --- Configuration Keys ---
 DEFAULT_CENTER_PREFERENCE = 1.0
