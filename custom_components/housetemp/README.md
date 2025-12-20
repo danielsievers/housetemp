@@ -85,6 +85,32 @@ The integration creates a sensor: `sensor.indoor_temperature_forecast`.
     - `away` (boolean): `true` when Away Mode is active.
     - `away_end` (datetime): The local time when Away Mode is scheduled to end.
 
+## Energy Optimization Tips
+
+### True-Off Setpoint Bounds
+
+The optimizer can signal "HVAC off" by pushing setpoints to the configured minimum (heating) or maximum (cooling). To maximize savings:
+
+1. **Set `min_setpoint` 1°F below your thermostat's minimum** (e.g., if thermostat min is 55°F, set `min_setpoint` to 54°F)
+2. **Set `max_setpoint` 1°F above your thermostat's maximum** (for cooling)
+
+When the optimizer outputs these "impossible" setpoints, use an automation to turn OFF the HVAC:
+
+```yaml
+automation:
+  - alias: "HVAC Off when optimizer signals off"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.indoor_temperature_forecast
+        below: 55  # Your thermostat's actual minimum
+    action:
+      - service: climate.turn_off
+        target:
+          entity_id: climate.thermostat
+```
+
+This eliminates idle/standby power during unoccupied periods, improving energy savings accuracy.
+
 ## Testing
 
 To run the unit tests for this component:
