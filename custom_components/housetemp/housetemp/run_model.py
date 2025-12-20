@@ -108,7 +108,7 @@ class HeatPump:
 
 
 
-def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, min_setpoint=-999, max_setpoint=999):
+def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1):
     """
     Run Continuous Physics Model (Differentiable-ish).
     Returns (sim_temps, hvac_outputs, hvac_produced).
@@ -130,7 +130,7 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
     # Soft Start State
     elapsed_active_minutes = 0.0
     
-    TOLERANCE_EPS = 0.1
+    # off_intent_eps is passed in from caller (optimize.py owns the authoritative value)
 
     for i in range(total_steps):
         sim_temps_list[i] = current_temp
@@ -146,10 +146,10 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
         # If setpoint is pinned to boundary, we treat it as OFF to avoid phantom heat.
         is_true_off = False
         if requested_mode > 0:
-            if setpoint <= (min_setpoint + TOLERANCE_EPS):
+            if setpoint <= (min_setpoint + off_intent_eps):
                 is_true_off = True
         elif requested_mode < 0:
-            if setpoint >= (max_setpoint - TOLERANCE_EPS):
+            if setpoint >= (max_setpoint - off_intent_eps):
                 is_true_off = True
 
         q_hvac = 0.0

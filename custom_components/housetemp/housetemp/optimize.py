@@ -343,7 +343,8 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 eff_derate=eff_derate, 
                 start_temp=start_temp,
                 min_setpoint=min_setpoint,
-                max_setpoint=max_setpoint
+                max_setpoint=max_setpoint,
+                off_intent_eps=DEFAULT_OFF_INTENT_EPS
             )
             
             sim_temps = np.array(sim_temps_list)
