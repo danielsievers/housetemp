@@ -171,3 +171,56 @@ Standard solver defaults (e.g., `eps=1e-8`) fail for HVAC control because the co
 *   **Tolerance `ftol=1e-4`**: Terminates early when cost improvements become negligible (< 0.01%), saving significant CPU cycles.
 *   **Robustness**: The solver explicitly handles `ABNORMAL_TERMINATION_IN_LNSRCH` as a valid "Good Enough" result, preventing infinite loops in flat cost landscapes.
 
+## 8. Dual Physics Models
+The system uses two distinct physics models for different purposes:
+
+### 8.1 Continuous Model (Optimization)
+Used by the L-BFGS-B optimizer. Provides smooth, differentiable physics with no discrete state transitions.
+*   HVAC output modulates continuously based on setpoint-temperature gap.
+*   No hysteresis or minimum on/off times.
+*   Enables gradient-based optimization to find optimal setpoint schedules.
+
+### 8.2 Discrete Model (Verification)
+Simulates realistic thermostat behavior for accurate energy estimation and verification.
+
+**Hysteresis (Swing Temperature):**
+*   System turns ON when $T_{in} < T_{set} - \frac{\Delta_{swing}}{2}$
+*   System turns OFF when $T_{in} > T_{set} + \frac{\Delta_{swing}}{2}$
+*   Default: $\Delta_{swing} = 1.0°F$
+
+**Minimum Cycle Times:**
+*   Minimum ON duration before allowed to turn OFF (default: 15 min)
+*   Minimum OFF duration before allowed to turn ON (default: 15 min)
+*   Prevents short-cycling damage and inefficiency
+
+
+## 9. True-Off Energy Accounting
+When the optimizer sets the setpoint to the constraint floor (heating) or ceiling (cooling), it signals **intentional HVAC disablement**.
+
+### 9.1 Off-Intent Detection
+*   **Heating Mode**: $T_{set} \le T_{min} + \epsilon$ → True Off
+*   **Cooling Mode**: $T_{set} \ge T_{max} - \epsilon$ → True Off
+*   Default tolerance: $\epsilon = 0.1°F$
+
+### 9.2 Energy Implications
+When True Off is detected:
+*   No idle power ($P_{idle}$) is charged.
+*   No blower power ($P_{blower}$) is charged.
+*   Sensor sampling power is still assumed (built into baseline).
+
+This prevents phantom energy costs from appearing when the optimizer legitimately chooses to keep the HVAC off.
+
+
+## 10. Energy Metrics
+The system reports four energy metrics for full transparency:
+
+| Metric | Description |
+|--------|-------------|
+| `continuous_naive` | Energy using original schedule + continuous physics |
+| `continuous_optimized` | Energy using optimized schedule + continuous physics |
+| `discrete_naive` | Energy using original schedule + discrete physics |
+| `discrete_optimized` | Energy using optimized schedule + discrete physics |
+
+Savings are calculated as: $\text{Savings} = E_{naive} - E_{optimized}$
+
+The **discrete** metrics reflect real-world achievable savings (accounting for hysteresis and cycling). The **continuous** metrics represent theoretical maximum savings under idealized conditions.
