@@ -132,16 +132,57 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         supports_response=SupportsResponse.OPTIONAL
     )
     
+    # Register reset_stats service
+    async def async_handle_reset_stats(call):
+        """Handle reset_stats service call."""
+        from homeassistant.exceptions import ServiceValidationError
+        
+        target_entries = await service.async_extract_config_entry_ids(call)
+        
+        if not target_entries:
+            raise ServiceValidationError(
+                "No target selected. You must target a HouseTemp entity."
+            )
+        
+        results = {}
+        for entry_id in target_entries:
+            stats_store = hass.data.get(DOMAIN, {}).get(f"{entry_id}_stats")
+            if stats_store:
+                try:
+                    await stats_store.async_reset()
+                    results[entry_id] = {"success": True}
+                except Exception as e:
+                    _LOGGER.error("Failed to reset stats for %s: %s", entry_id, e)
+                    results[entry_id] = {"success": False, "error": str(e)}
+        
+        if call.return_response:
+            return results
+    
+    hass.services.async_register(
+        DOMAIN,
+        "reset_stats",
+        async_handle_reset_stats,
+        supports_response=SupportsResponse.OPTIONAL
+    )
+    
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up House Temp Prediction from a config entry."""
+    from .statistics import StatsStore
 
     coordinator = HouseTempCoordinator(hass, entry)
     
+    # Initialize StatsStore for this entry
+    stats_store = StatsStore(hass, entry.entry_id)
+    await stats_store.async_load()
+    
     # 1. Setup reactive trackers so we catch any state changes during/after setup
     coordinator.async_setup_trackers()
+    
+    # Pass stats_store to coordinator for recording
+    coordinator.stats_store = stats_store
 
     # 2. Fetch initial data
     try:
@@ -157,6 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    hass.data[DOMAIN][f"{entry.entry_id}_stats"] = stats_store
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -195,6 +237,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
     
+    # Save stats before unloading
+    stats_store = hass.data[DOMAIN].get(f"{entry.entry_id}_stats")
+    if stats_store:
+        stats_store.prune_old_data()
+        await stats_store.async_save()
+    
     # Cancel away timer if exists
     if hasattr(coordinator, "_away_timer_unsub") and coordinator._away_timer_unsub:
         coordinator._away_timer_unsub()
@@ -204,6 +252,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN].pop(f"{entry.entry_id}_stats", None)
         
         # Unregister services if this is the last entry
         remaining = hass.config_entries.async_entries(DOMAIN)
@@ -212,5 +261,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass.services.async_remove(DOMAIN, "run_hvac_optimization")
             if hass.services.has_service(DOMAIN, "set_away"):
                 hass.services.async_remove(DOMAIN, "set_away")
+            if hass.services.has_service(DOMAIN, "reset_stats"):
+                hass.services.async_remove(DOMAIN, "reset_stats")
     
     return unload_ok

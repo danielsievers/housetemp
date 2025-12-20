@@ -553,6 +553,15 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # If they are equal, savings = 0.
             pass
 
+        # --- Statistics Recording ---
+        await self._record_stats(
+            actual_temp=float(measurements.t_in[0]),
+            schedule_target=float(setpoint_arr[0]) if len(setpoint_arr) > 0 else None,
+            optimized_target=float(optimized_setpoint_attr[0]) if optimized_setpoint_attr and optimized_setpoint_attr[0] is not None else None,
+            used_kwh=energy_kwh_continuous_optimized,
+            baseline_kwh=energy_kwh_continuous_naive,
+        )
+
         # 8. Return Result
         return self._build_coordinator_data(
             timestamps, sim_temps, measurements, optimized_setpoint_attr if has_optimized_data else None,
@@ -614,6 +623,61 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             result["optimization_status"] = self._optimization_status
         
         return result
+
+    async def _record_stats(
+        self,
+        actual_temp: float,
+        schedule_target: float | None,
+        optimized_target: float | None,
+        used_kwh: float | None,
+        baseline_kwh: float | None,
+    ) -> None:
+        """Record statistics samples for accuracy, comfort, and energy tracking."""
+        # Check if stats_store is available (attached by __init__.py)
+        stats_store = getattr(self, "stats_store", None)
+        if stats_store is None:
+            return
+        
+        try:
+            # Get tolerance from config - use swing_temp for schedule target
+            swing_temp = self.config_entry.options.get(CONF_SWING_TEMP, DEFAULT_SWING_TEMP)
+            
+            # 1. Resolve pending predictions (compare past predictions with actual)
+            now = dt_util.now()
+            resolved = stats_store.resolve_predictions(now, actual_temp)
+            if resolved > 0:
+                _LOGGER.debug("Resolved %d predictions with actual temp %.1f", resolved, actual_temp)
+            
+            # 2. Record comfort sample
+            if schedule_target is not None:
+                stats_store.record_comfort_sample(
+                    actual_temp=actual_temp,
+                    schedule_target=schedule_target,
+                    optimized_target=optimized_target,
+                    schedule_tolerance=swing_temp,  # Use swing for "in range"
+                )
+            
+            # 3. Record energy sample
+            if used_kwh is not None and baseline_kwh is not None:
+                # Calculate per-update energy (scale by update interval)
+                # Actually, used_kwh and baseline_kwh are totals for the forecast period
+                # We should track incremental usage per update cycle
+                # For now, skip - will need rethinking for correct accounting
+                pass
+            
+            # 4. Prune old data periodically
+            stats_store.prune_old_data()
+            
+            # 5. Save periodically (every ~10 updates to limit I/O)
+            if not hasattr(self, "_stats_save_counter"):
+                self._stats_save_counter = 0
+            self._stats_save_counter += 1
+            if self._stats_save_counter >= 10:
+                await stats_store.async_save()
+                self._stats_save_counter = 0
+                
+        except Exception as e:
+            _LOGGER.warning("Failed to record stats: %s", e)
 
     async def async_trigger_optimization(self, duration_hours=None):
         """Manually trigger the HVAC optimization process."""
@@ -772,6 +836,26 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             )
             sim_temps = np.array(sim_temps_list)
             hvac_produced = np.array(hvac_produced_list)
+            
+            # --- Record predictions for accuracy tracking ---
+            stats_store = getattr(self, "stats_store", None)
+            if stats_store and len(sim_temps) > 0:
+                try:
+                    now = dt_util.now()
+                    # Find index closest to 6 hours out
+                    target_time_6h = now + timedelta(hours=6)
+                    for i, ts in enumerate(timestamps):
+                        if ts >= target_time_6h:
+                            # Record this prediction
+                            stats_store.record_prediction(
+                                target_timestamp=ts,
+                                predicted_temp=float(sim_temps[i]),
+                                horizon_hours=6,
+                            )
+                            _LOGGER.debug("Recorded 6h prediction: %.1f°F at %s", sim_temps[i], ts)
+                            break
+                except Exception as e:
+                    _LOGGER.warning("Failed to record prediction: %s", e)
             
             # -- Optimized Energy Calculation (Continuous) --
             # Reuse hvac_produced (Gross) from the continuous run

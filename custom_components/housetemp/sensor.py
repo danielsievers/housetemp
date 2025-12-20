@@ -11,13 +11,14 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature, UnitOfEnergy
+from homeassistant.const import UnitOfTemperature, UnitOfEnergy, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import HouseTempCoordinator
+from .statistics import StatsStore, StatsCalculator
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -26,7 +27,19 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([HouseTempPredictionSensor(coordinator, entry)])
+    stats_store = hass.data[DOMAIN].get(f"{entry.entry_id}_stats")
+    
+    entities = [HouseTempPredictionSensor(coordinator, entry)]
+    
+    # Add statistics sensors if stats store is available
+    if stats_store:
+        entities.extend([
+            HouseTempAccuracySensor(coordinator, entry, stats_store),
+            HouseTempComfortSensor(coordinator, entry, stats_store),
+            HouseTempEnergySensor(coordinator, entry, stats_store),
+        ])
+    
+    async_add_entities(entities)
 
 class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
     """Representation of a House Temp Prediction Sensor."""
@@ -270,3 +283,191 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
             to_return["energy_metrics"] = data["energy_metrics"]
 
         return to_return
+
+
+class HouseTempAccuracySensor(CoordinatorEntity, SensorEntity):
+    """Sensor for prediction accuracy statistics (7-day rolling)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Prediction Accuracy"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:target"
+
+    def __init__(
+        self, 
+        coordinator: HouseTempCoordinator, 
+        entry: ConfigEntry,
+        stats_store: StatsStore,
+    ):
+        """Initialize the accuracy sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._stats_store = stats_store
+        self._attr_unique_id = f"{entry.entry_id}_accuracy"
+
+    @property
+    def native_value(self):
+        """Return 6-hour ahead MAE as the main state."""
+        stats = StatsCalculator.compute_accuracy_7d(
+            self._stats_store.predictions,
+            horizon_hours=6,
+        )
+        return stats.get("mae")
+
+    @property
+    def extra_state_attributes(self):
+        """Return detailed accuracy statistics."""
+        # 6-hour ahead stats
+        stats_6h = StatsCalculator.compute_accuracy_7d(
+            self._stats_store.predictions,
+            horizon_hours=6,
+        )
+        
+        # Full forecast stats (all horizons)
+        stats_all = StatsCalculator.compute_accuracy_7d(
+            self._stats_store.predictions,
+            horizon_hours=None,
+        )
+        
+        attrs = {
+            "window_days": 7,
+            "mae_6h": stats_6h.get("mae"),
+            "bias_6h": stats_6h.get("bias"),
+            "samples_6h": stats_6h.get("count", 0),
+            "mae_full_forecast": stats_all.get("mae"),
+            "bias_full_forecast": stats_all.get("bias"),
+            "samples_full": stats_all.get("count", 0),
+        }
+        
+        if self._stats_store.epoch_start:
+            attrs["epoch_start"] = self._stats_store.epoch_start.isoformat()
+        
+        return attrs
+
+
+class HouseTempComfortSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for comfort statistics (24h rolling + lifetime)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Comfort Score"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-thermometer"
+
+    def __init__(
+        self, 
+        coordinator: HouseTempCoordinator, 
+        entry: ConfigEntry,
+        stats_store: StatsStore,
+    ):
+        """Initialize the comfort sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._stats_store = stats_store
+        self._attr_unique_id = f"{entry.entry_id}_comfort"
+
+    @property
+    def native_value(self):
+        """Return time-in-range (vs schedule target) as the main state."""
+        stats_24h = StatsCalculator.compute_comfort_24h(
+            self._stats_store.comfort_samples,
+        )
+        val = stats_24h["schedule"].get("time_in_range")
+        return round(val, 1) if val is not None else None
+
+    @property
+    def extra_state_attributes(self):
+        """Return detailed comfort statistics."""
+        stats_24h = StatsCalculator.compute_comfort_24h(
+            self._stats_store.comfort_samples,
+        )
+        stats_lifetime = StatsCalculator.compute_comfort_lifetime(
+            self._stats_store.lifetime_comfort,
+        )
+        
+        attrs = {
+            # 24h rolling - schedule target
+            "time_in_range_24h": stats_24h["schedule"].get("time_in_range"),
+            "mean_deviation_24h": stats_24h["schedule"].get("mean_deviation"),
+            "max_deviation_24h": stats_24h["schedule"].get("max_deviation"),
+            
+            # 24h rolling - optimized target
+            "optimized_time_in_range_24h": stats_24h["optimized"].get("time_in_range"),
+            "optimized_mean_deviation_24h": stats_24h["optimized"].get("mean_deviation"),
+            "optimized_max_deviation_24h": stats_24h["optimized"].get("max_deviation"),
+            
+            # Lifetime - schedule target
+            "time_in_range_lifetime": stats_lifetime["schedule"].get("time_in_range"),
+            "mean_deviation_lifetime": stats_lifetime["schedule"].get("mean_deviation"),
+            "max_deviation_lifetime": stats_lifetime["schedule"].get("max_deviation"),
+            
+            # Lifetime - optimized target
+            "optimized_time_in_range_lifetime": stats_lifetime["optimized"].get("time_in_range"),
+            "optimized_mean_deviation_lifetime": stats_lifetime["optimized"].get("mean_deviation"),
+            "optimized_max_deviation_lifetime": stats_lifetime["optimized"].get("max_deviation"),
+            
+            "total_samples_lifetime": self._stats_store.lifetime_comfort.total_samples,
+        }
+        
+        if self._stats_store.epoch_start:
+            attrs["epoch_start"] = self._stats_store.epoch_start.isoformat()
+        
+        return attrs
+
+
+class HouseTempEnergySensor(CoordinatorEntity, SensorEntity):
+    """Sensor for energy statistics (24h rolling + lifetime)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Energy Savings"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_icon = "mdi:lightning-bolt"
+
+    def __init__(
+        self, 
+        coordinator: HouseTempCoordinator, 
+        entry: ConfigEntry,
+        stats_store: StatsStore,
+    ):
+        """Initialize the energy sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._stats_store = stats_store
+        self._attr_unique_id = f"{entry.entry_id}_energy_stats"
+
+    @property
+    def native_value(self):
+        """Return lifetime energy saved as the main state."""
+        stats = StatsCalculator.compute_energy_lifetime(
+            self._stats_store.lifetime_energy,
+        )
+        return stats.get("saved_kwh")
+
+    @property
+    def extra_state_attributes(self):
+        """Return detailed energy statistics."""
+        stats_24h = StatsCalculator.compute_energy_24h(
+            self._stats_store.energy_samples,
+        )
+        stats_lifetime = StatsCalculator.compute_energy_lifetime(
+            self._stats_store.lifetime_energy,
+        )
+        
+        attrs = {
+            # 24h rolling
+            "used_kwh_24h": stats_24h.get("used_kwh"),
+            "saved_kwh_24h": stats_24h.get("saved_kwh"),
+            
+            # Lifetime
+            "used_kwh_lifetime": stats_lifetime.get("used_kwh"),
+            "saved_kwh_lifetime": stats_lifetime.get("saved_kwh"),
+        }
+        
+        if self._stats_store.epoch_start:
+            attrs["epoch_start"] = self._stats_store.epoch_start.isoformat()
+        
+        return attrs

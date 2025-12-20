@@ -43,3 +43,12 @@ set_away:
           max: 90
           unit_of_measurement: "°F"
           mode: box
+
+reset_stats:
+  name: Reset Statistics
+  description: Clear all accumulated statistics (accuracy, comfort, energy) and start fresh.
+  target:
+    entity:
+      integration: housetemp
+      domain: sensor
+  fields: {}
