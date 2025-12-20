@@ -136,10 +136,11 @@ async def test_coordinator_passes_fixed_flag(hass, mock_coordinator):
         coordinator.heat_pump.get_max_capacity.side_effect = lambda t: np.zeros(len(t))
         coordinator.heat_pump.get_cop.side_effect = lambda t: np.ones(len(t)) * 3.0
 
-        # Mock continuous model: dynamic length based on t_out_list (2nd arg)
+        # Mock continuous model: dynamic length based on t_out_list kwarg
         def mock_run_dynamic(*args, **kwargs):
-             # args[1] is t_out_list
-             n = len(args[1])
+             # t_out_list is now a kwarg (keyword-only)
+             t_out_list = kwargs.get('t_out_list', [])
+             n = len(t_out_list) if t_out_list else 1
              return (np.zeros(n), np.zeros(n), np.zeros(n))
         mock_continuous.side_effect = mock_run_dynamic
 

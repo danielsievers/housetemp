@@ -319,16 +319,16 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # --- 3. Run Physics Model (Continuous) ---
             sim_temps_list, hvac_outputs_list, hvac_produced_list = run_model_continuous(
                 params, 
-                t_out_list, 
-                solar_kw_list, 
-                dt_hours_list, 
-                setpoint_list, 
-                hvac_state_list,  # Raw Intent (+1/-1)
-                max_caps_np.tolist(), 
-                min_output, 
-                max_cool, 
-                eff_derate, 
-                start_temp
+                t_out_list=t_out_list, 
+                solar_kw_list=solar_kw_list, 
+                dt_hours_list=dt_hours_list, 
+                setpoint_list=setpoint_list, 
+                hvac_state_list=hvac_state_list,
+                max_caps_list=max_caps_np.tolist(), 
+                min_output=min_output, 
+                max_cool=max_cool, 
+                eff_derate=eff_derate, 
+                start_temp=start_temp
             )
             
             sim_temps = np.array(sim_temps_list)

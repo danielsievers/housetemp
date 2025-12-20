@@ -117,7 +117,7 @@ class HeatPump:
         # This is optimistic (efficiency should drop), but we logged the warning above.
         return cop
 
-def run_model_continuous(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
+def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
     """
     Pure Continuous Physics Model (L-BFGS-B Safe).
     No hysteresis, no timers, no discrete state.
@@ -219,7 +219,7 @@ def run_model_continuous(params, t_out_list, solar_kw_list, dt_hours_list, setpo
 
     return sim_temps_list, hvac_outputs_list, hvac_produced_list
 
-def run_model_discrete(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, swing_temp, min_cycle_minutes):
+def run_model_discrete(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, swing_temp, min_cycle_minutes):
     """
     Discrete Verification Model.
     Implements Hysteresis (Swing) + Minimum On/Off Timers.
@@ -448,21 +448,35 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
     # --- 4. Call Kernel ---
     if discrete:
         sim_temps_list, hvac_delivered_list, hvac_produced_list, actual_hvac_state_list, diag = run_model_discrete(
-            params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, 
-            max_caps_list, min_output, max_cool, eff_derate, data.t_in[0], swing_temp, min_cycle_minutes
+            params, 
+            t_out_list=t_out_list, 
+            solar_kw_list=solar_kw_list, 
+            dt_hours_list=dt_hours_list, 
+            setpoint_list=setpoint_list, 
+            hvac_state_list=hvac_state_list, 
+            max_caps_list=max_caps_list, 
+            min_output=min_output, 
+            max_cool=max_cool, 
+            eff_derate=eff_derate, 
+            start_temp=data.t_in[0], 
+            swing_temp=swing_temp, 
+            min_cycle_minutes=min_cycle_minutes
         )
-        # Verify: Are we returning diagnostics? Wrapper might suppress them to fit signature.
-        # But we added 5th element "actual_state" recently. 
-        # Tests check for 5 elements.
-        # If we return 6, existing unpacking might break if they do `a,b,c,d,e = run_model(...)`.
-        # However, tests currently unpack 5. 
-        # Strategy: Return 5 values. Diagnostics accessible via side channel or ignored in wrapper?
-        # Actually, let's return 5 for legacy wrapper. Discrete callers should use run_model_discrete directly if they want diagnostics.
+        # Return 5 values for legacy wrapper. Discrete callers should use run_model_discrete directly for diagnostics.
         
     else:
         sim_temps_list, hvac_delivered_list, hvac_produced_list = run_model_continuous(
-            params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, 
-            max_caps_list, min_output, max_cool, eff_derate, data.t_in[0]
+            params, 
+            t_out_list=t_out_list, 
+            solar_kw_list=solar_kw_list, 
+            dt_hours_list=dt_hours_list, 
+            setpoint_list=setpoint_list, 
+            hvac_state_list=hvac_state_list, 
+            max_caps_list=max_caps_list, 
+            min_output=min_output, 
+            max_cool=max_cool, 
+            eff_derate=eff_derate, 
+            start_temp=data.t_in[0]
         )
         actual_hvac_state_list = hvac_state_list # Just pass through intent
 

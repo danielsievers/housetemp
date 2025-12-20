@@ -382,10 +382,18 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # 1. Run Continuous Model (for Chart/Display/Optimizer)
         # --------------------------------------------------------------------------------
         sim_temps_continuous, _, hvac_produced_continuous = await self.hass.async_add_executor_job(
-            run_model_continuous, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
-            measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
-            self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-            self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0])
+            partial(run_model_continuous, params, 
+                t_out_list=measurements.t_out.tolist(), 
+                solar_kw_list=measurements.solar_kw.tolist(),
+                dt_hours_list=measurements.dt_hours.tolist(), 
+                setpoint_list=measurements.setpoint.tolist(), 
+                hvac_state_list=measurements.hvac_state.tolist(),
+                max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                min_output=self.heat_pump.min_output_btu_hr, 
+                max_cool=self.heat_pump.max_cool_btu_hr, 
+                eff_derate=params[5], 
+                start_temp=float(measurements.t_in[0])
+            )
         )
         sim_temps = sim_temps_continuous # Primary Display
 
@@ -460,11 +468,20 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
         
         _, _, hvac_produced_discrete, actual_state_discrete, diag_discrete = await self.hass.async_add_executor_job(
-            run_model_discrete, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
-            measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
-            self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-            self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0]),
-            float(swing), float(min_cycle)
+            partial(run_model_discrete, params, 
+                t_out_list=measurements.t_out.tolist(), 
+                solar_kw_list=measurements.solar_kw.tolist(),
+                dt_hours_list=measurements.dt_hours.tolist(), 
+                setpoint_list=measurements.setpoint.tolist(), 
+                hvac_state_list=measurements.hvac_state.tolist(),
+                max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                min_output=self.heat_pump.min_output_btu_hr, 
+                max_cool=self.heat_pump.max_cool_btu_hr, 
+                eff_derate=params[5], 
+                start_temp=float(measurements.t_in[0]),
+                swing_temp=float(swing), 
+                min_cycle_minutes=float(min_cycle)
+            )
         )
         
         energy_kwh_discrete_optimized = calc_energy(
@@ -486,20 +503,37 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             # C1. Continuous Naive
             _, _, hvac_produced_naive_cont = await self.hass.async_add_executor_job(
-                run_model_continuous, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
-                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
-                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0])
+                partial(run_model_continuous, params, 
+                    t_out_list=measurements.t_out.tolist(), 
+                    solar_kw_list=measurements.solar_kw.tolist(),
+                    dt_hours_list=measurements.dt_hours.tolist(), 
+                    setpoint_list=measurements.setpoint.tolist(), 
+                    hvac_state_list=measurements.hvac_state.tolist(),
+                    max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                    min_output=self.heat_pump.min_output_btu_hr, 
+                    max_cool=self.heat_pump.max_cool_btu_hr, 
+                    eff_derate=params[5], 
+                    start_temp=float(measurements.t_in[0])
+                )
             )
             energy_kwh_continuous_naive = calc_energy(np.array(hvac_produced_naive_cont), measurements.setpoint, hvac_mode_val)['kwh']
             
             # C2. Discrete Naive
             _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
-                run_model_discrete, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
-                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
-                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0]),
-                float(swing), float(min_cycle)
+                partial(run_model_discrete, params, 
+                    t_out_list=measurements.t_out.tolist(), 
+                    solar_kw_list=measurements.solar_kw.tolist(),
+                    dt_hours_list=measurements.dt_hours.tolist(), 
+                    setpoint_list=measurements.setpoint.tolist(), 
+                    hvac_state_list=measurements.hvac_state.tolist(),
+                    max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                    min_output=self.heat_pump.min_output_btu_hr, 
+                    max_cool=self.heat_pump.max_cool_btu_hr, 
+                    eff_derate=params[5], 
+                    start_temp=float(measurements.t_in[0]),
+                    swing_temp=float(swing), 
+                    min_cycle_minutes=float(min_cycle)
+                )
             )
             energy_kwh_discrete_naive = calc_energy(
                 np.array(hvac_produced_naive_disc), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_naive_disc)
@@ -722,10 +756,18 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # Run Model for Temp Curve (Continuous)
             _LOGGER.info("Running simulation for service response (duration: %.1f h)...", sim_duration_hours)
             sim_temps_list, _, hvac_produced_list = await self.hass.async_add_executor_job(
-                run_model_continuous, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
-                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
-                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0])
+                partial(run_model_continuous, params, 
+                    t_out_list=measurements.t_out.tolist(), 
+                    solar_kw_list=measurements.solar_kw.tolist(),
+                    dt_hours_list=measurements.dt_hours.tolist(), 
+                    setpoint_list=measurements.setpoint.tolist(), 
+                    hvac_state_list=measurements.hvac_state.tolist(),
+                    max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                    min_output=self.heat_pump.min_output_btu_hr, 
+                    max_cool=self.heat_pump.max_cool_btu_hr, 
+                    eff_derate=params[5], 
+                    start_temp=float(measurements.t_in[0])
+                )
             )
             sim_temps = np.array(sim_temps_list)
             hvac_produced = np.array(hvac_produced_list)
@@ -764,11 +806,20 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
             
             _, _, hvac_produced_disc_svc, actual_state_disc_svc, diag_disc_svc = await self.hass.async_add_executor_job(
-                run_model_discrete, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
-                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
-                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0]),
-                float(swing), float(min_cycle)
+                partial(run_model_discrete, params, 
+                    t_out_list=measurements.t_out.tolist(), 
+                    solar_kw_list=measurements.solar_kw.tolist(),
+                    dt_hours_list=measurements.dt_hours.tolist(), 
+                    setpoint_list=measurements.setpoint.tolist(), 
+                    hvac_state_list=measurements.hvac_state.tolist(),
+                    max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                    min_output=self.heat_pump.min_output_btu_hr, 
+                    max_cool=self.heat_pump.max_cool_btu_hr, 
+                    eff_derate=params[5], 
+                    start_temp=float(measurements.t_in[0]),
+                    swing_temp=float(swing), 
+                    min_cycle_minutes=float(min_cycle)
+                )
             )
             
             disc_opt_res = calc_energy_svc(np.array(hvac_produced_disc_svc), measurements.setpoint, np.array(actual_state_disc_svc))

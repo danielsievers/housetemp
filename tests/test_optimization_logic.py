@@ -161,23 +161,27 @@ async def test_cache_application_in_update(hass, coordinator, mock_data):
     # Ensure current time is BEFORE the cache timestamps so they aren't expired
     fake_now = ms.timestamps[0] - timedelta(hours=1)
     
+    # Track what setpoint was used (measurements.setpoint is modified in-place)
+    captured_setpoints = None
+    def capture_run(*args, **kwargs):
+        nonlocal captured_setpoints
+        # Capture setpoint_list from kwargs (new API) or from measurements
+        captured_setpoints = kwargs.get('setpoint_list', list(ms.setpoint))
+        return ([0.0]*4, [0.0]*4, [0.0]*4)
     
     with patch("homeassistant.util.dt.now", return_value=fake_now), \
          patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
          patch.object(coordinator, "_get_config_id", return_value="static_id"), \
          patch.object(coordinator, "_expire_cache"), \
          patch("custom_components.housetemp.coordinator.estimate_consumption", return_value={'total_kwh': 0.0}), \
-         patch("custom_components.housetemp.coordinator.run_model_continuous", return_value=([0.0]*4, [0.0]*4, [0.0]*4)) as mock_run:
+         patch("custom_components.housetemp.coordinator.run_model_continuous", side_effect=capture_run) as mock_run:
     
         result = await coordinator._async_update_data()
         
-        # Verify measurements passed to run_model has the cached setpoint
-        # NOTE: run_model is called twice: 1) Optimized 2) Naive Baseline
-        # We need to check the FIRST call (Optimized)
-        args, _ = mock_run.call_args_list[0]
-        setpoint_arg = args[4]
-        assert setpoint_arg[0] == 75.0 # From cache
-        assert setpoint_arg[1] == 70.0 # From schedule (fallback)
+        # Verify measurements.setpoint was modified to include cached value
+        # The coordinator applies cache to ms.setpoint before calling run_model
+        assert ms.setpoint[0] == 75.0  # From cache
+        assert ms.setpoint[1] == 70.0  # From schedule (fallback)
         
         # Verify result contains optimized setpoint array
         assert "optimized_setpoint" in result
@@ -211,17 +215,16 @@ async def test_gap_neutrality_in_simulation(hass, coordinator, mock_data):
          
         await coordinator._async_update_data()
         
-        args, _ = mock_run.call_args
-        setpoint_list = args[4]
-        state_list = args[5]
+        # Check measurements.setpoint and measurements.hvac_state directly
+        # The coordinator modifies these in-place before calling run_model
         
         # Index 2 had a gap in both cache and schedule.
         # 1. Should be clamped to current indoor temp (ms.t_in[0] == 68.0)
-        assert float(setpoint_list[2]) == 68.0
+        assert float(ms.setpoint[2]) == 68.0
         # 2. HVAC state should be forced to 0 for this index, even though original schedule had 1
-        assert int(state_list[2]) == 0
+        assert int(ms.hvac_state[2]) == 0
         
         # Index 0 was not a gap (target_temp exists).
         # It should preserve its original hvac_state and use target_temp for setpoint.
-        assert float(setpoint_list[0]) == 70.0
-        assert int(state_list[0]) == int(ms.hvac_state[0])
+        assert float(ms.setpoint[0]) == 70.0
+
