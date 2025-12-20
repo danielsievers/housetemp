@@ -66,14 +66,14 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
 
     # Mock run_model to return dummy data
     # We mock the import in coordinator.py
-    with patch("custom_components.housetemp.coordinator.run_model") as mock_run_model, \
+    with patch("custom_components.housetemp.coordinator.run_model_continuous") as mock_run_model, \
          patch("custom_components.housetemp.coordinator.HeatPump") as mock_hp_cls:
         
         # Setup Mock Return
-        # run_model returns (sim_temps, rmse, hvac_delivered, hvac_produced)
-        # sim_temps should be array of length steps
-        steps = 8 * 2 # 8 hours * 2 per hour
-        mock_run_model.return_value = (np.full(steps, 72.5), 0.0, np.zeros(steps), np.zeros(steps))
+        # run_model_continuous returns (sim_temps, hvac_delivered, hvac_produced)
+        # sim_temps should be array of length steps (5 min intervals default = 12/hr)
+        steps = 8 * 12 
+        mock_run_model.return_value = (np.full(steps, 72.5), np.zeros(steps), np.zeros(steps))
         
         # Properly mock HeatPump instance with required methods and attributes
         mock_hp_instance = MagicMock()

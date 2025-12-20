@@ -3,6 +3,7 @@ import pandas as pd
 import logging
 from scipy.optimize import minimize
 from .run_model import run_model_continuous
+from . import run_model
 from .energy import calculate_energy_vectorized
 
 _LOGGER = logging.getLogger(__name__)
@@ -297,10 +298,6 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         
         # Tuning weights
         snap_weight = CONFIG_SNAP_WEIGHT
-        
-        # Pre-calc constants for Gate Derivation
-        GATE_EPSILON = 0.1 # Distance from Min/Max to trigger "Off" intent
-        GATE_STEEPNESS = 4.0 # Softness of the gate
 
         def schedule_loss(candidate_blocks):
             # 1. Update Setpoints via Hoisted Map (Fast)
@@ -311,23 +308,10 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             continuity_penalty = CONFIG_CONTINUITY_WEIGHT * np.sum((full_res_setpoints - effective_setpoints)**2)
             setpoint_list = effective_setpoints.tolist()
             
-            # --- Derive "True Off" Gate from Setpoints ---
-            # If setpoint is at the boundary (min for heat, max for cool), we assume "Off Intent".
-            # We map this to hvac_state -> 0 (softly).
-            # This allows the optimizer to kill Idle Power by picking the boundary.
-            if hvac_mode_val > 0: # Heating
-                # "Off" is setpoint <= min_setpoint
-                dist = full_res_setpoints - min_setpoint
-                # Sigmoid-like gate: 1 when dist is high, 0 when dist is 0
-                # Use simple linear ramp for speed and gradient
-                gate = np.clip(dist * GATE_STEEPNESS, 0.0, 1.0)
-            else: # Cooling
-                # "Off" is setpoint >= max_setpoint
-                dist = max_setpoint - full_res_setpoints
-                gate = np.clip(dist * GATE_STEEPNESS, 0.0, 1.0)
-            
-            effective_hvac_states = gate * hvac_mode_val
-            hvac_state_list = effective_hvac_states.tolist()
+            # --- Use Raw Intent for Physics & Energy ---
+            # We no longer "soft gate" hvac_state in the optimizer.
+            # We pass the raw intent (+1/-1) and let energy.py handle "True Off" accounting based on setpoints.
+            hvac_state_list = data.hvac_state.tolist() # Raw intent (+1 or -1 from config)
 
             # 2. Run THIN Kernel
             start_temp = float(data.t_in[0]) # Ensure start_temp is float
@@ -339,7 +323,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 solar_kw_list, 
                 dt_hours_list, 
                 setpoint_list, 
-                hvac_state_list,  # Intent (+1/-1/0)
+                hvac_state_list,  # Raw Intent (+1/-1)
                 max_caps_np.tolist(), 
                 min_output, 
                 max_cool, 
@@ -350,37 +334,10 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             sim_temps = np.array(sim_temps_list)
             hvac_produced = np.array(hvac_produced_list)
             
-            # Note: run_model_continuous does NOT return actual_hvac_state (it yields continuous intent)
-            # We use the intent `hvac_state_np` for energy gating (soft gating) implies:
-            # We trust the optimizer's "off" intent (hvac_mode_val * gate) for basic energy estimation.
-            # We do NOT use discrete actual_state because it breaks gradients.
-            
             # --- 4. Calculate Costs ---
             
             # A. Comfort Cost (RMSE from Preference Curve)
-            # Get preference limits for *current* time
-            # We want to penalize deviation from target, but also respect bounds?
-            # Actually we just use the pre-calculated `setpoints` vs `sim_temps`?
-            # No, `sim_temps` is result of `run_model`.
-            # We want `sim_temps` to match `setpoints`? 
-            # NO. We want `sim_temps` to be "comfortable".
-            # Since `setpoints` ARE the variables we control, we implicitly "want" the house to be at `setpoints`.
-            # But if `setpoints` are chosen effectively, `sim_temps` will track them.
-            # The actual comfort penalty comes from: `setpoints` vs `user_preference_envelope`?
-            # Looking at original code (I can view it if needed, but assuming standard implementation):
-            # It penalizes `sim_temps` deviation from *ideal*?
-            # Actually, let's look at `errors = sim_temps - setpoints`?
-            # Usually we penalize deviation of SIM TEMP from PREFERRED TEMP.
-            # But here `setpoints` IS the control variable.
-            # The optimizer tries to pick setpoints such that:
-            # 1. Energy is low.
-            # 2. Comfort is high (function of `sim_temps` vs config).
             
-            # Looking at surrounding code (I can view it if needed, but assuming standard implementation):
-            # `state_penalty` usually penalizes valid range violations.
-            # `comfort_penalty` penalizes deviation from "ideal".
-            
-            # ... (Re-using existing logic below, just replacing the model call) ...
             # B. Energy Cost
             res = calculate_energy_vectorized(
                 hvac_produced, 
@@ -388,29 +345,13 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 max_caps_np, 
                 base_cops_np, 
                 hw, 
-                eff_derate=1.0, # applied in model already? OR model returns gross?
-                # run_model_continuous returns 'hvac_produced' (gross un-derated un-ramped? No, wait)
-                # Check run_model_continuous: 
-                # hvac_produced_list[i] = q_hvac (calculated from request)
-                # then q_hvac *= eff_derate
-                # So produced IS UN-DERATED.
-                # So we MUST pass eff_derate=1.0? 
-                # WAIT. calculate_energy_vectorized applies derate if we pass it? 
-                # Or does it assume 'hvac_outputs' as input?
-                # Argument name is `hvac_outputs` in signature usually?
-                # Let's check calculate_energy_vectorized signature in energy.py later.
-                # Assuming we need to pass:
-                hvac_states=None, # Use implicit enabled logic based on produced? 
-                # OR: We should pass effective_hvac_states (continuous intent) for "soft gating"?
-                # User spec says: "True-Off intent derived from setpoints".
-                # So we should pass setpoints and bounds.
-                setpoints=full_res_setpoints, # Use full_res_setpoints (unrounded) for energy calc
-                hvac_mode_val=hvac_mode_val, # +1 or -1
+                eff_derate=1.0, # Produced is Gross (Pre-Derate)
+                hvac_states=data.hvac_state, # Raw intent for Idle/Blower enablement
+                setpoints=full_res_setpoints, # Use full_res_setpoints for True-Off accounting
+                hvac_mode_val=hvac_mode_val, 
                 min_setpoint=min_setpoint,
                 max_setpoint=max_setpoint,
-                off_intent_eps=0.1 # Hardcoded or from config?
-                # Note: optimize.py might not have access to const.CONF_OFF_INTENT_EPS easily unless we import it.
-                # For now hardcoding 0.1 is safe/consistent with spec.
+                off_intent_eps=0.1 # Hardcoded consistency
             )
             kwh = res['kwh']
             load_ratios = res['load_ratios']

@@ -83,7 +83,7 @@ def mock_data(coordinator):
     # Add numerical dt_hours for run_model validation
     measurements.dt_hours = np.array([0.25, 0.25, 0.25, 0.25])
     
-    params = [10000.0, 750.0, 3000.0, 2000.0, 5000.0]
+    params = [10000.0, 750.0, 3000.0, 2000.0, 5000.0, 1.0]
     start_time = datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
     
     return measurements, params, start_time
@@ -94,10 +94,12 @@ async def test_auto_update_does_not_optimize(hass, coordinator, mock_data):
     ms, params, start_time = mock_data
     
     with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
-         patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
+         patch("custom_components.housetemp.coordinator.run_model_continuous") as mock_run, \
+         patch("custom_components.housetemp.coordinator.estimate_consumption") as mock_estimate, \
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule") as mock_opt:
         
-        mock_run.return_value = ([], 0.0, [], [])
+        mock_run.return_value = ([0.0]*4, [0.0]*4, [0.0]*4)
+        mock_estimate.return_value = {'total_kwh': 0.0}
         
         await coordinator._async_update_data()
         
@@ -122,7 +124,8 @@ async def test_manual_trigger_optimizes(hass, coordinator, mock_data):
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule", return_value=(optimized_setpoints, {"success": True})) as mock_opt, \
          patch.object(coordinator, "async_request_refresh") as mock_refresh, \
          patch.object(coordinator, "async_set_updated_data") as mock_set_data, \
-         patch("custom_components.housetemp.coordinator.run_model", return_value=([68.0]*4, 0.0, [], [])) as mock_run_model:
+         patch("custom_components.housetemp.coordinator.estimate_consumption", return_value={'total_kwh': 0.0}), \
+         patch("custom_components.housetemp.coordinator.run_model_continuous", return_value=([68.0]*4, [0.0]*4, [0.0]*4)) as mock_run_model:
         
         await coordinator.async_trigger_optimization()
         
@@ -147,6 +150,9 @@ async def test_cache_application_in_update(hass, coordinator, mock_data):
     ms, params, start_time = mock_data
     
     # Pre-populate cache
+    # Initialize last_config_id to prevent clearing
+    coordinator._last_config_id = "static_id"
+    
     ts0 = ms.timestamps[0]
     ts0_int = int(ts0.timestamp())
     coordinator.optimized_setpoints_map[ts0_int] = 75.0 # Cached value
@@ -155,17 +161,23 @@ async def test_cache_application_in_update(hass, coordinator, mock_data):
     # Ensure current time is BEFORE the cache timestamps so they aren't expired
     fake_now = ms.timestamps[0] - timedelta(hours=1)
     
+    
     with patch("homeassistant.util.dt.now", return_value=fake_now), \
          patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
-         patch("custom_components.housetemp.coordinator.run_model", return_value=([], 0.0, [], [])) as mock_run:
+         patch.object(coordinator, "_get_config_id", return_value="static_id"), \
+         patch.object(coordinator, "_expire_cache"), \
+         patch("custom_components.housetemp.coordinator.estimate_consumption", return_value={'total_kwh': 0.0}), \
+         patch("custom_components.housetemp.coordinator.run_model_continuous", return_value=([0.0]*4, [0.0]*4, [0.0]*4)) as mock_run:
     
         result = await coordinator._async_update_data()
         
         # Verify measurements passed to run_model has the cached setpoint
-        args, _ = mock_run.call_args
-        measurements_arg = args[1]
-        assert measurements_arg.setpoint[0] == 75.0 # From cache
-        assert measurements_arg.setpoint[1] == 70.0 # From schedule (fallback)
+        # NOTE: run_model is called twice: 1) Optimized 2) Naive Baseline
+        # We need to check the FIRST call (Optimized)
+        args, _ = mock_run.call_args_list[0]
+        setpoint_arg = args[4]
+        assert setpoint_arg[0] == 75.0 # From cache
+        assert setpoint_arg[1] == 70.0 # From schedule (fallback)
         
         # Verify result contains optimized setpoint array
         assert "optimized_setpoint" in result
@@ -194,20 +206,22 @@ async def test_gap_neutrality_in_simulation(hass, coordinator, mock_data):
     
     with patch("custom_components.housetemp.coordinator.dt_util.now", return_value=fake_now), \
          patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
-         patch("custom_components.housetemp.coordinator.run_model", return_value=(fake_temps, 0.0, fake_hvac_out, fake_hvac_out)) as mock_run:
+         patch("custom_components.housetemp.coordinator.estimate_consumption", return_value={'total_kwh': 0.0}), \
+         patch("custom_components.housetemp.coordinator.run_model_continuous", return_value=(fake_temps, fake_hvac_out, fake_hvac_out)) as mock_run:
          
         await coordinator._async_update_data()
         
         args, _ = mock_run.call_args
-        measurements_arg = args[1]
+        setpoint_list = args[4]
+        state_list = args[5]
         
         # Index 2 had a gap in both cache and schedule.
         # 1. Should be clamped to current indoor temp (ms.t_in[0] == 68.0)
-        assert float(measurements_arg.setpoint[2]) == 68.0
+        assert float(setpoint_list[2]) == 68.0
         # 2. HVAC state should be forced to 0 for this index, even though original schedule had 1
-        assert int(measurements_arg.hvac_state[2]) == 0
+        assert int(state_list[2]) == 0
         
         # Index 0 was not a gap (target_temp exists).
         # It should preserve its original hvac_state and use target_temp for setpoint.
-        assert float(measurements_arg.setpoint[0]) == 70.0
-        assert int(measurements_arg.hvac_state[0]) == int(ms.hvac_state[0])
+        assert float(setpoint_list[0]) == 70.0
+        assert int(state_list[0]) == int(ms.hvac_state[0])

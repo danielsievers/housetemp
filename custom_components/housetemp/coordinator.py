@@ -450,7 +450,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # A. Continuous Optimized (The run we just did)
         # Note: If has_optimized_data is False, this is technically Naive.
-        eng_continuous_opt = calc_energy(np.array(hvac_produced_continuous), measurements.setpoint, hvac_mode_val)
+        eng_continuous_opt_res = calc_energy(np.array(hvac_produced_continuous), measurements.setpoint, hvac_mode_val)
+        eng_continuous_opt = eng_continuous_opt_res['kwh']
         energy_kwh_continuous_optimized = eng_continuous_opt
 
         # B. Discrete Optimized (Verification)
@@ -468,7 +469,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         energy_kwh_discrete_optimized = calc_energy(
             np.array(hvac_produced_discrete), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_discrete)
-        )
+        )['kwh']
         
         # Diagnostics from Discrete Optimized
         diagnostics = diag_discrete
@@ -490,10 +491,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
                 self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0])
             )
-            energy_kwh_continuous_naive = calc_energy(np.array(hvac_produced_naive_cont), measurements.setpoint, hvac_mode_val)
+            energy_kwh_continuous_naive = calc_energy(np.array(hvac_produced_naive_cont), measurements.setpoint, hvac_mode_val)['kwh']
             
             # C2. Discrete Naive
-            _, _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
+            _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
                 run_model_discrete, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
                 measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
                 self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
@@ -502,7 +503,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             )
             energy_kwh_discrete_naive = calc_energy(
                 np.array(hvac_produced_naive_disc), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_naive_disc)
-            )
+            )['kwh']
             
             # Restore Optimized
             measurements.setpoint = optimized_setpoint_array
