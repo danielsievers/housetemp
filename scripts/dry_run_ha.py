@@ -438,7 +438,7 @@ async def main():
                 # Use 'None' string for missing Opt Set
                 opt_str = f"{t_opt:<8.1f}" if t_opt is not None else f"{'None':<8}"
                 
-                logging.info(f"{dt_str:<20} | {t_pred:<8.1f} | {opt_str:<8} | {sched_marker:<8} | {hvac_str:<5} | {t_out:<8.1f} | {sol:<8.2f}")
+                logging.info(f"{dt_str:<20} | {t_pred:<8.1f} | {opt_str:<8} | {t_set_sched:<8.1f} | {hvac_str:<5} | {t_out:<8.1f} | {sol:<8.2f}")
                 
             logging.info(f"\nTotal Steps: {len(forecast_items)}")
             

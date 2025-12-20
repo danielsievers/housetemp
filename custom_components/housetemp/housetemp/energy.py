@@ -65,11 +65,9 @@ def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, se
     if hw is None:
         _LOGGER.warning("No Heat Pump model provided. Skipping energy calculation.")
         return {'total_kwh': 0.0, 'total_cost': 0.0}
-        
+    
     # Cast to numpy array for vectorized calculation
     hvac_produced = np.array(hvac_produced)
-
-    
     if len(params) > 5:
         eff_derate = params[5]
     else:
@@ -104,6 +102,13 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
         min_setpoint, max_setpoint: Bounds.
         off_intent_eps: Tolerance for off-intent detection.
     """
+    # --- Robustness Shape Checks ---
+    assert len(hvac_outputs) == len(dt_hours) == len(max_caps) == len(base_cops), \
+        f"Input shape mismatch in energy calc: outputs={len(hvac_outputs)}, dt={len(dt_hours)}, caps={len(max_caps)}, cops={len(base_cops)}"
+    
+    if setpoints is not None:
+        assert len(setpoints) == len(hvac_outputs), "Setpoint array must match simulation length"
+
     # 1) Compressor watts from physics ALWAYS
     # 1) Determine Effective Operating Point (Duty Cycle Logic)
     produced_output = np.abs(hvac_outputs)

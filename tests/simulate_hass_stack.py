@@ -99,7 +99,7 @@ async def main():
     away_status = (False, None, None) 
     
     # Run process_schedule_data
-    hvac_state_arr, setpoint_arr, fixed_mask_arr = process_schedule_data(
+    hvac_state_arr, setpoint_arr, fixed_mask_arr, rate_arr = process_schedule_data(
         timestamps, 
         schedule_data, 
         away_status, 

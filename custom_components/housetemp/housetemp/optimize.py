@@ -187,9 +187,21 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None, fi
             
     return result
 
-def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block_size_minutes=30, fixed_mask=None, enable_multiscale=True):
+def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block_size_minutes=30, fixed_mask=None, enable_multiscale=True, rate_per_step=None):
     """
-    Finds the optimal setpoint schedule to minimize Energy + Comfort Penalty.
+    Finds the optimal setpoint schedule to minimize Energy Cost + Comfort Penalty.
+    
+    Args:
+        data, params, hw, target_temps, comfort_config: Core optimization inputs.
+        block_size_minutes: Optimization resolution (e.g. 30).
+        fixed_mask: Optional boolean mask for mandatory setpoints.
+        enable_multiscale: If True, runs a coarse pass first for warm-start.
+        rate_per_step: Optional array of TOU rate scale factors (e.g. 1.0 = baseline, 1.3 = peak).
+                       Must be aligned 1:1 with data.timestamps.
+                       If provided, optimizer minimizes total cost: sum(kWh_i * rate_i).
+                       If rate_per_step is unitless (relative multipliers), cost is weighted-kWh.
+                       If rate_per_step is currency ($/kWh), cost is in dollars.
+    
     Returns:
         (final_setpoints, debug_info)
         where debug_info is a dict: {'success': bool, 'cost': float, 'message': str, 'iterations': int}
@@ -209,6 +221,24 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     # This eliminates the need for try/finally restoration.
     working_hvac_state = np.full_like(data.hvac_state, hvac_mode_val, dtype=data.hvac_state.dtype)
     working_hvac_state_list = working_hvac_state.tolist()
+    
+    # --- TOU Robustness Check ---
+    if rate_per_step is not None:
+        if len(rate_per_step) != len(data.timestamps):
+            _LOGGER.warning(f"TOU rate alignment mismatch: Expected {len(data.timestamps)} steps, got {len(rate_per_step)}. Falling back to uniform rate.")
+            rate_per_step = None
+        else:
+            # Ensure it is a numpy array for vectorized math
+            rate_per_step = np.array(rate_per_step)
+            
+            # --- Robustness Value Checks ---
+            if np.any(rate_per_step < 0):
+                _LOGGER.error("TOU rates cannot be negative. Clipping to 0.")
+                rate_per_step = np.maximum(0, rate_per_step)
+            
+            if not np.all(np.isfinite(rate_per_step)):
+                _LOGGER.error("TOU rates contain NaN or Inf. Falling back to uniform rate.")
+                rate_per_step = None
     
     # Fallback: If no explicit fixed_mask passed, check data object
     if fixed_mask is None and data.is_setpoint_fixed is not None:
@@ -375,13 +405,19 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 hw, 
                 eff_derate=1.0, # Produced is Gross (Pre-Derate)
                 hvac_states=working_hvac_state, # Working copy for Idle/Blower enablement
-                setpoints=effective_setpoints, # Use rounded setpoints for stable True-Off accounting
+                setpoints=effective_setpoints, # Use quantized setpoints for True-Off/Idle accounting
                 hvac_mode_val=hvac_mode_val, 
                 min_setpoint=min_setpoint,
                 max_setpoint=max_setpoint,
                 off_intent_eps=DEFAULT_OFF_INTENT_EPS
             )
-            kwh = res['kwh']
+            
+            if rate_per_step is not None:
+                kwh_steps = res['kwh_steps']
+                energy_cost = np.sum(kwh_steps * rate_per_step)
+            else:
+                energy_cost = res['kwh']  # Fallback to pure kWh minimization
+            
             load_ratios = res['load_ratios']
             
             # Comfort
@@ -426,7 +462,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                     defrost_cost_val *= 10.0
                 defrost_cost = defrost_cost_val
 
-            return kwh + total_penalty + defrost_cost + continuity_penalty
+            return energy_cost + total_penalty + defrost_cost + continuity_penalty
 
 
         # --- Run Minimize ---

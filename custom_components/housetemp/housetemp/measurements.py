@@ -16,6 +16,7 @@ class Measurements:
     dt_hours: np.array    # Time step size in hours (e.g., 0.5 for 30 mins)
     is_setpoint_fixed: np.array = None # Boolean mask: True if setpoint is fixed/mandatory
     target_temp: np.ndarray = None       # Original schedule targets (F)
+    tou_rate: np.ndarray = None          # TOU rate scale factors (1.0 = baseline)
 
     def __len__(self):
         return len(self.timestamps)
@@ -31,5 +32,6 @@ class Measurements:
             setpoint=self.setpoint[start_idx:end_idx],
             dt_hours=self.dt_hours[start_idx:end_idx],
             is_setpoint_fixed=self.is_setpoint_fixed[start_idx:end_idx] if self.is_setpoint_fixed is not None else None,
-            target_temp=self.target_temp[start_idx:end_idx] if self.target_temp is not None else None
+            target_temp=self.target_temp[start_idx:end_idx] if self.target_temp is not None else None,
+            tou_rate=self.tou_rate[start_idx:end_idx] if self.tou_rate is not None else None
         )

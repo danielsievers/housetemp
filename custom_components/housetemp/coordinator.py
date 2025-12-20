@@ -456,11 +456,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         hvac_mode = self.config_entry.options.get(CONF_HVAC_MODE, "heat")
         hvac_mode_val = 1 if hvac_mode == "heat" else -1
         
+
         # A. Continuous Optimized (The run we just did)
-        # Note: If has_optimized_data is False, this is technically Naive.
         eng_continuous_opt_res = calc_energy(np.array(hvac_produced_continuous), measurements.setpoint, hvac_mode_val)
         energy_kwh_continuous_optimized = eng_continuous_opt_res['kwh']
-        energy_kwh_steps = eng_continuous_opt_res.get('kwh_steps')  # Per-step energy for sensor aggregation
+        energy_kwh_steps = eng_continuous_opt_res.get('kwh_steps')
 
         # B. Discrete Optimized (Verification)
         # --------------------------------------------------------------------------------
@@ -696,7 +696,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     target_temps,
                     comfort_config,
                     block_size_minutes=control_timestep,
-                    enable_multiscale=self.config_entry.options.get(CONF_ENABLE_MULTISCALE, DEFAULT_ENABLE_MULTISCALE)
+                    enable_multiscale=self.config_entry.options.get(CONF_ENABLE_MULTISCALE, DEFAULT_ENABLE_MULTISCALE),
+                    rate_per_step=measurements.tou_rate  # TOU rate weighting
                 )
             )
             
@@ -1060,6 +1061,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              # If HVAC state is 0, setpoint doesn't matter for energy calc.
              setpoint_arr = np.full(steps, np.nan) 
              fixed_mask_arr = np.zeros(steps, dtype=bool)
+             rate_arr = np.ones(steps)  # Default rate = 1.0 (no TOU weighting)
              
              # Log once per update?
              # _LOGGER.debug("Schedule disabled, skipping processing.")
@@ -1078,7 +1080,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              
              # Run process_schedule_data in executor to avoid blocking event loop (pytz I/O)
              from functools import partial
-             hvac_state_arr, setpoint_arr, fixed_mask_arr = await self.hass.async_add_executor_job(
+             hvac_state_arr, setpoint_arr, fixed_mask_arr, rate_arr = await self.hass.async_add_executor_job(
                  partial(
                      process_schedule_data,
                      timestamps, 
@@ -1102,7 +1104,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             setpoint=np.array(setpoint_arr, dtype=float),
             dt_hours=np.array(dt_values, dtype=float),
             is_setpoint_fixed=np.array(fixed_mask_arr, dtype=bool),
-            target_temp=np.array(setpoint_arr, dtype=float).copy()
+            target_temp=np.array(setpoint_arr, dtype=float).copy(),
+            tou_rate=np.array(rate_arr, dtype=float)
         )
         
         return measurements, params, start_time

@@ -82,6 +82,7 @@ def mock_data(coordinator):
     measurements.hvac_state = np.array([0, 0, 0, 0])
     # Add numerical dt_hours for run_model validation
     measurements.dt_hours = np.array([0.25, 0.25, 0.25, 0.25])
+    measurements.tou_rate = np.ones(4)
     
     params = [10000.0, 750.0, 3000.0, 2000.0, 5000.0, 1.0]
     start_time = datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)

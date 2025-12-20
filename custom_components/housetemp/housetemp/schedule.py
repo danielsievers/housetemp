@@ -104,7 +104,7 @@ def load_comfort_schedule(json_path, timestamps):
 
 def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=None, default_mode=None):
     """
-    Process schedule data (dict) into setpoints and hvac state arrays.
+    Process schedule data (dict) into setpoints, hvac state, and rate arrays.
     
     Args:
         timestamps: List/Array of datetime objects.
@@ -116,7 +116,10 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
                       Must be provided if 'mode' is strictly required (it is).
         
     Returns:
-        hvac_state (np.array), setpoint (np.array)
+        hvac_state (np.array), setpoint (np.array), fixed_mask (np.array), rates (np.array)
+        
+        rates: TOU rate scale factors (1.0 = baseline). Optional field in schedule entries.
+               If not specified anywhere, returns array of 1.0 (pure kWh optimization).
     """
     if "schedule" not in schedule_data or not isinstance(schedule_data["schedule"], list):
         raise ValueError("Schedule must be a dictionary with 'schedule' key.")
@@ -162,6 +165,7 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
 
     targets = np.zeros(len(timestamps))
     fixed_mask = np.zeros(len(timestamps), dtype=bool)
+    rates = np.ones(len(timestamps))  # Default rate = 1.0 (no TOU weighting)
     
     # Process Timestamps
     times_of_day = ts_index.time
@@ -185,18 +189,28 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
             # Default last item logic applies for 'fixed' too?
             # If last item is fixed, it wraps around until the first item of same day.
             day_fixed = np.full(np.sum(day_mask), bool(last_item.get('fixed', False)), dtype=bool)
+            # Rate carries forward from last entry (wraps around midnight)
+            day_rates = np.full(np.sum(day_mask), float(last_item.get('rate', 1.0)))
+            
+            # Track last seen rate for carry-forward within the day
+            last_rate = float(last_item.get('rate', 1.0))
             
             for item in day_schedule:
                 t_start = parse_time(item['time'])
                 temp = float(item['temp'])
                 is_fixed = bool(item.get('fixed', False))
+                # Rate: use explicit value if present, else carry forward last seen
+                if 'rate' in item:
+                    last_rate = float(item['rate'])
                 
                 mask_ge_start = day_times >= t_start
                 day_targets[mask_ge_start] = temp
                 day_fixed[mask_ge_start] = is_fixed
+                day_rates[mask_ge_start] = last_rate
                 
             targets[day_mask] = day_targets
             fixed_mask[day_mask] = day_fixed
+            rates[day_mask] = day_rates
             
     # Apply HVAC Mode
     # Priority: 
@@ -255,4 +269,4 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
              # For now, let's treat away mode as fixed/enforced too to prevent optimization overriding it
              fixed_mask[away_mask] = True
              
-    return hvac_state, targets, fixed_mask
+    return hvac_state, targets, fixed_mask, rates

@@ -119,7 +119,7 @@ async def test_coordinator_passes_fixed_flag(hass, mock_coordinator):
             start = max(0, int(steps/2) - 5)
             end = min(steps, start + 10)
             fixed_mask_arr[start:end] = True
-            return (np.zeros(steps), np.full(steps, 70.0), fixed_mask_arr)
+            return (np.zeros(steps), np.full(steps, 70.0), fixed_mask_arr, np.ones(steps))
             
         mock_process.side_effect = mock_process_side_effect
         

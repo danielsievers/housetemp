@@ -25,7 +25,7 @@ class TestScheduleOverride:
     def test_default_argument_used(self):
         """Function argument default is used if JSON missing"""
         # Default says COOL
-        hvac_state, _, _ = process_schedule_data(self.timestamps, self.base_schedule, default_mode="cool")
+        hvac_state, _, _, _ = process_schedule_data(self.timestamps, self.base_schedule, default_mode="cool")
         
         # Should be COOL (-1)
         assert np.all(hvac_state == -1)
@@ -36,7 +36,7 @@ class TestScheduleOverride:
         json_sched["mode"] = "cool"
         
         # Even if we pass 'heat' as default, JSON 'cool' wins (explicit strict override)
-        hvac_state, _, _ = process_schedule_data(self.timestamps, json_sched, default_mode="heat")
+        hvac_state, _, _, _ = process_schedule_data(self.timestamps, json_sched, default_mode="heat")
         
         assert np.all(hvac_state == -1) # COOL wins
 
