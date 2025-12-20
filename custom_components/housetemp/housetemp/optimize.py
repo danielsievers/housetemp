@@ -24,7 +24,7 @@ except (ImportError, ValueError):
 
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---
-DEFAULT_EFFICIENCY_DERATE = 1.0
+DEFAULT_EFFICIENCY_DERATE = 0.85
 DEFAULT_MIN_SETPOINT = 60.0
 DEFAULT_MAX_SETPOINT = 75.0
 DEFAULT_CENTER_PREFERENCE = 1.0  # User preference for hitting the exact target
@@ -79,11 +79,14 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
     # Construct full params vector
     if fixed_passive_params:
         # fixed_passive_params comes in as [C, UA, K, Q]
-        # active_params = [UA, H_factor, efficiency_derate]
+        # active_params = [UA, H_factor] (efficiency_derate is FIXED)
         
         ua_opt = active_params[0]
         h_factor = active_params[1]
-        eff_derate = active_params[2] if len(active_params) > 2 else DEFAULT_EFFICIENCY_DERATE
+        
+        # Fixed Derate (Duct Efficiency) - NOT OPTIMIZED
+        # We assume 0.85 (15% loss) unless passed in data?
+        eff_derate = DEFAULT_EFFICIENCY_DERATE
         
         # Construct using fixed C, K, Q
         c = fixed_passive_params[0]
@@ -95,8 +98,8 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
     else:
         # Optimizing EVERYTHING
         # active_params = [C, UA, K_solar, Q_int, H_factor]
-        # We need to add a default efficiency_derate for the run_model call
-        full_params = list(active_params) + [DEFAULT_EFFICIENCY_DERATE] # Default efficiency_derate
+        # efficiency_derate is appended as fixed constant
+        full_params = list(active_params) + [DEFAULT_EFFICIENCY_DERATE]
 
     # 1. Run Simulation
     # Note: run_model returns 5 values now (temps, rmse, delivered, produced, actual_state)
@@ -122,14 +125,13 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
     if fixed_passive_params:
         print(f"--- ACTIVE PARAMETER OPTIMIZATION MODE ---")
         print("Optimizing Active Parameters + Floating UA (Occupied Infiltration).")
-         # Initial Guess for [UA, H_factor, efficiency_derate]
-         # Start UA at fixed value, H at 10k, Eff at 0.9
-        initial_guess = [fixed_passive_params[1], GUESS_ACTIVE_H, GUESS_ACTIVE_EFF]
+         # Initial Guess for [UA, H_factor]
+         # Start UA at fixed value, H at 20k
+        initial_guess = [fixed_passive_params[1], GUESS_ACTIVE_H]
         
         bounds = [
             BOUNDS_UA_ACTIVE,
-            BOUNDS_H_FACTOR_ACTIVE,
-            BOUNDS_EFFICIENCY
+            BOUNDS_H_FACTOR_ACTIVE
         ]
     else:
         # Full Optimization
@@ -158,10 +160,10 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
         # Reconstruct full parameter set for return
         best_active = result.x
         
-        # best_active = [UA, H, Eff]
+        # best_active = [UA, H]
         ua = best_active[0]
         h = best_active[1]
-        eff = best_active[2]
+        eff = DEFAULT_EFFICIENCY_DERATE
          
         c = fixed_passive_params[0]
         k = fixed_passive_params[2]
