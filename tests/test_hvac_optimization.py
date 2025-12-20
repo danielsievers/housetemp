@@ -44,7 +44,7 @@ class TestHvacOptimization(unittest.TestCase):
         self.hw.idle_power_kw = 0.0
         
         # Params: C, UA, K, Q_int, H_fac
-        self.params = [5000, 200, 1000, 0, 5000]
+        self.params = [5000, 200, 1000, 0, 20000]
 
     def test_load_comfort_schedule(self):
         # Create a dummy comfort.json

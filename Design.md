@@ -49,15 +49,16 @@ The model does *not* assume the HVAC system is a simple On/Off switch. Instead, 
 
 The heat output ($Q_{hvac}$) is modeled as a Proportional Controller based on the "Gap" between the Setpoint ($T_{set}$) and Current Temp ($T_{in}$):
 
-$$ Q_{request} = Q_{base} + (H_{factor} \cdot |T_{set} - T_{in}|) $$
+$$ Q_{request} = H_{factor} \cdot |T_{set} - T_{in}| $$
 
-*   $Q_{base}$: Minimum running capacity (e.g., 3000 BTU/hr).
-*   $H_{factor}$: **Aggressiveness** (BTU/hr per °F error). How hard the unit ramps up to meet demand.
+*   $H_{factor}$: **Aggressiveness** (BTU/hr per °F error). How hard the unit ramps up.
 
 ### 3.1 Constraints
 The requested output is limited by two real-world factors:
 1.  **Hardware Capacity**: The unit cannot exceed its maximum output at a given outdoor temperature.
-2.  **Modulation Floor**: The unit defines a minimum continuous output (e.g., 12,000 BTU/hr). Any demand below this floor forces the system to **Cycle** (Pulse On/Off) rather than modulate efficiently.
+2.  **Modulation Floor (Duty Cycling)**: The unit has a minimum continuous output (e.g., 12,000 BTU/hr).
+    *   **Continuous Approximation**: If demand is below this floor ($Q_{request} < Q_{min}$), the system is modeled as **Cycling** with a duty ratio $D = Q_{request} / Q_{min}$.
+    *   This provides a smooth, convex cost gradient for the optimizer while preserving the energy penalty of running at partial capacity.
 3.  **System Efficiency (Derate)**: Real-world losses (e.g., duct leakage, heat exchanger scaling) reduce the effective output.
 
 $$ Q_{hvac} = \eta_{eff} \cdot \min(Q_{request}, \text{MaxCapacity}(T_{out})) $$

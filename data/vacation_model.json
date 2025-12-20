@@ -1,9 +1,8 @@
 {
     "description": "Home Thermal Model Parameters",
     "C_thermal": 4892.870160807333,
-    "UA_overall": 327.7154353068851,
+    "UA_overall": 220.72786607574605,
     "K_solar": 970.6309012122009,
     "Q_int": 1733.236978806892,
-    "H_factor": 19710.87761031592,
-    "efficiency_derate": 0.5
+    "H_factor": 10000.0
 }

@@ -99,15 +99,28 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
         off_intent_eps: Tolerance for off-intent detection.
     """
     # 1) Compressor watts from physics ALWAYS
+    # 1) Determine Effective Operating Point (Duty Cycle Logic)
     produced_output = np.abs(hvac_outputs)
     
-    # Calculate Load Ratio & PLF
+    # Get Min Output from HW
+    min_output_val = float(getattr(hw, 'min_output_btu_hr', 0.0))
+    # Safety floor
+    safe_min = np.maximum(min_output_val, TOLERANCE_BTU)
+    
+    # Effective Capacity: The unit runs at LEAST at min_output when ON.
+    # If produced < min, we interpret as cycling min_output at D = produced/min.
+    effective_capacity = np.maximum(produced_output, safe_min)
+    
+    # Duty Cycle: Fraction of the hour the unit is ON
+    # If produced > min, D=1.0. If produced < min, D < 1.0.
+    duty_cycle = np.clip(produced_output / effective_capacity, 0.0, 1.0)
+    
+    # Calculate Load Ratio & PLF based on EFFECTIVE capacity
+    # (Because efficiency depends on how it RUNS, not the average output)
     # Handle zero max_cap gracefully (avoid div/0)
     safe_max_caps = np.where(max_caps > 1e-3, max_caps, 1.0)
-    # If max_caps was 0 and output > 0, ratio is technically infinite, but here limited to output/1.0
-    # Ideally if max_cap=0, output should be 0.
     
-    load_ratios = produced_output / safe_max_caps
+    load_ratios = effective_capacity / safe_max_caps
     
     # Get PLF Model Parameters
     # Default to 1.0 (no effect) if missing
@@ -126,7 +139,12 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     final_cops = np.maximum(final_cops, TOLERANCE_COP_FLOOR) 
     
     produced_output = np.abs(hvac_outputs)
-    watts = (produced_output / final_cops) * BTU_TO_WATTS
+    
+    # Instantaneous Watts (When ON)
+    watts_inst = (effective_capacity / final_cops) * BTU_TO_WATTS
+    
+    # Average Watts (Scaled by Duty)
+    watts = watts_inst * duty_cycle
     
     # 2) Determine enabled / active / idle
     if hvac_states is None:
@@ -162,10 +180,14 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     active_kw = float(getattr(hw, "blower_active_kw", 0.0) or 0.0)
     
     if idle_kw > 0:
-        watts = np.where(is_idle, watts + (idle_kw * KW_TO_WATTS), watts)
+        # Idle applies during the OFF portion of the duty cycle (if enabled)
+        # If D=0.25, we are idle 0.75 of the time.
+        idle_duty = (1.0 - duty_cycle)
+        watts = np.where(is_enabled, watts + (idle_kw * KW_TO_WATTS * idle_duty), watts)
         
     if active_kw > 0:
-        watts = np.where(is_active, watts + (active_kw * KW_TO_WATTS), watts)
+        # Active adder applies during the ON portion (Duty)
+        watts = np.where(is_enabled, watts + (active_kw * KW_TO_WATTS * duty_cycle), watts)
         
     # 4) Validation warning
     mismatch = off_intent & (produced_output > TOLERANCE_BTU)

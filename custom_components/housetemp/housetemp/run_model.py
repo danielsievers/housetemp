@@ -108,12 +108,10 @@ class HeatPump:
 
 
 
-def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
+def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, min_setpoint=-999, max_setpoint=999):
     """
-    Pure Continuous Physics Model (L-BFGS-B Safe).
-    No hysteresis, no timers, no discrete state.
-    
-    hvac_state_list is treated as "enabled mode intent" (+1 heat / -1 cool / 0 off).
+    Run Continuous Physics Model (Differentiable-ish).
+    Returns (sim_temps, hvac_outputs, hvac_produced).
     """
     # Unpack params
     C_thermal = params[0]
@@ -124,29 +122,40 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
     
     total_steps = len(t_out_list)
     sim_temps_list = [0.0] * total_steps
-    hvac_outputs_list = [0.0] * total_steps # Delivered (Physics)
-    hvac_produced_list = [0.0] * total_steps # Produced (Gross/Energy)
+    hvac_outputs_list = [0.0] * total_steps
+    hvac_produced_list = [0.0] * total_steps
     
     current_temp = float(start_temp)
-    elapsed_active_minutes = 0.0 # For soft start (optional to keep or remove, keeping for consistency)
     
+    # Soft Start State
+    elapsed_active_minutes = 0.0
+    
+    TOLERANCE_EPS = 0.1
+
     for i in range(total_steps):
         sim_temps_list[i] = current_temp
         
-        # A. Passive Physics
         q_leak = UA * (t_out_list[i] - current_temp)
-        q_solar = solar_kw_list[i] * K_solar
+        q_solar = K_solar * solar_kw_list[i]
         
-        # B. HVAC Physics (Continuous)
-        requested_mode = hvac_state_list[i] # +1/-1/0
+        # HVAC Logic (Continuous Proportional)
         setpoint = setpoint_list[i]
+        requested_mode = hvac_state_list[i] # 1=Heat, -1=Cool, 0=Off
+        
+        # Check True-Off Intent (Hard Clamp)
+        # If setpoint is pinned to boundary, we treat it as OFF to avoid phantom heat.
+        is_true_off = False
+        if requested_mode > 0:
+            if setpoint <= (min_setpoint + TOLERANCE_EPS):
+                is_true_off = True
+        elif requested_mode < 0:
+            if setpoint >= (max_setpoint - TOLERANCE_EPS):
+                is_true_off = True
+
         q_hvac = 0.0
         
-        dt_min = dt_hours_list[i] * 60.0
-        
-        if requested_mode != 0:
-            elapsed_active_minutes += dt_min
-            
+        if requested_mode != 0 and not is_true_off:
+            elapsed_active_minutes += (dt_hours_list[i] * 60.0)          
             # Soft Start Ramp
             ramp_factor = 1.0
             if elapsed_active_minutes < SOFT_START_RAMP_MINUTES:
@@ -159,10 +168,9 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
                 # Force strictly positive contribution if below setpoint
                 gap = setpoint - current_temp
                 
-                # Continuous Logic: We allow modulation.
-                # If gap is negative (over setpoint), we allow 0.0 or min_output?
-                # For continuous optimizer, strictly following the curve is best.
-                request = min_output + (H_factor * max(0, gap))
+                # Continuous Logic: Pure Proportional (Duty Cycle Approximation)
+                # If gap is small, request < min_output, implying cycling.
+                request = H_factor * max(0, gap)
                 
                 # Cap
                 cap = max_caps_list[i]
@@ -173,7 +181,7 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
 
             elif requested_mode < 0: # COOLING
                 gap = current_temp - setpoint
-                request = min_output + (H_factor * max(0, gap))
+                request = H_factor * max(0, gap)
                 
                 if request > max_cool:
                     request = max_cool
