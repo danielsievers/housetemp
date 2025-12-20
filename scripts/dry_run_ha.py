@@ -103,7 +103,7 @@ with open("data/comfort.json") as f:
 with open("data/occupied.json") as f:
     # Strip comments
     content = f.read()
-    content_clean = re.sub(r"//.*", "", content)
+    content_clean = re.sub(r"(//|#).*", "", content)
     params = json.loads(content_clean)
     
 CONFIG_DATA = {

@@ -56,7 +56,7 @@ def test_energy_conversion_factor():
     #   watts_input = (3412.14 / 1.0) / 3.412 = 1000.0 Watts
     #   kwh = (1000.0 / 1000.0) * 1.0 hr = 1.0 kWh
     
-    result = calculate_energy_stats(hvac_outputs, data, hw, h_factor=1000, cost_per_kwh=1.0)
+    result = calculate_energy_stats(hvac_outputs, data, hw, h_factor=1000, cost_per_kwh=1.0, eff_derate=1.0)
     
     # Allow small float error
     assert result['total_kwh'] == pytest.approx(1.0, rel=1e-3)
@@ -93,7 +93,7 @@ def test_energy_partial_load():
     
     hvac_outputs = np.array([target_q])
     
-    result = calculate_energy_stats(hvac_outputs, data, hw, cost_per_kwh=1.0)
+    result = calculate_energy_stats(hvac_outputs, data, hw, cost_per_kwh=1.0, eff_derate=1.0)
     
     # Expected:
     # final_cop = 1.0 * 1.3 = 1.3
@@ -159,7 +159,7 @@ def test_energy_steps_returned():
     hw.defrost_risk_zone = None
     hw.plf_min = 0.5
     
-    result = calculate_energy_stats(hvac_outputs, data, hw, h_factor=1000, cost_per_kwh=1.0)
+    result = calculate_energy_stats(hvac_outputs, data, hw, h_factor=1000, cost_per_kwh=1.0, eff_derate=1.0)
     
     # Check keys
     assert 'kwh_steps' in result
