@@ -31,6 +31,7 @@ DEFAULT_CENTER_PREFERENCE = 1.0  # User preference for hitting the exact target
 DEFAULT_DEADBAND_SLACK = 1.5  # Degrees of freedom without penalty
 DEFAULT_COMFORT_MODE = 'quadratic'
 DEFAULT_AVOID_DEFROST = False
+DEFAULT_OFF_INTENT_EPS = 0.1 # Tolerance for detecting "Off" intent at boundaries
 
 # Optimization Solver Defaults
 DEFAULT_SOLVER_MAXITER = 500
@@ -365,7 +366,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 hvac_mode_val=hvac_mode_val, 
                 min_setpoint=min_setpoint,
                 max_setpoint=max_setpoint,
-                off_intent_eps=0.1 # Hardcoded consistency
+                off_intent_eps=DEFAULT_OFF_INTENT_EPS
             )
             kwh = res['kwh']
             load_ratios = res['load_ratios']

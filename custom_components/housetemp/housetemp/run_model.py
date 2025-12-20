@@ -169,8 +169,13 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
                 gap = setpoint - current_temp
                 
                 # Continuous Logic: Pure Proportional (Duty Cycle Approximation)
-                # If gap is small, request < min_output, implying cycling.
-                request = H_factor * max(0, gap)
+                # Correction: Ensure NO output if gap <= 0 (True Off capability)
+                if gap <= 0:
+                    request = 0.0
+                else:
+                    # If gap > 0, request scales with gap.
+                    # Since H_factor is large (10k), small gap yields large request.
+                    request = H_factor * gap
                 
                 # Cap
                 cap = max_caps_list[i]
@@ -181,7 +186,11 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
 
             elif requested_mode < 0: # COOLING
                 gap = current_temp - setpoint
-                request = H_factor * max(0, gap)
+                
+                if gap <= 0:
+                    request = 0.0
+                else:
+                    request = H_factor * gap
                 
                 if request > max_cool:
                     request = max_cool
