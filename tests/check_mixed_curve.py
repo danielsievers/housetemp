@@ -28,7 +28,7 @@ with open("data/mixed_config.json") as f:
 params = [d["C_thermal"], d["UA_overall"], d["K_solar"], d["Q_int"], d["H_factor"]]
 
 # Run
-sim_temps, _, _ = run_model(params, m)
+sim_temps, _, _, _, _ = run_model(params, m)
 
 print(f"Start Temp: {sim_temps[0]:.2f}")
 print(f"Final Temp: {sim_temps[-1]:.2f}")

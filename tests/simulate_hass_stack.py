@@ -146,7 +146,7 @@ async def main():
     # HASS coordinator runs `run_model` with `duration_hours*60`
     
     print(f"\n[HASS Stack] Running Simulation ({len(timestamps)} steps)...")
-    sim_temps, rmse, hvac_outputs = run_model(
+    sim_temps, rmse, hvac_outputs, _, _ = run_model(
         params, 
         measurements, 
         hp, 

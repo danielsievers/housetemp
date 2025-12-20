@@ -279,7 +279,7 @@ def run_main(args_list=None):
         
         # Debug output (optional)
         if args.debug_output:
-            sim_temps, rmse, hvac_delivered, hvac_produced = run_model.run_model(params, measurements, hw, duration_minutes=args.duration)
+            sim_temps, rmse, hvac_delivered, hvac_produced, _ = run_model.run_model(params, measurements, hw, duration_minutes=args.duration)
             export_debug_output(
                 args.debug_output,
                 mode="optimize-hvac" if args.optimize_hvac else "predict",

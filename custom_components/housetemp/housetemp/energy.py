@@ -62,8 +62,29 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
         off_intent_eps: Tolerance for off-intent detection.
     """
     # 1) Compressor watts from physics ALWAYS
+    produced_output = np.abs(hvac_outputs)
+    
+    # Calculate Load Ratio & PLF
+    # Handle zero max_cap gracefully (avoid div/0)
+    safe_max_caps = np.where(max_caps > 1e-3, max_caps, 1.0)
+    # If max_caps was 0 and output > 0, ratio is technically infinite, but here limited to output/1.0
+    # Ideally if max_cap=0, output should be 0.
+    
+    load_ratios = produced_output / safe_max_caps
+    
+    # Get PLF Model Parameters
+    # Default to 1.0 (no effect) if missing
+    plf_low = float(getattr(hw, 'plf_low_load', 1.0))
+    plf_slope = float(getattr(hw, 'plf_slope', 0.0))
+    plf_min = float(getattr(hw, 'plf_min', PLF_MIN_DEFAULT))
+    
+    # Linear Model: PLF = Intercept - (Slope * LoadRatio)
+    plf = plf_low - (plf_slope * load_ratios)
+    # Clamp
+    plf = np.maximum(plf, plf_min)
+    
     # Determine final COP
-    final_cops = base_cops * eff_derate
+    final_cops = base_cops * plf * eff_derate
     # Protect against div/0
     final_cops = np.maximum(final_cops, TOLERANCE_COP_FLOOR) 
     

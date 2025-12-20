@@ -8,7 +8,7 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     # hw is passed in
     
     # Run final simulation with best params
-    simulated_t_in, rmse, hvac_outputs, _ = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)
+    simulated_t_in, rmse, hvac_outputs, _, _ = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)
     
     # Calculate Error (Manual Verification)
     # We need to slice data.t_in to match simulation length if duration was limited

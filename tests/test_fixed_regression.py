@@ -60,16 +60,11 @@ class TestFixedRegression(unittest.TestCase):
         # that 'fixed' values set bounds to (val, val).
         
         
-        # Patch both run_model (used for initial verification?) and run_model_fast (used in loop)
-        # Use full module path consistent with other tests
-        with unittest.mock.patch("custom_components.housetemp.housetemp.optimize.run_model.run_model") as mock_run, \
-             unittest.mock.patch("custom_components.housetemp.housetemp.optimize.run_model.run_model_fast") as mock_fast:
+        # Patch run_model_continuous (used in optimizer loop)
+        with unittest.mock.patch("custom_components.housetemp.housetemp.optimize.run_model_continuous") as mock_continuous:
              
-            # run_model returns: sim_temps, sim_error, hvac_delivered, hvac_produced
-            mock_run.return_value = (np.full(steps, 70.0), 0.0, np.full(steps, 5000.0), np.full(steps, 5000.0))
-            
-            # run_model_fast returns lists: sim_temps, hvac_delivered, hvac_produced
-            mock_fast.return_value = (
+            # run_model_continuous (for optimizer loop) returns 3 lists: temps, delivered, produced
+            mock_continuous.return_value = (
                 [70.0]*steps, 
                 [5000.0]*steps, 
                 [5000.0]*steps

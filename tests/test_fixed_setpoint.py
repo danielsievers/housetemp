@@ -87,11 +87,15 @@ def test_optimize_fixed_bounds():
     # We use small bounds on the non-fixed parts to see if they move
     # But mainly we check if the FIXED parts stayed at 70.
     
-    # Needs to mock run_model to return valid shapes
-    with unittest.mock.patch("custom_components.housetemp.housetemp.optimize.run_model.run_model") as mock_run:
-        # returns: sim_temps, sim_error, hvac_outputs
+    # Needs to mock run_model_continuous used in optimizer loop
+    with unittest.mock.patch("custom_components.housetemp.housetemp.optimize.run_model_continuous") as mock_continuous:
+        # run_model_continuous returns: sim_temps, hvac_delivered, hvac_produced (3 lists/arrays)
         # Must match length 48
-        mock_run.return_value = (np.full(48, 60.0), 0.0, np.full(48, 5000.0))
+        mock_continuous.return_value = (
+            np.full(48, 60.0), 
+            np.full(48, 5000.0), 
+            np.full(48, 5000.0)
+        )
         
         result_setpoints, _ = optimize_hvac_schedule(
             data, params, hw, target_temps, comfort_config, block_size_minutes=30, fixed_mask=fixed_mask

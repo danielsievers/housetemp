@@ -107,7 +107,8 @@ async def test_coordinator_passes_fixed_flag(hass, mock_coordinator):
     
     with patch("custom_components.housetemp.coordinator.dt_util.now", return_value=fixed_now), \
          patch("custom_components.housetemp.coordinator.optimize_hvac_schedule") as mock_optimize, \
-         patch("custom_components.housetemp.coordinator.run_model") as mock_run, \
+         patch("custom_components.housetemp.coordinator.run_model_continuous") as mock_continuous, \
+         patch("custom_components.housetemp.coordinator.estimate_consumption") as mock_estimate, \
          patch("custom_components.housetemp.coordinator.process_schedule_data") as mock_process:
          
         # Mock process_schedule_data to return Explicit Fixed Mask DYNAMICALLY
@@ -131,14 +132,25 @@ async def test_coordinator_passes_fixed_flag(hass, mock_coordinator):
         ]
         hass.states.async_set("weather.home", "50.0", {"forecast": forecast})
 
-        # Mock run_model return: (sim_temps, rmse, hvac_delivered, hvac_produced)
-        # Returns for baseline + optimization prep?
-        # Coordinator calls run_model twice maybe? Once for baseline.
-        mock_run.return_value = (np.zeros(48), 0.0, np.zeros(48), np.zeros(48))
+        # Update HeatPump mock to be dynamic
+        coordinator.heat_pump.get_max_capacity.side_effect = lambda t: np.zeros(len(t))
+        coordinator.heat_pump.get_cop.side_effect = lambda t: np.ones(len(t)) * 3.0
 
-        # Return dummy result so it doesn't crash on unpacking
-        # optimize returns (setpoints, meta_object_or_dict)
-        mock_optimize.return_value = (np.zeros(24), {"success": True, "fun": 0.0}) # 24 steps for 24h? Depends on dt.
+        # Mock continuous model: dynamic length based on t_out_list (2nd arg)
+        def mock_run_dynamic(*args, **kwargs):
+             # args[1] is t_out_list
+             n = len(args[1])
+             return (np.zeros(n), np.zeros(n), np.zeros(n))
+        mock_continuous.side_effect = mock_run_dynamic
+
+        # Mock estimate_consumption
+        mock_estimate.return_value = {'total_kwh': 50.0}
+
+        # Mock optimize: dynamic setpoints
+        def mock_opt_dynamic(data, *args, **kwargs):
+             n = len(data.timestamps)
+             return (np.zeros(n), {"success": True, "fun": 0.0})
+        mock_optimize.side_effect = mock_opt_dynamic # 24 steps for 24h? Depends on dt.
         # dt depends on forecast interval? 
         # Actually coordinator interpolates to control_timestep (30m).
         # 24h / 30m = 48 steps.

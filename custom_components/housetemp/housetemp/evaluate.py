@@ -1,7 +1,12 @@
 import numpy as np
 from . import run_model
-from . import run_model
 from .measurements import Measurements
+
+# --- CONFIGURATION (Evaluation Settings) ---
+EVAL_HORIZON_6H = 6.0
+EVAL_HORIZON_12H = 12.0
+EVAL_WINDOW_STEP_HOUR = 1.0
+
 
 def run_rolling_evaluation(data: Measurements, params, hw):
     """
@@ -19,11 +24,11 @@ def run_rolling_evaluation(data: Measurements, params, hw):
         raise ValueError("Invalid time step detected (<= 0)")
 
     # Calculate required steps for 6h and 12h
-    steps_6h = int(6.0 / avg_dt_hours)
-    steps_12h = int(12.0 / avg_dt_hours)
+    steps_6h = int(EVAL_HORIZON_6H / avg_dt_hours)
+    steps_12h = int(EVAL_HORIZON_12H / avg_dt_hours)
     
     # Step increment for the sliding window (e.g. start every 1 hour)
-    steps_per_hour = int(1.0 / avg_dt_hours)
+    steps_per_hour = int(EVAL_WINDOW_STEP_HOUR / avg_dt_hours)
     if steps_per_hour < 1:
         steps_per_hour = 1
     
@@ -65,7 +70,7 @@ def run_rolling_evaluation(data: Measurements, params, hw):
         
         # 2. Run Simulation (12 hours)
         # We don't need to pass duration_minutes because the slice is exactly 12h
-        sim_temps, _, _, _ = run_model.run_model(params, sliced_data, hw)
+        sim_temps, _, _, _, _ = run_model.run_model(params, sliced_data, hw)
         
         # 3. Calculate Errors
         actual_temps = sliced_data.t_in
@@ -98,3 +103,4 @@ def run_rolling_evaluation(data: Measurements, params, hw):
     print(f"6-Hour Forecast Error (Avg):  {avg_rmse_6h:.3f} F (Max: {max_error_6h:.3f} F, Bias: {avg_bias_6h:+.3f} F)")
     print(f"12-Hour Forecast Error (Avg): {avg_rmse_12h:.3f} F (Max: {max_error_12h:.3f} F, Bias: {avg_bias_12h:+.3f} F)")
     print("="*40)
+
