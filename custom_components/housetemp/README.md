@@ -60,6 +60,16 @@ Temporarily overrides the schedule for a duration.
   - `duration`: Time to stay in away mode (e.g., "7 days", "12 hours").
   - `safety_temp`: Temperature to maintain (e.g., 50°F).
 
+### Calibrate Model
+`housetemp.calibrate`
+Fits physics parameters (`UA`, `C`, etc.) to your recent history.
+
+- **Targeting**: Requires an `entity_id`.
+- **Arguments**:
+  - `days`: Number of history days to use (default: 14).
+  - `update_parameters`: (Boolean) If `true`, automatically applies the new parameters to your config. (default: `false`).
+- **Returns**: A service response dict containing the old and new parameters and validation error (RMSE).
+
 ## Configuration Reference
 
 ### Schedule JSON (`comfort.json`)
@@ -84,6 +94,21 @@ The integration creates a sensor: `sensor.indoor_temperature_forecast`.
     - `forecast`: A list of hourly/30-min predictions including temperature, HVAC state, and estimated energy usage.
     - `away` (boolean): `true` when Away Mode is active.
     - `away_end` (datetime): The local time when Away Mode is scheduled to end.
+
+### Statistics Sensors
+The integration provides three additional sensors to track performance:
+
+*   **`sensor.housetemp_energy`**: Tracks lifetime energy savings.
+    *   **State**: Total kWh saved by the optimizer (Baseline - Optimized).
+    *   **Attributes**: `used_kwh` (Total actual usage), `saved_kwh_24h` (Savings in last 24h).
+
+*   **`sensor.housetemp_accuracy`**: validating the physics model.
+    *   **State**: Mean Absolute Error (MAE) of predictions over the last 7 days. Lower is better.
+    *   **Method**: Compares the 6-hour-ahead forecast against the actual temperature when that time arrives.
+
+*   **`sensor.housetemp_comfort`**: Tracks how well targets are met.
+    *   **State**: "Time in Range" (%) for the last 24 hours.
+    *   **Attributes**: Detailed deviation stats for both the original schedule and the optimized plan.
 
 ## Energy Optimization Tips
 

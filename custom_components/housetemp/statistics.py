@@ -236,6 +236,15 @@ class StatsStore:
             if dt_util.parse_datetime(s.timestamp) > cutoff_comfort
         ]
     
+    def _validate_float(self, val: Any) -> float | None:
+        """Helper: Ensure value is a valid float."""
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
     def record_prediction(
         self, 
         target_timestamp: datetime, 
@@ -243,9 +252,21 @@ class StatsStore:
         horizon_hours: int = 6
     ) -> None:
         """Record a prediction for later comparison."""
+        f_pred = self._validate_float(predicted_temp)
+        if f_pred is None:
+            return
+
+        # Rate Limit: Don't record if we already have a prediction for close to this time
+        # This prevents spamming the DB if optimization runs frequently.
+        target_dt = dt_util.parse_datetime(target_timestamp.isoformat())
+        if self.predictions:
+            last_dt = dt_util.parse_datetime(self.predictions[-1].timestamp)
+            if last_dt and abs((target_dt - last_dt).total_seconds()) < 1800:  # 30 minutes
+                return
+
         record = PredictionRecord(
             timestamp=target_timestamp.isoformat(),
-            predicted_temp=predicted_temp,
+            predicted_temp=f_pred,
             horizon_hours=horizon_hours,
         )
         self.predictions.append(record)
@@ -255,6 +276,10 @@ class StatsStore:
         
         Returns: Number of predictions resolved.
         """
+        f_actual = self._validate_float(actual_temp)
+        if f_actual is None:
+            return 0
+            
         resolved = 0
         for pred in self.predictions:
             if pred.actual_temp is not None:
@@ -262,7 +287,7 @@ class StatsStore:
             
             pred_time = dt_util.parse_datetime(pred.timestamp)
             if pred_time and pred_time <= current_time:
-                pred.actual_temp = actual_temp
+                pred.actual_temp = f_actual
                 resolved += 1
         
         return resolved
@@ -276,13 +301,20 @@ class StatsStore:
         optimized_tolerance: float = DEFAULT_OPTIMIZED_TOLERANCE,
     ) -> None:
         """Record a comfort measurement and update lifetime stats."""
+        # Validate inputs to avoid math errors
+        f_actual = self._validate_float(actual_temp)
+        f_sched = self._validate_float(schedule_target)
+        
+        if f_actual is None or f_sched is None:
+            return
+            
         now = dt_util.now()
         
         sample = ComfortSample(
             timestamp=now.isoformat(),
-            actual_temp=actual_temp,
-            schedule_target=schedule_target,
-            optimized_target=optimized_target,
+            actual_temp=f_actual,
+            schedule_target=f_sched,
+            optimized_target=self._validate_float(optimized_target),
         )
         self.comfort_samples.append(sample)
         
@@ -290,7 +322,7 @@ class StatsStore:
         self.lifetime_comfort.total_samples += 1
         
         # Schedule target deviation
-        schedule_dev = abs(actual_temp - schedule_target)
+        schedule_dev = abs(f_actual - f_sched)
         self.lifetime_comfort.schedule_deviation_sum += schedule_dev
         self.lifetime_comfort.schedule_max_deviation = max(
             self.lifetime_comfort.schedule_max_deviation, schedule_dev
@@ -299,9 +331,10 @@ class StatsStore:
             self.lifetime_comfort.schedule_in_range_count += 1
         
         # Optimized target deviation (if available)
-        if optimized_target is not None:
+        f_opt = self._validate_float(optimized_target)
+        if f_opt is not None:
             self.lifetime_comfort.optimized_sample_count += 1
-            opt_dev = abs(actual_temp - optimized_target)
+            opt_dev = abs(f_actual - f_opt)
             self.lifetime_comfort.optimized_deviation_sum += opt_dev
             self.lifetime_comfort.optimized_max_deviation = max(
                 self.lifetime_comfort.optimized_max_deviation, opt_dev
@@ -315,18 +348,24 @@ class StatsStore:
         baseline_kwh: float,
     ) -> None:
         """Record an energy measurement and update lifetime stats."""
+        f_used = self._validate_float(used_kwh)
+        f_base = self._validate_float(baseline_kwh)
+        
+        if f_used is None or f_base is None:
+            return
+
         now = dt_util.now()
         
         sample = EnergySample(
             timestamp=now.isoformat(),
-            used_kwh=used_kwh,
-            baseline_kwh=baseline_kwh,
+            used_kwh=f_used,
+            baseline_kwh=f_base,
         )
         self.energy_samples.append(sample)
         
         # Update lifetime stats
-        self.lifetime_energy.used_kwh += used_kwh
-        self.lifetime_energy.saved_kwh += (baseline_kwh - used_kwh)
+        self.lifetime_energy.used_kwh += f_used
+        self.lifetime_energy.saved_kwh += (f_base - f_used)
 
 
 class StatsCalculator:

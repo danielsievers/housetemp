@@ -516,7 +516,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     start_temp=float(measurements.t_in[0])
                 )
             )
-            energy_kwh_continuous_naive = calc_energy(np.array(hvac_produced_naive_cont), measurements.setpoint, hvac_mode_val)['kwh']
+            naive_eng_res = calc_energy(np.array(hvac_produced_naive_cont), measurements.setpoint, hvac_mode_val)
+            energy_kwh_continuous_naive = naive_eng_res['kwh']
+            energy_kwh_naive_steps = naive_eng_res.get('kwh_steps')
             
             # C2. Discrete Naive
             _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
@@ -546,6 +548,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # We are currently Naive. Optimized = Naive.
             energy_kwh_continuous_naive = energy_kwh_continuous_optimized
             energy_kwh_discrete_naive = energy_kwh_discrete_optimized
+            energy_kwh_naive_steps = energy_kwh_steps
             
             # If we are naive, we set optimized to None? Or keep them equal?
             # Standard pattern: optimized_energy_kwh is the "Active Plan" energy.
@@ -554,12 +557,16 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             pass
 
         # --- Statistics Recording ---
+        # Use explicit None check for numpy arrays to avoid truth value ambiguity
+        used_step = energy_kwh_steps[0] if energy_kwh_steps is not None and len(energy_kwh_steps) > 0 else 0.0
+        base_step = energy_kwh_naive_steps[0] if energy_kwh_naive_steps is not None and len(energy_kwh_naive_steps) > 0 else 0.0
+
         await self._record_stats(
             actual_temp=float(measurements.t_in[0]),
             schedule_target=float(setpoint_arr[0]) if len(setpoint_arr) > 0 else None,
             optimized_target=float(optimized_setpoint_attr[0]) if optimized_setpoint_attr and optimized_setpoint_attr[0] is not None else None,
-            used_kwh=energy_kwh_continuous_optimized,
-            baseline_kwh=energy_kwh_continuous_naive,
+            used_kwh=used_step,
+            baseline_kwh=base_step,
         )
 
         # 8. Return Result
@@ -659,11 +666,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             # 3. Record energy sample
             if used_kwh is not None and baseline_kwh is not None:
-                # Calculate per-update energy (scale by update interval)
-                # Actually, used_kwh and baseline_kwh are totals for the forecast period
-                # We should track incremental usage per update cycle
-                # For now, skip - will need rethinking for correct accounting
-                pass
+                stats_store.record_energy_sample(
+                    used_kwh=used_kwh,
+                    baseline_kwh=baseline_kwh
+                )
             
             # 4. Prune old data periodically
             stats_store.prune_old_data()
