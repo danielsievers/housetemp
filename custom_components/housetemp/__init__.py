@@ -165,7 +165,327 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         supports_response=SupportsResponse.OPTIONAL
     )
     
+    # Register calibrate service
+    async def async_handle_calibrate(call):
+        """Handle calibrate service call.
+        
+        Fetches history for the target entity (indoor temp), weather, solar, 
+        and provided climate entities (hvac action).
+        Runs optimization to fit parameters C, UA, K, Q, H.
+        """
+        import pandas as pd
+        import numpy as np
+        from homeassistant.exceptions import ServiceValidationError
+        from homeassistant.util import dt as dt_util
+        
+        from .housetemp.utils import fetch_history_frame
+        from .housetemp.measurements import Measurements
+        from .housetemp.optimize import run_optimization
+        
+        # 1. Parse Arguments
+        start_input = call.data.get("start_time")
+        end_input = call.data.get("end_time")
+        hvac_entities = call.data.get("hvac_action_entities", [])
+        
+        override_outdoor = call.data.get("outdoor_temp_entity")
+        solar_entity_cal = call.data.get("solar_power_entity")
+        if not solar_entity_cal:
+             raise ServiceValidationError("solar_power_entity is required.")
+        
+        fix_passive = call.data.get("fix_passive", False)
+        
+        if not hvac_entities:
+            raise ServiceValidationError("hvac_action_entities is required for calibration.")
+        
+        if not start_input or not end_input:
+             raise ServiceValidationError("Both start_time and end_time are required.")
+
+        start_time = dt_util.parse_datetime(start_input)
+        if not start_time:
+             raise ServiceValidationError(f"Invalid start_time: {start_input}")
+             
+        end_time = dt_util.parse_datetime(end_input)
+        if not end_time:
+             raise ServiceValidationError(f"Invalid end_time: {end_input}")
+
+        if start_time >= end_time:
+             raise ServiceValidationError("Start time must be before end time.")
+             
+        _LOGGER.info("Starting Calibration: %s to %s", start_time, end_time)
+        
+        # 2. Identify Target & Sources
+        target_entries = await service.async_extract_config_entry_ids(call)
+        if not target_entries:
+            raise ServiceValidationError("No target selected. Target a HouseTemp entity.")
+            
+        results = {}
+        
+        for entry_id in target_entries:
+            if entry_id not in hass.data.get(DOMAIN, {}):
+                continue
+                
+            coord = hass.data[DOMAIN][entry_id]
+            entry = coord.config_entry
+            
+            # Determine source entities from config or override
+            # Indoor is always from config (defines the zone)
+            from .const import CONF_SENSOR_INDOOR_TEMP, CONF_WEATHER_ENTITY
+            
+            indoor_entity = entry.data.get(CONF_SENSOR_INDOOR_TEMP)
+            weather_entity = override_outdoor if override_outdoor else entry.data.get(CONF_WEATHER_ENTITY)
+            
+            # Solar is strictly from argument
+            solar_entity_use = solar_entity_cal
+            
+            if not indoor_entity:
+                 results[entry.title] = {"error": "Missing configured indoor entity."}
+                 continue
+            if not weather_entity:
+                 results[entry.title] = {"error": "Missing weather/outdoor entity."}
+                 continue
+            
+            # 3. Fetch History
+            # Solar is always a single string from service arg
+            solar_ids = [solar_entity_use]
+            
+            fetch_ids = [indoor_entity] + solar_ids + hvac_entities
+            
+            # Weather/Outdoor
+            fetch_ids.append(weather_entity)
+            
+            _LOGGER.debug("Fetching history for: %s", fetch_ids)
+            # minimal_response=False to get attributes (setpoints)
+            df = await fetch_history_frame(hass, fetch_ids, start_time, end_time, minimal_response=False)
+            
+            if df.empty:
+                results[entry.title] = {"error": "No historical data found."}
+                continue
+                
+            # 4. Processing Phase 1: Extract Physics Values from State/Attributes
+            try:
+                # The DF cells contain dicts: {'state': '...', 'attributes': {...}, ...}
+                
+                clean_data = [] # List of dicts
+                
+                # Helper to safely get float state
+                def get_float(cell):
+                    try: 
+                        return float(cell.get('state')) 
+                    except (ValueError, AttributeError, TypeError): 
+                        return np.nan
+    
+                hvac_cols = [c for c in hvac_entities if c in df.columns]
+                if not hvac_cols:
+                     # Should have been caught earlier but safety checks
+                     results[entry.title] = {"error": "No data for HVAC action entities."}
+                     continue
+    
+                solar_unit_str = None
+
+                for ts, row in df.iterrows():
+                    # Indoor / Weather / Solar
+                    t_in = get_float(row.get(indoor_entity, {}))
+                    t_out = get_float(row.get(weather_entity, {}))
+                    
+                    # Solar (Single)
+                    sol = 0.0
+                    if solar_entity:
+                        cell_s = row.get(solar_entity, {})
+                        v = get_float(cell_s)
+                        if not np.isnan(v): sol = v
+                        
+                        # Capture unit once
+                        if solar_unit_str is None:
+                             attrs = cell_s.get('attributes', {})
+                             solar_unit_str = attrs.get('unit_of_measurement')
+                    
+                    # HVAC State & Setpoint
+                    # Logic: OR for state. Setpoint from active entity.
+                    is_heating = False
+                    is_cooling = False
+                    active_setpoint = np.nan
+                    
+                    for c in hvac_cols:
+                        cell = row.get(c, {})
+                        val = str(cell.get('state', '')).lower()
+                        attrs = cell.get('attributes', {})
+                        
+                        # Check Mode
+                        heating_here = val in ['heating', 'heat', 'on']
+                        cooling_here = val in ['cooling', 'cool']
+                        
+                        if heating_here: 
+                            is_heating = True
+                            # Only use temperature
+                            sp = attrs.get('temperature')
+                            if sp is not None:
+                                 try: active_setpoint = float(sp)
+                                 except: pass
+                                 
+                        elif cooling_here: 
+                            is_cooling = True
+                            # Only use temperature
+                            sp = attrs.get('temperature')
+                            if sp is not None:
+                                 try: active_setpoint = float(sp)
+                                 except: pass
+                    
+                    hvac_st = 0.0
+                    if is_heating: hvac_st = 1.0
+                    elif is_cooling: hvac_st = -1.0
+                    
+                    clean_data.append({
+                        'time': ts,
+                        't_in': t_in,
+                        't_out': t_out,
+                        'total_solar': sol,
+                        'hvac_state': hvac_st,
+                        'setpoint': active_setpoint
+                    })
+    
+                df_clean = pd.DataFrame(clean_data)
+                if df_clean.empty:
+                    results[entry.title] = {"error": "Insufficient data after processing."}
+                    continue
+                    
+                df_clean.set_index('time', inplace=True)
+                
+                # Resample
+                from .housetemp.utils import upsample_dataframe
+                from .const import CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP
+                
+                timestep_min = entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
+                
+                df_res = upsample_dataframe(
+                    df_clean, 
+                    freq=f"{timestep_min}min", 
+                    cols_linear=['t_in', 't_out', 'total_solar'], # Physics vars linear
+                    cols_ffill=['hvac_state', 'setpoint']         # State/Setpoint hold
+                )
+                
+                # After ffill, we might still have NaNs at start.
+                df_res['setpoint'] = df_res['setpoint'].fillna(df_res['t_in'])
+                
+                # Post-Process: Convert Solar Units (Energy -> Power)
+                # target: kW
+                if solar_unit_str:
+                     u = solar_unit_str.lower()
+                     factor = 1.0
+                     if 'mw' in u: factor = 1000.0
+                     elif 'kw' in u: factor = 1.0
+                     elif 'w' in u: factor = 0.001
+                     
+                     vals = df_res['total_solar'] * factor
+                     
+                     # Check if Energy (h suffix, e.g. kWh, Wh)
+                     if 'h' in u:
+                          # Cumulative Energy -> Power
+                          # diff() gives dE per timestep
+                          # Power = dE / dt(hours)
+                          dt_h = timestep_min / 60.0
+                          vals = vals.diff().fillna(0.0) / dt_h
+                          # Fix negative spikes from meter resets or jitter
+                          vals = vals.clip(lower=0.0)
+                     
+                     df_res['total_solar'] = vals
+                     
+                # 5. Build Measurements
+                # Extract numpy arrays
+                # Note: columns are normalized to 't_in', 't_out', 'total_solar', 'hvac_state', 'setpoint'
+                
+                t_in = df_res['t_in'].values
+                t_out = df_res['t_out'].values
+                solar = df_res['total_solar'].values
+                hvac_state = df_res['hvac_state'].values
+                
+                # Use extracted setpoint
+                setpoint = df_res['setpoint'].values
+                
+                dt_hours = df_res['dt'].values
+                timestamps = df_res['time'].dt.to_pydatetime()
+                
+                # Drop NaNs (beginning/end of interpolation)
+                mask = ~np.isnan(t_in) & ~np.isnan(t_out) & ~np.isnan(dt_hours) & ~np.isnan(setpoint)
+                if np.sum(mask) < 100:
+                     raise ValueError(f"Insufficient valid data points ({np.sum(mask)}).")
+                
+                meas = Measurements(
+                    timestamps=timestamps[mask],
+                    t_in=t_in[mask],
+                    t_out=t_out[mask],
+                    solar_kw=solar[mask],
+                    hvac_state=hvac_state[mask],
+                    setpoint=setpoint[mask],
+                    dt_hours=dt_hours[mask]
+                )
+    
+                # 6. Run Optimization
+                # Get current params as initial guess
+                from .const import CONF_C_THERMAL, CONF_UA, CONF_K_SOLAR, CONF_Q_INT, CONF_H_FACTOR, CONF_EFF_DERATE
+                current_params = [
+                    entry.data.get(CONF_C_THERMAL, 10000),
+                    entry.data.get(CONF_UA, 750),
+                    entry.data.get(CONF_K_SOLAR, 400),
+                    entry.data.get(CONF_Q_INT, 1500),
+                    entry.data.get(CONF_H_FACTOR, 10000)
+                ]
+                
+                fixed_passive = None
+                if fix_passive:
+                     fixed_passive = current_params[:4] # [C, UA, K, Q]
+                     
+                # Get Hardware Capability
+                hw = coord.heat_pump
+                if not hw:
+                     await coord._setup_heat_pump()
+                     hw = coord.heat_pump
+                
+                opt_res = await hass.async_add_executor_job(
+                    run_optimization,
+                    meas,
+                    hw,
+                    current_params if not fix_passive else None,
+                    fixed_passive,
+                    entry.options.get(CONF_EFF_DERATE, 0.75) # fixed efficiency
+                )
+                
+                if opt_res.success:
+                     res_params = opt_res.x
+                     # Map back to names
+                     # [C, UA, K, Q, H, Eff]
+                     results[entry.title] = {
+                         "success": True,
+                         "c_thermal": round(res_params[0], 1),
+                         "ua": round(res_params[1], 1),
+                         "k_solar": round(res_params[2], 1),
+                         "q_int": round(res_params[3], 1),
+                         "h_factor": round(res_params[4], 1),
+                         "efficiency_derate": round(res_params[5], 3),
+                         "cost": opt_res.fun,
+                         "iterations": opt_res.nit
+                     }
+                else:
+                     results[entry.title] = {
+                         "success": False, 
+                         "error": str(opt_res.message)
+                     }
+
+            except Exception as e:
+                _LOGGER.exception("Calibration failed for %s", entry.title)
+                results[entry.title] = {"error": str(e)}
+
+        if call.return_response:
+             return results
+    
+    hass.services.async_register(
+        DOMAIN,
+        "calibrate",
+        async_handle_calibrate,
+        supports_response=SupportsResponse.OPTIONAL
+    )
+    
     return True
+
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

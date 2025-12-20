@@ -10,5 +10,6 @@ trigger: always_on
    a. Update the `version` key in `custom_components/housetemp/manifest.json`.
    b. Commit the change with a message like "bump version to X.Y.Z".
    c. Create a git tag matching the version number (e.g., `X.Y.Z`).
+   d. Push tags and create a GitHub Release: `git push origin main --tags` and `gh release create X.Y.Z --title "vX.Y.Z" --generate-notes`.
 
 6. **Design.md Scope**: This file MUST contain ONLY the underlying physics, math models, and core control logic. It MUST NOT contain Home Assistant specific details (services, config flows, sensors). You MUST update `Design.md` whenever the foundational models or logic change.

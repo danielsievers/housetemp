@@ -67,3 +67,75 @@ def upsample_dataframe(df: pd.DataFrame, freq: str, cols_linear: list = None, co
     df_out['dt'] = time_diffs.bfill()
     
     return df_out
+
+
+async def fetch_history_frame(hass, entity_ids, start_time, end_time, minimal_response=True):
+    """
+    Fetch history for multiple entities and flatten into a single DataFrame.
+    If minimal_response=False, the cells will contain the full state dict (including attributes).
+    """
+    from homeassistant.components.recorder import history
+    from homeassistant.util import dt as dt_util
+
+    # Run in executor (DB ops)
+    def _fetch():
+        return history.get_significant_states(
+            hass,
+            start_time,
+            end_time,
+            entity_ids=entity_ids,
+            significant_changes_only=False,
+            formatted=True, 
+            minimal_response=minimal_response
+        )
+    
+    history_data = await hass.async_add_executor_job(_fetch)
+    
+    # Process into dict of Series
+    series_dict = {}
+    
+    for eid in entity_ids:
+        states = history_data.get(eid, [])
+        if not states:
+            continue
+            
+        times = []
+        values = []
+        
+        for s in states:
+            try:
+                ts = dt_util.parse_datetime(s['last_updated'])
+                
+                if minimal_response:
+                    # Parse simplified state
+                    state = s['state']
+                    try:
+                        val = float(state)
+                    except ValueError:
+                        val = state
+                    values.append(val)
+                else:
+                    # Return full dict (caller processes state/attributes)
+                    values.append(s)
+                    
+                times.append(ts)
+            except (KeyError, ValueError):
+                continue
+                
+        if times:
+            series_dict[eid] = pd.Series(values, index=pd.to_datetime(times, utc=True))
+    
+    if not series_dict:
+        return pd.DataFrame()
+        
+    # Concat (Outer Join)
+    df = pd.DataFrame(series_dict)
+    
+    # Sort index
+    df = df.sort_index()
+    
+    # No filling here
+    df.index.name = 'time'
+    
+    return df
+

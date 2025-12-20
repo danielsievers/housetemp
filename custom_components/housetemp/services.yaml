@@ -52,3 +52,56 @@ reset_stats:
       integration: housetemp
       domain: sensor
   fields: {}
+
+calibrate:
+  name: Calibrate Parameters
+  description: Analyze historical data to estimate house thermal parameters (C, UA, Solar Gain).
+  target:
+    entity:
+      integration: housetemp
+      domain: sensor
+  fields:
+    start_time:
+      name: Start Time
+      description: "ISO formatted start time (e.g. 2023-01-01T00:00:00). Required."
+      required: true
+      selector:
+        datetime: {}
+    end_time:
+      name: End Time
+      description: "ISO formatted end time. Required."
+      required: true
+      selector:
+        datetime: {}
+    hvac_action_entities:
+      name: HVAC Action Entities
+      description: "Climate entities to track actual heating/cooling state. Required."
+      required: true
+      selector:
+        entity:
+          domain: climate
+          multiple: true
+    outdoor_temp_entity:
+      name: Outdoor Temp Sensor
+      description: "Entity with historical outdoor temperature (numeric). Overrides config."
+      required: false
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    solar_power_entity:
+      name: Solar Power Sensor
+      description: "Sensor for historical solar production (kW/kWh). Required."
+      required: true
+      selector:
+        entity:
+          domain: sensor
+          device_class: power
+    fix_passive:
+      name: Fix Passive Params
+      description: "If true, only optimize active heating params (UA, H-Factor) keeping C/K fixed. Default: False."
+      required: false
+      default: false
+      selector:
+        boolean: {}
+  return_response: true
