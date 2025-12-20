@@ -617,9 +617,23 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Note: estimate_consumption might mutate measurements? It shouldn't, but let's be safe.
         # It calls run_model, which doesn't mutate.
         baseline_kwh = 0.0
+        
+        # Get True-Off config for consistent energy accounting
+        options = self.config_entry.options
+        hvac_mode = options.get(CONF_HVAC_MODE, "heat")
+        hvac_mode_val_baseline = 1 if hvac_mode == "heat" else -1
+        min_setpoint_val = float(options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT))
+        max_setpoint_val = float(options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT))
+        
         try:
              baseline_res = await self.hass.async_add_executor_job(
-                 estimate_consumption, measurements, params, self.heat_pump
+                 estimate_consumption, measurements, params, self.heat_pump, 
+                 0.45,  # cost_per_kwh (positional)
+                 None,  # setpoints - use data.setpoint (schedule) for baseline
+                 hvac_mode_val_baseline,
+                 min_setpoint_val,
+                 max_setpoint_val,
+                 CONF_OFF_INTENT_EPS
              )
              baseline_kwh = baseline_res.get('total_kwh', 0.0)
         except Exception as e:

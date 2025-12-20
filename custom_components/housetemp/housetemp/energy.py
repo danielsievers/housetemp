@@ -21,10 +21,16 @@ TOLERANCE_COP_WARN = 0.1    # Physical plausibility warning threshold
 # PLF Constants
 PLF_MIN_DEFAULT = 0.5   # Default minimum Part-Load Factor if not on HW
 
-def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH):
+def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1):
     """
     Calculates estimated kWh usage and cost based on the thermal model fits.
     Applies Mitsubishi-specific Part-Load Efficiency corrections.
+    
+    Args:
+        setpoints: If provided, enables True-Off accounting. If None, uses data.setpoint.
+        hvac_mode_val: +1 for heat, -1 for cool.
+        min_setpoint, max_setpoint: Bounds for True-Off detection.
+        off_intent_eps: Tolerance for boundary detection.
     """
     # hw is passed in
     
@@ -44,9 +50,22 @@ def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH):
         eff_derate = params[5]
     else:
         eff_derate = 1.0
+    
+    # Use provided setpoints or fall back to data.setpoint for True-Off accounting
+    effective_setpoints = setpoints if setpoints is not None else data.setpoint
         
     # hvac_produced is GROSS (Pre-Derate). Pass eff_derate=1.0.
-    return calculate_energy_stats(hvac_produced, data, hw, h_factor=params[4], eff_derate=1.0, cost_per_kwh=cost_per_kwh)
+    return calculate_energy_stats(
+        hvac_produced, data, hw, 
+        h_factor=params[4], 
+        eff_derate=1.0, 
+        cost_per_kwh=cost_per_kwh,
+        setpoints=effective_setpoints,
+        hvac_mode_val=hvac_mode_val,
+        min_setpoint=min_setpoint,
+        max_setpoint=max_setpoint,
+        off_intent_eps=off_intent_eps
+    )
 
 
 def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw, eff_derate=1.0, hvac_states=None, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1, t_out=None, include_defrost=False):
@@ -167,10 +186,16 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
 
 
 
-def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEFAULT_EFFICIENCY_DERATE, cost_per_kwh=DEFAULT_COST_PER_KWH):
+def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEFAULT_EFFICIENCY_DERATE, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1):
     """
     Calculates energy stats from known HVAC outputs.
     Avoids re-running simulation.
+    
+    Args:
+        setpoints: If provided, enables True-Off accounting (setpoint at floor/ceiling = no idle power).
+        hvac_mode_val: +1 for heat, -1 for cool.
+        min_setpoint, max_setpoint: Bounds for True-Off detection.
+        off_intent_eps: Tolerance for boundary detection.
     """
     if hw is None:
         return {'total_kwh': 0.0, 'total_cost': 0.0}
@@ -193,8 +218,20 @@ def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEF
     max_slice = max_caps[:num_steps]
     cop_slice = base_cops[:num_steps]
     hvac_state_slice = data.hvac_state[:num_steps]
+    setpoint_slice = setpoints[:num_steps] if setpoints is not None else None
     
-    res = calculate_energy_vectorized(hvac_out_slice, dt_slice, max_slice, cop_slice, hw, eff_derate=eff_derate, hvac_states=hvac_state_slice, t_out=data.t_out[:num_steps], include_defrost=True)
+    res = calculate_energy_vectorized(
+        hvac_out_slice, dt_slice, max_slice, cop_slice, hw, 
+        eff_derate=eff_derate, 
+        hvac_states=hvac_state_slice, 
+        setpoints=setpoint_slice,
+        hvac_mode_val=hvac_mode_val,
+        min_setpoint=min_setpoint,
+        max_setpoint=max_setpoint,
+        off_intent_eps=off_intent_eps,
+        t_out=data.t_out[:num_steps], 
+        include_defrost=True
+    )
     total_kwh = res['kwh']
 
     # --- REPORTING ---
