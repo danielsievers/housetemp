@@ -177,9 +177,28 @@ The system uses two distinct physics models for different purposes:
 
 ### 8.1 Continuous Model (Optimization)
 Used by the L-BFGS-B optimizer. Provides smooth, differentiable physics with no discrete state transitions.
-*   HVAC output modulates continuously based on setpoint-temperature gap.
+
+**Design Intent: Average Thermal Power**
+*   HVAC output modulates continuously based on setpoint-temperature gap (proportional control).
+*   Arbitrarily small outputs are allowed—no minimum output floor in physics.
 *   No hysteresis or minimum on/off times.
 *   Enables gradient-based optimization to find optimal setpoint schedules.
+
+**Cycling Semantics**
+The continuous model deliberately ignores `min_output` constraints. Cycling behavior (where output < min_output implies duty-cycling at min_output with D = output/min_output) is handled **exclusively in the energy layer**, not in physics.
+
+This separation ensures:
+1.  The physics gradients remain smooth for L-BFGS-B.
+2.  The optimizer correctly "sees" the energy cost of low-load operation through the energy layer's PLF and duty-cycle adjustments.
+3.  Thermal delivery uses average power (correct for dT/dt integration over timestep).
+
+**Soft-Start Ramp Gating**
+The soft-start penalty applies only when the compressor is actually producing output:
+*   "Active" threshold: $\max(1.0, 0.05 \times Q_{min})$ BTU/hr
+*   If output > threshold: advance ramp timer (compressor warming up)
+*   If output ≤ threshold: reset ramp timer (compressor effectively off)
+
+This prevents the optimizer from exploiting "free" ramp-ups after periods where demand was satisfied but mode remained enabled.
 
 ### 8.2 Discrete Model (Verification)
 Simulates realistic thermostat behavior for accurate energy estimation and verification.

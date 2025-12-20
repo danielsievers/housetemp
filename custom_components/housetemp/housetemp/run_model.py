@@ -3,6 +3,13 @@ import numpy as np
 import logging
 from .measurements import Measurements
 
+try:
+    from ..const import TOLERANCE_BTU_ACTIVE, TOLERANCE_BTU_FRACTION
+except (ImportError, ValueError):
+    # Fallback for standalone library usage
+    TOLERANCE_BTU_ACTIVE = 1.0
+    TOLERANCE_BTU_FRACTION = 0.05
+
 _LOGGER = logging.getLogger(__name__)
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---
@@ -155,17 +162,8 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
         q_hvac = 0.0
         
         if requested_mode != 0 and not is_true_off:
-            elapsed_active_minutes += (dt_hours_list[i] * 60.0)          
-            # Soft Start Ramp
-            ramp_factor = 1.0
-            if elapsed_active_minutes < SOFT_START_RAMP_MINUTES:
-                ramp_factor = elapsed_active_minutes / SOFT_START_RAMP_MINUTES
-                if ramp_factor < SOFT_START_MIN_FACTOR: ramp_factor = SOFT_START_MIN_FACTOR
-
             if requested_mode > 0: # HEATING
                 # Proportional Control (Inverter Logic)
-                # request = min + H * dist
-                # Force strictly positive contribution if below setpoint
                 gap = setpoint - current_temp
                 
                 # Continuous Logic: Pure Proportional (Duty Cycle Approximation)
@@ -197,17 +195,27 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
                     
                 q_hvac = -request
             
-            # produced = gross un-derated un-ramped? 
-            # Actually energy calc expects "hvac_produced" to be the raw capacity demand?
-            # Or the resulting thermal output?
-            # Standard: produced = q_hvac (before derate/ramp? or after?)
-            # run_model_fast previously returned q_hvac BEFORE derate/ramp in produced info?
-            # Checking previous code: 
-            # hvac_produced_list[i] = q_hvac (calculated from request)
-            # then q_hvac *= eff_derate
-            # then q_hvac *= ramp_factor
-            
+            # Store produced BEFORE derate/ramp (gross output for energy billing)
             hvac_produced_list[i] = q_hvac
+            
+            # --- Soft-Start Ramp (Gated on Actual Output) ---
+            # Only advance ramp timer if compressor is actually producing output.
+            # This prevents the optimizer from exploiting "free" ramp-ups after
+            # periods where demand was satisfied (gap <= 0) but mode was enabled.
+            # Use min_output-relative threshold to avoid spurious resets on small-but-real outputs.
+            active_threshold = max(TOLERANCE_BTU_ACTIVE, TOLERANCE_BTU_FRACTION * min_output)
+            if abs(q_hvac) > active_threshold:
+                elapsed_active_minutes += (dt_hours_list[i] * 60.0)
+            else:
+                # No meaningful output -> reset ramp state
+                elapsed_active_minutes = 0.0
+            
+            # Apply ramp factor
+            ramp_factor = 1.0
+            if elapsed_active_minutes < SOFT_START_RAMP_MINUTES:
+                ramp_factor = elapsed_active_minutes / SOFT_START_RAMP_MINUTES
+                if ramp_factor < SOFT_START_MIN_FACTOR: 
+                    ramp_factor = SOFT_START_MIN_FACTOR
             
             if eff_derate != 1.0:
                 q_hvac *= eff_derate

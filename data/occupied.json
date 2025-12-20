@@ -5,6 +5,6 @@
     "K_solar": 970.6309012122009,
     "Q_int": 1733.236978806892,
     "H_factor": 9969.876728178731,
-    # duct losses
+    // duct losses
     "efficiency_derate": 0.75
 }

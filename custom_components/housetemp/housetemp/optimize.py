@@ -204,8 +204,11 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     else:
         raise ValueError("Comfort config must specify 'mode': 'heat' or 'cool'. Auto mode is no longer supported.")
         
-    original_hvac_state = data.hvac_state.copy()
-    data.hvac_state[:] = hvac_mode_val
+    # --- Defensive Copy Pattern (Exception-Safe) ---
+    # Instead of mutating data.hvac_state, create a working copy.
+    # This eliminates the need for try/finally restoration.
+    working_hvac_state = np.full_like(data.hvac_state, hvac_mode_val, dtype=data.hvac_state.dtype)
+    working_hvac_state_list = working_hvac_state.tolist()
     
     # Fallback: If no explicit fixed_mask passed, check data object
     if fixed_mask is None and data.is_setpoint_fixed is not None:
@@ -216,7 +219,6 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     t_out_list = data.t_out.tolist()
     solar_kw_list = data.solar_kw.tolist()
     dt_hours_list = data.dt_hours.tolist()
-    # hvac_state_list = data.hvac_state.tolist() # REMOVED: Now derived inside loop
     
     # Pre-calculate hardware limits (List format for kernel)
     max_caps_list = hw.get_max_capacity(data.t_out).tolist()
@@ -324,7 +326,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # --- Use Raw Intent for Physics & Energy ---
             # We no longer "soft gate" hvac_state in the optimizer.
             # We pass the raw intent (+1/-1) and let energy.py handle "True Off" accounting based on setpoints.
-            hvac_state_list = data.hvac_state.tolist() # Raw intent (+1 or -1 from config)
+            hvac_state_list = working_hvac_state_list  # Use working copy (not data.hvac_state)
 
             # 2. Run THIN Kernel
             start_temp = float(data.t_in[0]) # Ensure start_temp is float
@@ -362,7 +364,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 base_cops_np, 
                 hw, 
                 eff_derate=1.0, # Produced is Gross (Pre-Derate)
-                hvac_states=data.hvac_state, # Raw intent for Idle/Blower enablement
+                hvac_states=working_hvac_state, # Working copy for Idle/Blower enablement
                 setpoints=effective_setpoints, # Use rounded setpoints for stable True-Off accounting
                 hvac_mode_val=hvac_mode_val, 
                 min_setpoint=min_setpoint,
@@ -520,9 +522,6 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     indices = np.clip(indices, 0, len(final_blocks) - 1)
     
     final_setpoints = final_blocks[indices]
-    
-    # cleanup: restore original hvac state to object
-    data.hvac_state[:] = original_hvac_state
     
     # Metadata
     debug_info = {

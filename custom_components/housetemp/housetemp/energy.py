@@ -2,6 +2,12 @@ import numpy as np
 import logging
 from . import run_model
 
+try:
+    from ..const import TOLERANCE_BTU_ACTIVE
+except (ImportError, ValueError):
+    # Fallback for standalone library usage
+    TOLERANCE_BTU_ACTIVE = 1.0
+
 _LOGGER = logging.getLogger(__name__)
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---
@@ -13,8 +19,8 @@ KW_TO_WATTS = 1000.0
 BTU_TO_WATTS = 0.293071 # 1 / 3.412
 BTU_TO_KWH = 0.000293071
 
-# Tolerance Thresholds
-TOLERANCE_BTU = 1.0   # Minimum output to consider "Active"
+# Tolerance Thresholds (use shared constant for "active" detection)
+TOLERANCE_BTU = TOLERANCE_BTU_ACTIVE  # Alias for backward compatibility
 TOLERANCE_COP_FLOOR = 1e-3  # Numerical safety floor for COP
 TOLERANCE_COP_WARN = 0.1    # Physical plausibility warning threshold
 
@@ -192,8 +198,9 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     # 4) Validation warning
     mismatch = off_intent & (produced_output > TOLERANCE_BTU)
     if np.any(mismatch):
-         # Only warn if significant
-         pass 
+        mismatch_count = np.sum(mismatch)
+        max_output = np.max(produced_output[mismatch])
+        _LOGGER.debug(f"True-Off mismatch: {mismatch_count} steps have output (max {max_output:.0f} BTU/hr) despite off-intent setpoint.")
 
     # 5. Defrost Penalty (Reporting Only)
     # Re-using logic if needed, but keeping it simple for now to fix syntax.

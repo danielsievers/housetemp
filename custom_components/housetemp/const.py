@@ -83,6 +83,10 @@ DEFAULT_SWING_TEMP = 1.0
 DEFAULT_MIN_CYCLE_MINUTES = 15.0
 DEFAULT_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" accounting
 
+# Energy/Physics Tolerances
+TOLERANCE_BTU_ACTIVE = 1.0    # Minimum output (BTU/hr) to consider "active" (absolute floor)
+TOLERANCE_BTU_FRACTION = 0.05  # Fraction of min_output to consider "active" (relative threshold)
+
 # --- Configuration Keys ---
 DEFAULT_CENTER_PREFERENCE = 1.0
 DEFAULT_SCHEDULE_CONFIG = """{
