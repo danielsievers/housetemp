@@ -228,3 +228,38 @@ async def test_gap_neutrality_in_simulation(hass, coordinator, mock_data):
         # It should preserve its original hvac_state and use target_temp for setpoint.
         assert float(ms.setpoint[0]) == 70.0
 
+@pytest.mark.asyncio
+async def test_optimization_includes_energy_steps(hass, coordinator, mock_data):
+    """Test that optimization result includes per-step energy for hourly aggregation.
+    
+    This prevents regressions where energy_per_hour disappears from sensor attributes.
+    """
+    ms, params, start_time = mock_data
+    
+    optimized_setpoints = np.array([72.0, 72.0, 71.0, 71.0])
+    
+    # Mock energy calculation to return kwh_steps
+    mock_energy_result = {
+        'kwh': 1.5,
+        'kwh_steps': np.array([0.4, 0.4, 0.35, 0.35]),  # Per-step energy
+        'load_ratios': np.array([0.5, 0.5, 0.4, 0.4])
+    }
+    
+    with patch.object(coordinator, "_prepare_simulation_inputs", return_value=(ms, params, start_time)), \
+         patch("custom_components.housetemp.coordinator.optimize_hvac_schedule", return_value=(optimized_setpoints, {"success": True})), \
+         patch("custom_components.housetemp.coordinator.estimate_consumption", return_value={'total_kwh': 2.0}), \
+         patch("custom_components.housetemp.coordinator.run_model_continuous", return_value=([68.0]*4, [1000.0]*4, [1000.0]*4)), \
+         patch("custom_components.housetemp.coordinator.run_model_discrete", return_value=([68.0]*4, [1000.0]*4, [1000.0]*4, [1]*4, {})), \
+         patch("custom_components.housetemp.coordinator.calculate_energy_vectorized", return_value=mock_energy_result), \
+         patch.object(coordinator, "async_set_updated_data") as mock_set_data:
+        
+        await coordinator.async_trigger_optimization()
+        
+        # Verify async_set_updated_data was called with data containing energy_kwh_steps
+        assert mock_set_data.called
+        call_args = mock_set_data.call_args[0][0]  # First positional arg
+        
+        assert "energy_kwh_steps" in call_args, "energy_kwh_steps missing from coordinator data after optimization"
+        assert call_args["energy_kwh_steps"] is not None, "energy_kwh_steps should not be None"
+        # Verify it has the correct length
+        assert len(call_args["energy_kwh_steps"]) == len(ms.timestamps), "energy_kwh_steps length mismatch"
