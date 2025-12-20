@@ -319,9 +319,19 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             full_res_setpoints = candidate_blocks[sim_to_block_map]
             
             # --- Late Rounding Strategy ---
+            # We use RAW setpoints for physics simulation to maintain gradients.
+            # However, for True-Off accounting (Idle/Blower detection), we use 
+            # quantized (effective_setpoints) to match real thermostat behavior.
             effective_setpoints = np.round(full_res_setpoints)
+            
+            # Continuity Penalty (L2 on Rounding Error): 
+            # Nudges the solver towards integer setpoints during the search to 
+            # minimize discrepancy between the "gradient-friendly" continuous 
+            # simulation and the "reality" of a discrete thermostat.
             continuity_penalty = CONFIG_CONTINUITY_WEIGHT * np.sum((full_res_setpoints - effective_setpoints)**2)
-            setpoint_list = effective_setpoints.tolist()
+            
+            # Physics sees continuous values for gradients
+            setpoint_list = full_res_setpoints.tolist()
             
             # --- Use Raw Intent for Physics & Energy ---
             # We no longer "soft gate" hvac_state in the optimizer.
