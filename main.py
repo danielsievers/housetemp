@@ -325,7 +325,24 @@ def run_main(args_list=None):
         print(f"Internal Heat (Q_int): {initial_params[3]:.0f} (Fixed)")
         
     # --- MODE 3: FULL OPTIMIZATION (Train Model) ---
-    optimization_result = optimize.run_optimization(measurements, hw, initial_guess=initial_params, fixed_passive_params=fixed_passive_params)
+    fixed_eff_derate = None
+    if args.fix_passive and fixed_passive_params:
+         # Try to extract efficiency from the loaded model (Index 5)
+         full_source_params = load_model(args.fix_passive)
+         if len(full_source_params) > 5:
+             fixed_eff_derate = full_source_params[5]
+             print(f"Using fixed efficiency_derate from file: {fixed_eff_derate}")
+         else:
+             fixed_eff_derate = optimize.DEFAULT_EFFICIENCY_DERATE
+             print(f"File missing efficiency_derate. Using default: {fixed_eff_derate}")
+
+    optimization_result = optimize.run_optimization(
+        measurements, 
+        hw, 
+        initial_guess=initial_params, 
+        fixed_passive_params=fixed_passive_params,
+        fixed_efficiency_derate=fixed_eff_derate
+    )
     
     if optimization_result.success:
         print("\nOptimization converged successfully!")

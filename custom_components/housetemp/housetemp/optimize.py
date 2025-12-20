@@ -75,7 +75,7 @@ _LOGGER = logging.getLogger(__name__)
 # Yes, `run_model` definition I wrote has `swing_temp=1.0, min_cycle_minutes=15` defaults.
 # So loss_function is safe if it doesn't pass them (uses defaults).
 
-def loss_function(active_params, data, hw, fixed_passive_params=None):
+def loss_function(active_params, data, hw, fixed_passive_params=None, fixed_efficiency_derate=None):
     # Construct full params vector
     if fixed_passive_params:
         # fixed_passive_params comes in as [C, UA, K, Q]
@@ -85,8 +85,8 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
         h_factor = active_params[1]
         
         # Fixed Derate (Duct Efficiency) - NOT OPTIMIZED
-        # We assume 0.85 (15% loss) unless passed in data?
-        eff_derate = DEFAULT_EFFICIENCY_DERATE
+        # Use value passed from run_optimization (which comes from file or default)
+        eff_derate = float(fixed_efficiency_derate if fixed_efficiency_derate is not None else DEFAULT_EFFICIENCY_DERATE)
         
         # Construct using fixed C, K, Q
         c = fixed_passive_params[0]
@@ -99,7 +99,8 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
         # Optimizing EVERYTHING
         # active_params = [C, UA, K_solar, Q_int, H_factor]
         # efficiency_derate is appended as fixed constant
-        full_params = list(active_params) + [DEFAULT_EFFICIENCY_DERATE]
+        eff_derate = float(fixed_efficiency_derate if fixed_efficiency_derate is not None else DEFAULT_EFFICIENCY_DERATE)
+        full_params = list(active_params) + [eff_derate]
 
     # 1. Run Simulation
     # Note: run_model returns 5 values now (temps, rmse, delivered, produced, actual_state)
@@ -119,7 +120,7 @@ def loss_function(active_params, data, hw, fixed_passive_params=None):
     
     return error
 
-def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
+def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None, fixed_efficiency_derate=None):
     # hw is now passed in
     
     if fixed_passive_params:
@@ -145,33 +146,44 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
             BOUNDS_K_SOLAR,
             BOUNDS_Q_INT,
             BOUNDS_H_FACTOR
-        ]   
-
+        ]
+        
     print("Starting Optimization...")
+    eff = float(fixed_efficiency_derate if fixed_efficiency_derate is not None else DEFAULT_EFFICIENCY_DERATE)
+    
     result = minimize(
         loss_function, 
         initial_guess, 
-        args=(data, hw, fixed_passive_params), 
-        bounds=bounds, 
-        method='L-BFGS-B'
+        args=(data, hw, fixed_passive_params, eff), 
+        method='L-BFGS-B', 
+        bounds=bounds,
+        options={'disp': True}
     )
-    
-    if fixed_passive_params:
+
+    if result.success:
         # Reconstruct full parameter set for return
         best_active = result.x
         
-        # best_active = [UA, H]
-        ua = best_active[0]
-        h = best_active[1]
-        c = fixed_passive_params[0]
-        k = fixed_passive_params[2]
-        q = fixed_passive_params[3]
-         
-        full_params = [c, ua, k, q, h]
-        
-        # Result type needs to mock the scipy result object or we just modify result.x
-        result.x = np.array(full_params)
-        
+        if fixed_passive_params:
+            # best_active = [UA, H]
+            ua = best_active[0]
+            h = best_active[1]
+            c = fixed_passive_params[0]
+            k = fixed_passive_params[2]
+            q = fixed_passive_params[3]
+             
+            full_params = [c, ua, k, q, h, eff]
+            
+            # Result type needs to mock the scipy result object or we just modify result.x
+            result.x = np.array(full_params)
+        else:
+            # Full Optimization
+            # best_active = [C, UA, K, Q, H]
+            
+            # Append fixed efficiency for Result (restoring 6-param structure)
+            full_params = list(best_active) + [eff]
+            result.x = np.array(full_params)
+            
     return result
 
 def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block_size_minutes=30, fixed_mask=None, enable_multiscale=True):
