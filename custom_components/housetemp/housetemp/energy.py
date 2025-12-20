@@ -6,7 +6,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---
 DEFAULT_COST_PER_KWH = 0.45
-DEFAULT_EFFICIENCY_DERATE = 1.0
+DEFAULT_EFFICIENCY_DERATE = 0.75
 
 # --- TRUE CONSTANTS (Physical/Mathematical) ---
 KW_TO_WATTS = 1000.0

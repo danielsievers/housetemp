@@ -163,13 +163,11 @@ def run_optimization(data, hw, initial_guess=None, fixed_passive_params=None):
         # best_active = [UA, H]
         ua = best_active[0]
         h = best_active[1]
-        eff = DEFAULT_EFFICIENCY_DERATE
-         
         c = fixed_passive_params[0]
         k = fixed_passive_params[2]
         q = fixed_passive_params[3]
          
-        full_params = [c, ua, k, q, h, eff]
+        full_params = [c, ua, k, q, h]
         
         # Result type needs to mock the scipy result object or we just modify result.x
         result.x = np.array(full_params)
