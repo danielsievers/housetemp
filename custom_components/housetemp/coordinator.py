@@ -451,8 +451,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # A. Continuous Optimized (The run we just did)
         # Note: If has_optimized_data is False, this is technically Naive.
         eng_continuous_opt_res = calc_energy(np.array(hvac_produced_continuous), measurements.setpoint, hvac_mode_val)
-        eng_continuous_opt = eng_continuous_opt_res['kwh']
-        energy_kwh_continuous_optimized = eng_continuous_opt
+        energy_kwh_continuous_optimized = eng_continuous_opt_res['kwh']
+        energy_kwh_steps = eng_continuous_opt_res.get('kwh_steps')  # Per-step energy for sensor aggregation
 
         # B. Discrete Optimized (Verification)
         # --------------------------------------------------------------------------------
@@ -522,7 +522,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # 8. Return Result
         return self._build_coordinator_data(
             timestamps, sim_temps, measurements, optimized_setpoint_attr if has_optimized_data else None,
-            # We pass all 4 metrics + diagnostics
             metrics={
                 "continuous_naive": energy_kwh_continuous_naive,
                 "continuous_optimized": energy_kwh_continuous_optimized,
@@ -530,17 +529,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 "discrete_optimized": energy_kwh_discrete_optimized,
                 "discrete_diagnostics": diagnostics
             },
-            original_schedule=setpoint_arr
-            # Note: energy_kwh_steps removed? Or calculate steps from Continuous Optimized?
-            # Ideally we show steps from Continuous Optimized (Smooth) or Discrete (Real)?
-            # Dashboard usually shows "Expected Consumption". 
-            # Continuous is "Expected Ideal". Discrete is "Expected Real".
-            # Let's return Continuous Steps for now (smoother graph), but report Totals for discrete.
-            # actually we don't have step array here, just totals.
-            # calc_energy returns total.
+            original_schedule=setpoint_arr,
+            energy_kwh_steps=energy_kwh_steps
         )
 
-    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, metrics=None, original_schedule=None):
+    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, metrics=None, original_schedule=None, energy_kwh_steps=None):
         """Build the coordinator data dict from simulation results."""
         if metrics is None: metrics = {}
         
@@ -557,6 +550,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # Legacy fields (mapped to Continuous for backward compat or primary display)
             "energy_kwh": metrics.get("continuous_naive"),
             "optimized_energy_kwh": metrics.get("continuous_optimized"),
+            "energy_kwh_steps": energy_kwh_steps,  # Per-step energy for sensor hourly aggregation
             # NEW: Detailed Metrics
             "energy_metrics": {
                 "continuous_naive": metrics.get("continuous_naive"),
