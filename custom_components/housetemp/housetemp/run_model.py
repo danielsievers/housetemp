@@ -106,15 +106,124 @@ class HeatPump:
         # This is optimistic (efficiency should drop), but we logged the warning above.
         return cop
 
-def run_model_fast(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
+    def get_cooling_cop(self, t_out_array):
+        # Base interpolation using cooling curve
+        cop = np.interp(t_out_array, self.cool_cop_x, self.cool_cop_y)
+        
+        # Safety: Check bounds
+        self._check_bounds(t_out_array, self.cool_cop_x, "Cooling COP")
+        
+        # Note: High temp extrapolation for cooling is handled by np.interp holding the last value.
+        # This is optimistic (efficiency should drop), but we logged the warning above.
+        return cop
+
+def run_model_continuous(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
     """
-    Fastest possible simulation loop for HA Green (ARM).
-    Accepts PURE PYTHON LISTS (not numpy arrays) for maximum scalar iteration speed.
+    Pure Continuous Physics Model (L-BFGS-B Safe).
+    No hysteresis, no timers, no discrete state.
     
-    Returns:
-        sim_temps_list: Indoor temperature history.
-        hvac_outputs_list: Delivered Heat (Net) - After Derate & Soft Start. (Physics)
-        hvac_produced_list: Produced Heat (Gross) - Before Derate & Ramp. (Energy Bill)
+    hvac_state_list is treated as "enabled mode intent" (+1 heat / -1 cool / 0 off).
+    """
+    # Unpack params
+    C_thermal = params[0]
+    UA = params[1]
+    K_solar = params[2]
+    Q_int = params[3]
+    H_factor = params[4]
+    
+    total_steps = len(t_out_list)
+    sim_temps_list = [0.0] * total_steps
+    hvac_outputs_list = [0.0] * total_steps # Delivered (Physics)
+    hvac_produced_list = [0.0] * total_steps # Produced (Gross/Energy)
+    
+    current_temp = float(start_temp)
+    elapsed_active_minutes = 0.0 # For soft start (optional to keep or remove, keeping for consistency)
+    
+    for i in range(total_steps):
+        sim_temps_list[i] = current_temp
+        
+        # A. Passive Physics
+        q_leak = UA * (t_out_list[i] - current_temp)
+        q_solar = solar_kw_list[i] * K_solar
+        
+        # B. HVAC Physics (Continuous)
+        requested_mode = hvac_state_list[i] # +1/-1/0
+        setpoint = setpoint_list[i]
+        q_hvac = 0.0
+        
+        dt_min = dt_hours_list[i] * 60.0
+        
+        if requested_mode != 0:
+            elapsed_active_minutes += dt_min
+            
+            # Soft Start Ramp
+            ramp_factor = 1.0
+            if elapsed_active_minutes < SOFT_START_RAMP_MINUTES:
+                ramp_factor = elapsed_active_minutes / SOFT_START_RAMP_MINUTES
+                if ramp_factor < SOFT_START_MIN_FACTOR: ramp_factor = SOFT_START_MIN_FACTOR
+
+            if requested_mode > 0: # HEATING
+                # Proportional Control (Inverter Logic)
+                # request = min + H * dist
+                # Force strictly positive contribution if below setpoint
+                gap = setpoint - current_temp
+                
+                # Continuous Logic: We allow modulation.
+                # If gap is negative (over setpoint), we allow 0.0 or min_output?
+                # For continuous optimizer, strictly following the curve is best.
+                request = min_output + (H_factor * max(0, gap))
+                
+                # Cap
+                cap = max_caps_list[i]
+                if request > cap:
+                    request = cap
+                
+                q_hvac = request
+
+            elif requested_mode < 0: # COOLING
+                gap = current_temp - setpoint
+                request = min_output + (H_factor * max(0, gap))
+                
+                if request > max_cool:
+                    request = max_cool
+                    
+                q_hvac = -request
+            
+            # produced = gross un-derated un-ramped? 
+            # Actually energy calc expects "hvac_produced" to be the raw capacity demand?
+            # Or the resulting thermal output?
+            # Standard: produced = q_hvac (before derate/ramp? or after?)
+            # run_model_fast previously returned q_hvac BEFORE derate/ramp in produced info?
+            # Checking previous code: 
+            # hvac_produced_list[i] = q_hvac (calculated from request)
+            # then q_hvac *= eff_derate
+            # then q_hvac *= ramp_factor
+            
+            hvac_produced_list[i] = q_hvac
+            
+            if eff_derate != 1.0:
+                q_hvac *= eff_derate
+            
+            q_hvac *= ramp_factor
+            
+        else:
+            elapsed_active_minutes = 0.0
+            hvac_produced_list[i] = 0.0
+        
+        hvac_outputs_list[i] = q_hvac
+
+        # C. Integration
+        q_total = q_leak + q_solar + Q_int + q_hvac
+        delta_T = (q_total * dt_hours_list[i]) / C_thermal
+        current_temp += delta_T
+
+    return sim_temps_list, hvac_outputs_list, hvac_produced_list
+
+def run_model_discrete(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, swing_temp, min_cycle_minutes):
+    """
+    Discrete Verification Model.
+    Implements Hysteresis (Swing) + Minimum On/Off Timers.
+    Returns actual_hvac_state + Diagnostics.
     """
     # Unpack params
     C_thermal = params[0]
@@ -126,98 +235,185 @@ def run_model_fast(params, t_out_list, solar_kw_list, dt_hours_list, setpoint_li
     total_steps = len(t_out_list)
     sim_temps_list = [0.0] * total_steps
     hvac_outputs_list = [0.0] * total_steps
-    hvac_produced_list = [0.0] * total_steps # Unramped for Energy Calc
+    hvac_produced_list = [0.0] * total_steps
+    actual_hvac_state_list = [0] * total_steps 
     
     current_temp = float(start_temp)
-    
-    # Pre-resolve len to avoid lookup
-    # Actually range(total_steps) is efficient enough
     elapsed_active_minutes = 0.0
-    prev_mode = 0
     
+    # State Machine
+    current_state = 0 # 0=Off, 1=Heat, -1=Cool
+    min_on_timer = 0.0
+    min_off_timer = 0.0
+    
+    half_swing = swing_temp / 2.0
+    
+    # Diagnostics
+    diag_cycles = 0
+    diag_on_min = 0.0
+    diag_off_min = 0.0
+    diag_active_min = 0.0 # Based on produced > TOLERANCE
+    TOLERANCE_BTU = 1.0
+
     for i in range(total_steps):
         sim_temps_list[i] = current_temp
         
-        # A. Passive Physics
         q_leak = UA * (t_out_list[i] - current_temp)
         q_solar = solar_kw_list[i] * K_solar
+        dt_min = dt_hours_list[i] * 60.0
         
-        # B. Active HVAC Physics
+        # 1. Decrement Timers
+        if min_on_timer > 0: min_on_timer -= dt_min
+        if min_off_timer > 0: min_off_timer -= dt_min
+        
+        # 2. Determine Intent
+        # req_intent is purely from schedule (+1/-1/0)
+        req_intent = hvac_state_list[i]
+        setpoint = setpoint_list[i]
+        
+        # 3. State Transition Logic
+        next_state = current_state
+        
+        if current_state == 0:
+            # OFF -> Need min_off_timer <= 0 to switch ON
+            if min_off_timer <= 0 and req_intent != 0:
+                # Check thresholds
+                if req_intent > 0: # Heat
+                    if current_temp < (setpoint - half_swing):
+                        next_state = 1
+                        min_on_timer = min_cycle_minutes
+                        diag_cycles += 1
+                elif req_intent < 0: # Cool
+                    if current_temp > (setpoint + half_swing):
+                        next_state = -1
+                        min_on_timer = min_cycle_minutes
+                        diag_cycles += 1
+        else:
+            # ON (1 or -1) -> Need min_on_timer <= 0 to switch OFF
+            # Also forced OFF if disabled by schedule or Mode Swap
+            
+            # Check Force OFF conditions
+            force_off = False
+            if req_intent == 0: force_off = True # Schedule disabled
+            elif current_state == 1 and req_intent == -1: force_off = True # Mode Swap Heat->Cool
+            elif current_state == -1 and req_intent == 1: force_off = True # Mode Swap Cool->Heat
+            
+            if force_off:
+                 # If timer locked, we might violate min_on? 
+                 # Usually safety implies satisfying min-on first?
+                 # OR safety implies shutting down if user disabled?
+                 # Let's say user override respects timers? Or safety (Force Off) overrides timers?
+                 # Assuming "Schedule Disable" respects timers? 
+                 # For robust parity, let's say we hold ON until timer expires, UNLESS safety/emergency.
+                 # Simplifying: Wait for timer.
+                 if min_on_timer <= 0:
+                     next_state = 0
+                     min_off_timer = min_cycle_minutes
+            else:
+                # Normal Hysteresis Check
+                if min_on_timer <= 0:
+                    if current_state == 1: # Heat
+                        if current_temp > (setpoint + half_swing):
+                            next_state = 0
+                            min_off_timer = min_cycle_minutes
+                    elif current_state == -1: # Cool
+                        if current_temp < (setpoint - half_swing):
+                            next_state = 0
+                            min_off_timer = min_cycle_minutes
+        
+        current_state = next_state
+        actual_hvac_state_list[i] = current_state
+        
+        # 4. HVAC Physics (Discrete)
         q_hvac = 0.0
-        mode = hvac_state_list[i]
-        
-        if mode != 0:
-            # Soft Start / Thermal Inertia Logic
-            # High static ducts take time to pressurize/heat. 
-            # Prevents optimizer from "bursting" heat for 1-2 mins.
-            if mode != prev_mode:
-                # Just started (or switched mode)
-                elapsed_active_minutes = 0.0
-            
-            # Increment elapsed time
-            dt_min = dt_hours_list[i] * 60.0
+        if current_state != 0:
             elapsed_active_minutes += dt_min
+            diag_on_min += dt_min
             
-            # 5-minute ramp up to full capacity
+            # Ramp
             ramp_factor = 1.0
             if elapsed_active_minutes < SOFT_START_RAMP_MINUTES:
                 ramp_factor = elapsed_active_minutes / SOFT_START_RAMP_MINUTES
-                if ramp_factor < SOFT_START_MIN_FACTOR: ramp_factor = SOFT_START_MIN_FACTOR # Avoid true zero if dt is tiny? No, 0 is fine.
-
+                if ramp_factor < SOFT_START_MIN_FACTOR: ramp_factor = SOFT_START_MIN_FACTOR
             
-            if mode > 0: # HEATING
-                gap = setpoint_list[i] - current_temp
-                if gap > 0:
-                    request = min_output + (H_factor * gap)
-                    cap = max_caps_list[i]
-                    if request > cap:
-                        q_hvac = cap
-                    else:
-                        q_hvac = request
-                else:
-                    q_hvac = 0.0
+            if current_state == 1: # Heat
+                # Demand calculation: similar to continuous but gated by state
+                gap = setpoint - current_temp
+                # Usually we run harder in recovery? Using same P-logic for now.
+                request = min_output + (H_factor * max(0, gap))
+                if request < min_output: request = min_output # CLAMP to min if ON
                 
-            elif mode < 0: # COOLING
-                gap = current_temp - setpoint_list[i]
-                if gap > 0:
-                    request = min_output + (H_factor * gap)
-                    if request > max_cool:
-                        q_hvac = -max_cool
-                    else:
-                        q_hvac = -request
-                else:
-                    q_hvac = 0.0
+                cap = max_caps_list[i]
+                if request > cap: request = cap
+                q_hvac = request
+                
+            elif current_state == -1: # Cool
+                gap = current_temp - setpoint
+                request = min_output + (H_factor * max(0, gap))
+                if request < min_output: request = min_output
+                
+                if request > max_cool: request = max_cool
+                q_hvac = -request
             
-            # Capture Gross "Produced" Energy (Before Derate, Before Ramp)
             hvac_produced_list[i] = q_hvac
-            
-            if eff_derate != 1.0:
-                q_hvac *= eff_derate
-                
-            # Apply Soft Start Ramp
+            if abs(q_hvac) > TOLERANCE_BTU:
+                diag_active_min += dt_min
+
+            if eff_derate != 1.0: q_hvac *= eff_derate
             q_hvac *= ramp_factor
-        
-        prev_mode = mode # Update state tracker
+            
+        else:
+            elapsed_active_minutes = 0.0
+            hvac_produced_list[i] = 0.0
+            diag_off_min += dt_min
         
         hvac_outputs_list[i] = q_hvac
-        # If mode==0, produced is 0.0 (default)
-
-        # C. Total Energy / Integration
+        
         q_total = q_leak + q_solar + Q_int + q_hvac
         delta_T = (q_total * dt_hours_list[i]) / C_thermal
         current_temp += delta_T
 
-    return sim_temps_list, hvac_outputs_list, hvac_produced_list
+    sim_temps_list = sim_temps_list
+    diagnostics = {
+        "cycles": diag_cycles,
+        "on_minutes": diag_on_min,
+        "off_minutes": diag_off_min,
+        "active_minutes": diag_active_min
+    }
+    
+    return sim_temps_list, hvac_outputs_list, hvac_produced_list, actual_hvac_state_list, diagnostics
 
-def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes: int = 0):
+
+def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes: int = 0, discrete=False, swing_temp=1.0, min_cycle_minutes=15.0):
+    """
+    Simulate the house thermal physics.
+
+    Modes:
+      discrete=False (Default): Continuous physics for Optimization.
+      discrete=True: Discrete physics (hysteresis + timers) for Verification.
+
+    Returns:
+      (sim_temps, rmse, hvac_delivered, hvac_produced, actual_hvac_state, [diagnostics if discrete])
+      
+      Note on API Consistency:
+      - Continuous mode returns actual_hvac_state = data.hvac_state (intent).
+      - Discrete mode returns actual_hvac_state = simulated state.
+      - Discrete mode returns 6th element (dict) if requested? 
+      
+      Wait, for strict compatibility with existing tests expecting 5 values:
+      Continuous: Returns 5 values.
+      Discrete: Returns 5 values? Or 6?
+      
+      Let's standardize on 5 values for the LEGACY wrapper, and drop diagnostics?
+      Or better: existing tests expect 5 values (we updated them recently).
+      So we should return 5 values.
+    """
     # --- 1. Unpack Parameters ---
-    # Optional efficiency
     eff_derate = DEFAULT_EFFICIENCY_DERATE
     if len(params) > 5:
         eff_derate = params[5]
 
     # --- 2. Determines Limits ---
-    # Convert to list for speed
     t_out_list = data.t_out.tolist()
     solar_kw_list = data.solar_kw.tolist()
     dt_hours_list = data.dt_hours.tolist()
@@ -236,16 +432,12 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
         hvac_state_list = [0] * len(data.t_out)
     
     # --- 3. Determine Simulation Steps ---
-    total_steps = len(data.t_out) # Default to full
-    
-    # Handle duration_minutes by truncation of input lists
+    total_steps = len(data.t_out)
     if duration_minutes > 0:
         avg_dt_minutes = np.mean(data.dt_hours) * 60
         if avg_dt_minutes > 0:
             steps_needed = int(duration_minutes / avg_dt_minutes)
             total_steps = min(total_steps, steps_needed)
-            
-            # Truncate lists
             t_out_list = t_out_list[:total_steps]
             solar_kw_list = solar_kw_list[:total_steps]
             dt_hours_list = dt_hours_list[:total_steps]
@@ -254,20 +446,34 @@ def run_model(params, data: Measurements, hw: HeatPump = None, duration_minutes:
             hvac_state_list = hvac_state_list[:total_steps]
 
     # --- 4. Call Kernel ---
-    sim_temps_list, hvac_delivered_list, hvac_produced_list = run_model_fast(
-        params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, 
-        max_caps_list, min_output, max_cool, eff_derate, data.t_in[0]
-    )
+    if discrete:
+        sim_temps_list, hvac_delivered_list, hvac_produced_list, actual_hvac_state_list, diag = run_model_discrete(
+            params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, 
+            max_caps_list, min_output, max_cool, eff_derate, data.t_in[0], swing_temp, min_cycle_minutes
+        )
+        # Verify: Are we returning diagnostics? Wrapper might suppress them to fit signature.
+        # But we added 5th element "actual_state" recently. 
+        # Tests check for 5 elements.
+        # If we return 6, existing unpacking might break if they do `a,b,c,d,e = run_model(...)`.
+        # However, tests currently unpack 5. 
+        # Strategy: Return 5 values. Diagnostics accessible via side channel or ignored in wrapper?
+        # Actually, let's return 5 for legacy wrapper. Discrete callers should use run_model_discrete directly if they want diagnostics.
+        
+    else:
+        sim_temps_list, hvac_delivered_list, hvac_produced_list = run_model_continuous(
+            params, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, 
+            max_caps_list, min_output, max_cool, eff_derate, data.t_in[0]
+        )
+        actual_hvac_state_list = hvac_state_list # Just pass through intent
 
     # --- 5. Calculate Error & Return ---
     sim_temps = np.array(sim_temps_list)
     hvac_delivered = np.array(hvac_delivered_list)
     hvac_produced = np.array(hvac_produced_list)
+    actual_hvac_state = np.array(actual_hvac_state_list)
     
     actual_temps = data.t_in[:len(sim_temps)]
-    
     mse = np.mean((sim_temps - actual_temps)**2)
     rmse = np.sqrt(mse)
 
-    # Return delivered (for physics plotting) AND produced (for energy calc)
-    return sim_temps, rmse, hvac_delivered, hvac_produced
+    return sim_temps, rmse, hvac_delivered, hvac_produced, actual_hvac_state

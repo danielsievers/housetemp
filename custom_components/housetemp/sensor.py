@@ -265,4 +265,8 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         if energy_per_hour:
             to_return["energy_per_hour"] = energy_per_hour
 
+        # Expose Detailed Energy Metrics (Continuous vs Discrete)
+        if "energy_metrics" in data:
+            to_return["energy_metrics"] = data["energy_metrics"]
+
         return to_return

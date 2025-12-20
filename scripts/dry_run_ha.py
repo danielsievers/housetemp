@@ -471,6 +471,21 @@ async def main():
                 print(f"Sensor Forecast Items: {len(attrs['forecast'])}")
             else:
                 print("Sensor Forecast: MISSING")
+                
+            if "energy_metrics" in attrs:
+                em = attrs["energy_metrics"]
+                print("\n--- DETAILED ENERGY METRICS (Dual Model) ---")
+                print(f"Continuous Naive:      {em.get('continuous_naive')}")
+                print(f"Continuous Optimized:  {em.get('continuous_optimized')}")
+                print(f"Discrete Naive:        {em.get('discrete_naive')}")
+                print(f"Discrete Optimized:    {em.get('discrete_optimized')}")
+                
+                if em.get('discrete_diagnostics'):
+                    dd = em.get('discrete_diagnostics')
+                    print(f"\n--- Discrete Diagnostics (Optimized) ---")
+                    print(f"Cycles: {dd.get('cycle_count')} | Active: {dd.get('active_minutes')}m | Off: {dd.get('off_minutes')}m")
+            else:
+                print("Energy Metrics: MISSING")
 
         else:
              logging.error("Coordinator Data is None or Forecast Missing!")

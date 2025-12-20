@@ -135,13 +135,13 @@ class TestHvacOptimization(unittest.TestCase):
         )
         
         # Run for 30 minutes
-        sim_temps, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=30)
+        sim_temps, _, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=30)
         
         # Should return 30 steps
         self.assertEqual(len(sim_temps), 30)
         
         # Run for full duration (0)
-        sim_temps, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=0)
+        sim_temps, _, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=0)
         self.assertEqual(len(sim_temps), 60)
 
     def test_setpoints_only_change_at_block_boundaries(self):

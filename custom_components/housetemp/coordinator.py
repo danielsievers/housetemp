@@ -65,14 +65,21 @@ from .const import (
     CONF_MAX_SETPOINT,
     DEFAULT_MIN_SETPOINT,
     DEFAULT_MAX_SETPOINT,
+    DEFAULT_MAX_SETPOINT,
+    CONF_SWING_TEMP,
+    DEFAULT_SWING_TEMP,
+    CONF_MIN_CYCLE_DURATION,
+    DEFAULT_MIN_CYCLE_MINUTES,
+    CONF_OFF_INTENT_EPS
 )
 
 # Import from the installed package
-from .housetemp.run_model import run_model, HeatPump
+from .housetemp.run_model import run_model_continuous, run_model_discrete, HeatPump
+
 from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.schedule import process_schedule_data
-from .housetemp.energy import estimate_consumption, calculate_energy_stats
+from .housetemp.energy import estimate_consumption, calculate_energy_stats, calculate_energy_vectorized
 from .input_handler import SimulationInputHandler
 
 _LOGGER = logging.getLogger(DOMAIN)
@@ -372,61 +379,171 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
 
         
-        sim_temps, _, hvac_delivered, hvac_produced = await self.hass.async_add_executor_job(
-            run_model, params, measurements, self.heat_pump, duration_hours*60
+        # 1. Run Continuous Model (for Chart/Display/Optimizer)
+        # --------------------------------------------------------------------------------
+        sim_temps_continuous, _, hvac_produced_continuous = await self.hass.async_add_executor_job(
+            run_model_continuous, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
+            measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
+            self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+            self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0])
         )
-        
+        sim_temps = sim_temps_continuous # Primary Display
+
         if len(sim_temps) > 0:
             _LOGGER.info("Simulation complete. Predicted Final Temp: %.1f", sim_temps[-1])
 
         # --- Energy Calculation ---
-        naive_energy_kwh = None
-        optimized_energy_kwh = None
+        # We now compute 2x2 = 4 metrics:
+        # 1. Continuous Naive (Baseline)
+        # 2. Continuous Optimized
+        # 3. Discrete Naive (Baseline Verification)
+        # 4. Discrete Optimized (Verification)
+        
+        # Helper for efficient energy calc
+        def calc_energy(produced, setpoints, hvac_mode_val, hvac_states=None):
+             return calculate_energy_vectorized(
+                 produced, measurements.dt_hours, 
+                 self.heat_pump.get_max_capacity(measurements.t_out),
+                 self.heat_pump.get_cop(measurements.t_out), # Vectorized COP getter needed? 
+                 # Wait, heat_pump.get_cop() returns... single value? No, usually interpolated array.
+                 # Actually base_cops logic in energy.py expects array.
+                 # Let's check HeatPump class. It has get_cop(t_out) -> np.array.
+                 self.heat_pump,
+                 eff_derate=1.0, # Produced is already derated? NO.
+                 # run_model_continuous returns produced (calculated from request) 
+                 # then q_hvac *= eff_derate.
+                 # So produced IS UN-DERATED.
+                 # Wait, in run_model_continuous:
+                 # hvac_produced_list[i] = q_hvac
+                 # if eff_derate != 1.0: q_hvac *= eff_derate
+                 # So produced is GROSS (Pre-Derate)? YES.
+                 # BUT calculate_energy_vectorized applies derate if we pass it.
+                 # In energy.py: final_cops = base_cops * eff_derate.
+                 # produced_output = np.abs(hvac_outputs)
+                 # watts = (produced_output / final_cops) ...
+                 # So yes, we pass 1.0 if produced is already derated? 
+                 # OR we pass eff_derate if produced is PRE-derate?
+                 # Since produced is PRE-derate (Gross Capacity Used), then:
+                 # Real Output = Produced * Derate.
+                 # Real COP = Base COP * Derate.
+                 # Watts = Real Output / Real COP = (Produced * Derate) / (Base COP * Derate) = Produced / Base COP.
+                 # math cancels out derate!!
+                 # So efficiency derate affects DELIVERED HEAT (comfort), but NOT Compressor Power for the same capability utilization?
+                 # ACTUALLY:
+                 # If we run at 50% capacity:
+                 # We consume 50% compressor power.
+                 # We deliver 50% * Derate heat.
+                 # So if produced is "Compressor Capacity Used", then Watts = Produced / Base COP.
+                 # So yes, eff_derate cancels out in the Watts calc if produced is capacity-side.
+                 # So eff_derate=1.0 is correct if produced is "gross capacity".
+                 hvac_states=hvac_states,
+                 setpoints=setpoints,
+                 hvac_mode_val=hvac_mode_val,
+                 min_setpoint=self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
+                 max_setpoint=self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
+                 off_intent_eps=CONF_OFF_INTENT_EPS
+             )
 
-        if self.heat_pump:
-            # 1. Calculate energy for the run we just did
-            # Use 'hvac_produced' (Gross) for accurate billing
-            current_energy_res = calculate_energy_stats(hvac_produced, measurements, self.heat_pump, params[4])
-            current_energy_kwh = current_energy_res.get('total_kwh', 0.0)
-            current_energy_steps = current_energy_res.get('kwh_steps')
+        # Config Mode
+        hvac_mode = self.config_entry.options.get(CONF_HVAC_MODE, "heat")
+        hvac_mode_val = 1 if hvac_mode == "heat" else -1
+        
+        # A. Continuous Optimized (The run we just did)
+        # Note: If has_optimized_data is False, this is technically Naive.
+        eng_continuous_opt = calc_energy(np.array(hvac_produced_continuous), measurements.setpoint, hvac_mode_val)
+        energy_kwh_continuous_optimized = eng_continuous_opt
 
-            if has_optimized_data:
-                # The run we just did was OPTIMIZED
-                optimized_energy_kwh = current_energy_kwh
-                
-                # 2. Run Naive (Schedule) Simulation for comparison
-                # Temporarily revert setpoints to the original schedule for the naive run
-                optimized_setpoint_array = measurements.setpoint
-                measurements.setpoint = np.array(setpoint_arr)
-                
-                _, _, _, hvac_produced_naive = await self.hass.async_add_executor_job(
-                    run_model, params, measurements, self.heat_pump, duration_hours*60
-                )
-                
-                naive_res = calculate_energy_stats(hvac_produced_naive, measurements, self.heat_pump, params[4])
-                naive_energy_kwh = naive_res.get('total_kwh', 0.0)
-                
-                # Restore Optimized Array for consistency if needed downstream
-                # (Though we pass setpoint_arr explicitly to build_data if we want schedule)
-                measurements.setpoint = optimized_setpoint_array
-                
-            else:
-                # Even if not optimized, this IS the naive run
-                naive_energy_kwh = current_energy_kwh
-                optimized_energy_kwh = None # Not available
+        # B. Discrete Optimized (Verification)
+        # --------------------------------------------------------------------------------
+        swing = self.config_entry.options.get(CONF_SWING_TEMP, DEFAULT_SWING_TEMP)
+        min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
+        
+        _, _, hvac_produced_discrete, actual_state_discrete, diag_discrete = await self.hass.async_add_executor_job(
+            run_model_discrete, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
+            measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
+            self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+            self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0]),
+            float(swing), float(min_cycle)
+        )
+        
+        energy_kwh_discrete_optimized = calc_energy(
+            np.array(hvac_produced_discrete), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_discrete)
+        )
+        
+        # Diagnostics from Discrete Optimized
+        diagnostics = diag_discrete
+        
+        # C. Naive Baselines (Continuous & Discrete)
+        # --------------------------------------------------------------------------------
+        energy_kwh_continuous_naive = None
+        energy_kwh_discrete_naive = None
+        
+        if has_optimized_data:
+            # Revert to Schedule
+            optimized_setpoint_array = measurements.setpoint
+            measurements.setpoint = np.array(setpoint_arr)
+            
+            # C1. Continuous Naive
+            _, _, hvac_produced_naive_cont = await self.hass.async_add_executor_job(
+                run_model_continuous, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
+                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
+                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0])
+            )
+            energy_kwh_continuous_naive = calc_energy(np.array(hvac_produced_naive_cont), measurements.setpoint, hvac_mode_val)
+            
+            # C2. Discrete Naive
+            _, _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
+                run_model_discrete, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
+                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
+                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0]),
+                float(swing), float(min_cycle)
+            )
+            energy_kwh_discrete_naive = calc_energy(
+                np.array(hvac_produced_naive_disc), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_naive_disc)
+            )
+            
+            # Restore Optimized
+            measurements.setpoint = optimized_setpoint_array
+        
+        else:
+            # We are currently Naive. Optimized = Naive.
+            energy_kwh_continuous_naive = energy_kwh_continuous_optimized
+            energy_kwh_discrete_naive = energy_kwh_discrete_optimized
+            
+            # If we are naive, we set optimized to None? Or keep them equal?
+            # Standard pattern: optimized_energy_kwh is the "Active Plan" energy.
+            # naive_energy_kwh is the "Baseline" energy.
+            # If they are equal, savings = 0.
+            pass
 
         # 8. Return Result
         return self._build_coordinator_data(
             timestamps, sim_temps, measurements, optimized_setpoint_attr if has_optimized_data else None,
-            naive_energy_kwh, optimized_energy_kwh, setpoint_arr,
-            energy_kwh_steps=current_energy_steps if self.heat_pump else None
+            # We pass all 4 metrics + diagnostics
+            metrics={
+                "continuous_naive": energy_kwh_continuous_naive,
+                "continuous_optimized": energy_kwh_continuous_optimized,
+                "discrete_naive": energy_kwh_discrete_naive,
+                "discrete_optimized": energy_kwh_discrete_optimized,
+                "discrete_diagnostics": diagnostics
+            },
+            original_schedule=setpoint_arr
+            # Note: energy_kwh_steps removed? Or calculate steps from Continuous Optimized?
+            # Ideally we show steps from Continuous Optimized (Smooth) or Discrete (Real)?
+            # Dashboard usually shows "Expected Consumption". 
+            # Continuous is "Expected Ideal". Discrete is "Expected Real".
+            # Let's return Continuous Steps for now (smoother graph), but report Totals for discrete.
+            # actually we don't have step array here, just totals.
+            # calc_energy returns total.
         )
 
-    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, naive_kwh=None, optimized_kwh=None, original_schedule=None, energy_kwh_steps=None):
+    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, metrics=None, original_schedule=None):
         """Build the coordinator data dict from simulation results."""
+        if metrics is None: metrics = {}
         
         # Use provided original_schedule if available, otherwise fallback to measurements.setpoint 
-        # (which might be optimized if not careful, but usually we pass original_schedule now)
         display_setpoints = original_schedule if original_schedule is not None else measurements.setpoint
 
         result = {
@@ -436,9 +553,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "setpoint": display_setpoints, # Return original schedule for comparison
             "solar": measurements.solar_kw,
             "outdoor": measurements.t_out,
-            "energy_kwh": naive_kwh,
-            "optimized_energy_kwh": optimized_kwh,
-            "energy_kwh_steps": energy_kwh_steps
+            # Legacy fields (mapped to Continuous for backward compat or primary display)
+            "energy_kwh": metrics.get("continuous_naive"),
+            "optimized_energy_kwh": metrics.get("continuous_optimized"),
+            # NEW: Detailed Metrics
+            "energy_metrics": {
+                "continuous_naive": metrics.get("continuous_naive"),
+                "continuous_optimized": metrics.get("continuous_optimized"),
+                "discrete_naive": metrics.get("discrete_naive"),
+                "discrete_optimized": metrics.get("discrete_optimized"),
+                "discrete_diagnostics": metrics.get("discrete_diagnostics")
+            }
         }
         
         # Add Away Info for Sensor
@@ -585,31 +710,85 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             if sim_duration_hours is None:
                  sim_duration_hours = self.config_entry.options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
                  
-            # Run Model for Temp Curve
+            # Run Model for Temp Curve (Continuous)
             _LOGGER.info("Running simulation for service response (duration: %.1f h)...", sim_duration_hours)
-            sim_temps, _, hvac_delivered, hvac_produced = await self.hass.async_add_executor_job(
-                run_model, params, measurements, self.heat_pump, sim_duration_hours*60
+            sim_temps_list, _, hvac_produced_list = await self.hass.async_add_executor_job(
+                run_model_continuous, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
+                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
+                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0])
+            )
+            sim_temps = np.array(sim_temps_list)
+            hvac_produced = np.array(hvac_produced_list)
+            
+            # -- Optimized Energy Calculation (Continuous) --
+            # Reuse hvac_produced (Gross) from the continuous run
+            # Note: setpoints are technically optimized inside 'measurements' if measurements.setpoint was updated?
+            # Wait, run_model_continuous used measurements.setpoint. Was it updated?
+            # Yes, earlier: measurements.setpoint = np.array(sim_setpoints) (Line 706)
+            
+            # Helper for calc
+            def calc_energy_svc(produced, setpoints, hvac_state_arr):
+                 return calculate_energy_vectorized(
+                     produced, measurements.dt_hours, 
+                     self.heat_pump.get_max_capacity(measurements.t_out),
+                     self.heat_pump.get_cop(measurements.t_out), 
+                     self.heat_pump,
+                     eff_derate=1.0, 
+                     hvac_states=hvac_state_arr,
+                     setpoints=setpoints,
+                     hvac_mode_val=1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1,
+                     min_setpoint=self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
+                     max_setpoint=self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
+                     off_intent_eps=CONF_OFF_INTENT_EPS
+                 )
+            
+            hvac_mode_val_svc = 1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1
+
+            # 1. Continuous Optimized (Service Run)
+            cont_opt_res = calc_energy_svc(hvac_produced, measurements.setpoint, measurements.hvac_state)
+            optimized_kwh = cont_opt_res['kwh']
+            optimized_steps = cont_opt_res['kwh_steps']
+            
+            # 2. Discrete Optimized (Verification Run)
+            swing = self.config_entry.options.get(CONF_SWING_TEMP, DEFAULT_SWING_TEMP)
+            min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
+            
+            _, _, hvac_produced_disc_svc, actual_state_disc_svc, diag_disc_svc = await self.hass.async_add_executor_job(
+                run_model_discrete, params, measurements.t_out.tolist(), measurements.solar_kw.tolist(),
+                measurements.dt_hours.tolist(), measurements.setpoint.tolist(), measurements.hvac_state.tolist(),
+                self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                self.heat_pump.min_output_btu_hr, self.heat_pump.max_cool_btu_hr, params[5], float(measurements.t_in[0]),
+                float(swing), float(min_cycle)
             )
             
-            # -- Optimized Energy Calculation --
-            # Now measurements.setpoint is OPTIMIZED.
-            optimized_kwh = 0.0
-            optimized_steps = None
-            try:
-                 # Reuse HVAC PRODUCED outputs from the simulation we just ran!
-                 opt_res = calculate_energy_stats(hvac_produced, measurements, self.heat_pump, params[4])
-                 optimized_kwh = opt_res.get('total_kwh', 0.0)
-                 optimized_steps = opt_res.get('kwh_steps')
-            except Exception as e:
-                 _LOGGER.warning("Failed to estimate optimized energy: %s", e)
+            disc_opt_res = calc_energy_svc(np.array(hvac_produced_disc_svc), measurements.setpoint, np.array(actual_state_disc_svc))
+            optimized_kwh_discrete = disc_opt_res['kwh']
+            
+            # 3. Naive Metrics (Reuse baseline_kwh passed in?)
+            # The 'baseline_kwh' var comes from 'calculate_energy_stats(hvac_produced_naive...)' earlier in function
+            # BUT that was using calculate_energy_stats (old).
+            # We should probably trust it as "Continuous Naive" approximation, or recalculate if we want exact parity.
+            # To be safe, let's map it to continuous_naive.
+            # We don't have discrete naive here unless we run it.
+            # For speed, we'll leave discrete_naive as None (or calculate it if critical). 
+            # Given this is "Run Optimization", comparing against "Current State" (Naive) is the goal.
+            # But calculating discrete naive requires another run.
+            # Let's Skip discrete naive for the service response to keep it faster, or just use None.
+            
+            metrics = {
+                "continuous_naive": baseline_kwh, # From earlier simulation
+                "continuous_optimized": optimized_kwh,
+                "discrete_naive": None, # Not calculated in service for speed
+                "discrete_optimized": optimized_kwh_discrete,
+                "discrete_diagnostics": diag_disc_svc
+            }
 
             # --- Update Coordinator Data Immediately ---
-            # Update data directly to avoid timestamp mismatches from a refresh request
             result_data = self._build_coordinator_data(
                 timestamps, sim_temps, measurements, optimized_setpoints,
-                naive_kwh=baseline_kwh, optimized_kwh=optimized_kwh,
-                original_schedule=target_temps,
-                energy_kwh_steps=optimized_steps
+                metrics=metrics,
+                original_schedule=target_temps
             )
             
             # Preserve optimization status

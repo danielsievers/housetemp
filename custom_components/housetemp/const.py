@@ -4,10 +4,17 @@ DOMAIN = "housetemp"
 
 CONF_C_THERMAL = "c_thermal"
 CONF_UA = "ua"
+CONF_MAX_COOL = "max_cool_btu_hr"
+CONF_SOLAR_GAIN = "solar_gain"
+CONF_TIME_CONSTANT = "time_constant"
+CONF_EFFICIENCY_DERATE = "efficiency_derate"
+CONF_SWING_TEMP = "swing_temp"
+CONF_MIN_CYCLE_DURATION = "min_cycle_duration_minutes"
 CONF_K_SOLAR = "k_solar"
 CONF_Q_INT = "q_int"
 CONF_H_FACTOR = "h_factor"
 CONF_EFF_DERATE = "eff_derate"
+# --- Defaults for Config Flow ---
 CONF_CENTER_PREFERENCE = "center_preference"
 
 CONF_SENSOR_INDOOR_TEMP = "sensor_indoor_temp"
@@ -60,6 +67,7 @@ CONF_DEADBAND_SLACK = "deadband_slack"
 
 DEFAULT_COMFORT_MODE = "quadratic"
 DEFAULT_DEADBAND_SLACK = 1.5
+DEFAULT_SWING_TEMP = 1.0
 
 # Physics Defaults (US single-family home)
 DEFAULT_C_THERMAL = 10000.0
@@ -67,7 +75,15 @@ DEFAULT_UA = 750.0
 DEFAULT_K_SOLAR = 3000.0
 DEFAULT_Q_INT = 2000.0
 DEFAULT_H_FACTOR = 5000.0
-DEFAULT_EFF_DERATE = 0.75
+DEFAULT_SOLAR_GAIN = 2.0
+DEFAULT_TIME_CONSTANT = 30.0
+DEFAULT_EFFICIENCY_DERATE = 0.9
+DEFAULT_EFF_DERATE = 0.9
+DEFAULT_SWING_TEMP = 1.0
+DEFAULT_MIN_CYCLE_MINUTES = 15.0
+CONF_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" accounting
+
+# --- Configuration Keys ---
 DEFAULT_CENTER_PREFERENCE = 1.0
 DEFAULT_SCHEDULE_CONFIG = """{
   "schedule": [

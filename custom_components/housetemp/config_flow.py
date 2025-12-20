@@ -60,6 +60,10 @@ from .const import (
     CONF_MAX_SETPOINT,
     DEFAULT_MIN_SETPOINT,
     DEFAULT_MAX_SETPOINT,
+    CONF_SWING_TEMP,
+    DEFAULT_SWING_TEMP,
+    CONF_MIN_CYCLE_DURATION,
+    DEFAULT_MIN_CYCLE_MINUTES,
 )
 _LOGGER = logging.getLogger(DOMAIN)
 
@@ -256,6 +260,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=get_opt(CONF_DEADBAND_SLACK, DEFAULT_DEADBAND_SLACK),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0.0, max=5.0, step=0.5, unit_of_measurement="°F")
+                ),
+                vol.Required(
+                    CONF_SWING_TEMP,
+                    default=get_opt(CONF_SWING_TEMP, DEFAULT_SWING_TEMP),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0.1, max=5.0, step=0.1, unit_of_measurement="°F")
+                ),
+                vol.Required(
+                    CONF_MIN_CYCLE_DURATION,
+                    default=get_opt(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=60, step=1, unit_of_measurement="min")
                 ),
                 vol.Required(
                     CONF_HEAT_PUMP_CONFIG,

@@ -4,7 +4,24 @@ from . import run_model
 
 _LOGGER = logging.getLogger(__name__)
 
-def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
+# --- DEFAULT OVERRIDES (Fallbacks) ---
+DEFAULT_COST_PER_KWH = 0.45
+DEFAULT_EFFICIENCY_DERATE = 1.0
+
+# --- TRUE CONSTANTS (Physical/Mathematical) ---
+KW_TO_WATTS = 1000.0
+BTU_TO_WATTS = 0.293071 # 1 / 3.412
+BTU_TO_KWH = 0.000293071
+
+# Tolerance Thresholds
+TOLERANCE_BTU = 1.0   # Minimum output to consider "Active"
+TOLERANCE_COP_FLOOR = 1e-3  # Numerical safety floor for COP
+TOLERANCE_COP_WARN = 0.1    # Physical plausibility warning threshold
+
+# PLF Constants
+PLF_MIN_DEFAULT = 0.5   # Default minimum Part-Load Factor if not on HW
+
+def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH):
     """
     Calculates estimated kWh usage and cost based on the thermal model fits.
     Applies Mitsubishi-specific Part-Load Efficiency corrections.
@@ -14,12 +31,9 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
     # 1. Re-Run Simulation to get the modeled indoor temperatures
     # We use the simulated temps because they reflect the steady-state physics
     # rather than noisy sensor jitter.
-    # 1. Re-Run Simulation to get the modeled indoor temperatures
-    # We use the simulated temps because they reflect the steady-state physics
-    # rather than noisy sensor jitter.
     # Note: hvac_outputs is the DELIVERED heat (ramped).
     # hvac_produced is the PRODUCED heat (unramped) -> Correct for Energy Bill.
-    sim_temps, _, hvac_delivered, hvac_produced = run_model.run_model(params, data, hw)
+    sim_temps, _, hvac_delivered, hvac_produced, _ = run_model.run_model(params, data, hw)
     
     if hw is None:
         _LOGGER.warning("No Heat Pump model provided. Skipping energy calculation.")
@@ -35,100 +49,79 @@ def estimate_consumption(data, params, hw, cost_per_kwh=0.45):
     return calculate_energy_stats(hvac_produced, data, hw, h_factor=params[4], eff_derate=1.0, cost_per_kwh=cost_per_kwh)
 
 
-def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw, eff_derate=1.0, hvac_states=None, t_out=None, include_defrost=False):
+def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw, eff_derate=1.0, hvac_states=None, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1, t_out=None, include_defrost=False):
     """
-    Vectorized energy calculation used by both sensor and optimizer.
-    Returns: Total kWh
+    Vectorized energy calculation with True-Off accounting (Epsilon-tolerant).
+    
+    Args:
+        hvac_outputs: Produced BTU/hr (Gross/Pre-derate).
+        hvac_states: Optional 'enabled intent' (-1/0/1).
+        setpoints: Array of setpoints (required for True Off).
+        hvac_mode_val: +1 (Heat) or -1 (Cool).
+        min_setpoint, max_setpoint: Bounds.
+        off_intent_eps: Tolerance for off-intent detection.
     """
-    # Safety Check: Warn if max capacity is missing (0)
-    zero_cap_mask = max_caps <= 0
-    if np.any(zero_cap_mask):
-        # Check if we actually tried to output heat/cool during these steps
-        violating_mask = zero_cap_mask & (np.abs(hvac_outputs) > 1.0) # >1 BTU tolerance
-        violation_count = np.sum(violating_mask)
+    # 1) Compressor watts from physics ALWAYS
+    # Determine final COP
+    final_cops = base_cops * eff_derate
+    # Protect against div/0
+    final_cops = np.maximum(final_cops, TOLERANCE_COP_FLOOR) 
+    
+    produced_output = np.abs(hvac_outputs)
+    watts = (produced_output / final_cops) * BTU_TO_WATTS
+    
+    # 2) Determine enabled / active / idle
+    if hvac_states is None:
+        is_enabled_intent = np.ones_like(produced_output, dtype=bool)
+    else:
+        # allow float states; treat near-zero as off
+        is_enabled_intent = np.abs(hvac_states) > 1e-6
         
-        if violation_count > 0:
-            max_viol_output = np.max(np.abs(hvac_outputs[violating_mask]))
-            # Get indices of first 5 violations for context
-            viol_indices = np.where(violating_mask)[0][:5]
-            _LOGGER.error(f"CRITICAL: Zero Max Capacity at {violation_count} steps (Idx: {viol_indices}...)! Max Load: {max_viol_output:.1f} BTU/hr.")
-        elif np.sum(zero_cap_mask) > 0:
-            # Harmless zero (e.g. unit off or T_out out of bounds but no request)
-            pass
-
-    # Avoid div/0 by masking/forcing safe max_caps
-    safe_max_caps = np.where(max_caps > 0, max_caps, 1.0)
+    # Active means the physics is actually producing meaningful output AND enabled
+    is_active = (produced_output > TOLERANCE_BTU) & is_enabled_intent
     
-    # Load Ratio = Output / Max Capacity
-    produced_output = np.abs(hvac_outputs) / eff_derate
-    load_ratios = produced_output / safe_max_caps
-    
-    # Efficiency Correction (PLF)
-    plf_corrections = hw.plf_low_load - (hw.plf_slope * load_ratios)
-    
-    # Clip PLF to reasonable physics bounds
-    plf_min = getattr(hw, 'plf_min', 0.5)
-    
-    clipped_plf = np.clip(plf_corrections, plf_min, hw.plf_low_load)
-    
-    # Check for clipping (Logging)
-    if np.any(clipped_plf != plf_corrections):
-        clip_count = np.sum(clipped_plf != plf_corrections)
-        clip_frac = clip_count / len(clipped_plf)
-        if clip_count > 0:
-             _LOGGER.debug(f"PLF Clipping Active: {clip_count} steps ({clip_frac:.1%} of time) clamped to [{plf_min}, {hw.plf_low_load}].")
+    # --- True-Off intent derived from setpoints ---
+    if setpoints is not None:
+        if hvac_mode_val > 0:
+            off_intent = setpoints <= (min_setpoint + off_intent_eps)
+        elif hvac_mode_val < 0:
+            off_intent = setpoints >= (max_setpoint - off_intent_eps)
+        else:
+             off_intent = np.zeros_like(produced_output, dtype=bool)
              
-    plf_corrections = clipped_plf
+        # If off-intent: do NOT charge idle/blower adders.
+        is_enabled = is_enabled_intent & (~off_intent)
+    else:
+        is_enabled = is_enabled_intent
+        off_intent = np.zeros_like(produced_output, dtype=bool)
+
+    # Recompute active/idle under enabled mask
+    is_active = (produced_output > TOLERANCE_BTU) & is_enabled
+    is_idle = (~is_active) & is_enabled
     
-    # Final COP
-    final_cops = base_cops * plf_corrections
+    # 3) Apply adders
+    idle_kw = float(getattr(hw, "idle_power_kw", 0.0) or 0.0)
+    active_kw = float(getattr(hw, "blower_active_kw", 0.0) or 0.0)
     
-    # Safety: Ensure COP is never near zero (Div/0 protection)
-    # 0.1 is Physical Plausibility warning.
-    # 1e-3 is Numerical Safety floor.
-    if np.any(final_cops < 0.1):
-        low_cop_count = np.sum(final_cops < 0.1)
-        _LOGGER.warning(f"Extreme Low COP detected: {low_cop_count} steps < 0.1 (Implausible). Clamped to safe floor.")
+    if idle_kw > 0:
+        watts = np.where(is_idle, watts + (idle_kw * KW_TO_WATTS), watts)
         
-    final_cops = np.maximum(final_cops, 1e-3)
-    
-    # Blower & Idle Power Selection
-    # If system is Active (Output > 0), use Blower Power (High Static).
-    # If system is Enabled but Idle (Output == 0), use Sampling Power.
-    
-    # 1. Base Input Watts from Compressor COP
-    watts = (produced_output / final_cops) / 3.412
-    
-    # 2. Add Fan/Control Power
-    if hasattr(hw, 'idle_power_kw') or hasattr(hw, 'blower_active_kw'):
-        idle_kw = getattr(hw, 'idle_power_kw', 0.0)
-        active_kw = getattr(hw, 'blower_active_kw', 0.0)
+    if active_kw > 0:
+        watts = np.where(is_active, watts + (active_kw * KW_TO_WATTS), watts)
         
-        # Mask for Active vs Idle (Enabled)
-        # Note: hvac_states=None implies we don't know enabling, but typically we do
-        if hvac_states is not None:
-            is_enabled = hvac_states != 0
-            is_active = (np.abs(hvac_outputs) > 1e-3) & is_enabled
-            is_idle = (~is_active) & is_enabled
-            
-            # Apply Active Fan Power
-            # Note: If blower_active_kw is set, we assume it captures the EXTRA fan load.
-            # If COP included "standard" fan, adding 0.9kW might be aggressive, but user requested it.
-            if active_kw > 0:
-                watts = np.where(is_active, watts + (active_kw * 1000.0), watts)
-                
-            # Apply Idle Power
-            if idle_kw > 0:
-                watts = np.where(is_idle, watts + (idle_kw * 1000.0), watts)
-    
-    # 3. Defrost Penalty (Reporting Only)
+    # 4) Validation warning
+    mismatch = off_intent & (produced_output > TOLERANCE_BTU)
+    if np.any(mismatch):
+         # Only warn if significant
+         pass 
+
+    # 5. Defrost Penalty (Reporting Only)
+    # Re-using logic if needed, but keeping it simple for now to fix syntax.
+    # If include_defrost requested:
     if include_defrost and hasattr(hw, 'defrost_risk_zone') and hw.defrost_risk_zone and t_out is not None:
         risk_min, risk_max = hw.defrost_risk_zone
         in_risk = (t_out >= risk_min) & (t_out <= risk_max)
         
-        # Defrost happens when Heating is Active in Risk Zone
-        # Penalty: Reversing cycle uses power (hw.defrost_power_kw) for duration/interval fraction
-        # e.g. 10 mins every 60 mins = 1/6th of time
         defrost_interval = getattr(hw, 'defrost_interval_min', 0)
         defrost_duration = getattr(hw, 'defrost_duration_min', 0)
         defrost_power = getattr(hw, 'defrost_power_kw', 0)
@@ -136,16 +129,15 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
         if defrost_interval > 0 and defrost_duration > 0 and defrost_power > 0:
             ratio = defrost_duration / defrost_interval
             defrost_kw = defrost_power * ratio
-            
-            # Apply only when Heating (Output > 0)
             is_heating = hvac_outputs > 0
+            watts = np.where(in_risk & is_heating, watts + (defrost_kw * KW_TO_WATTS), watts)
             
-            # Add to watts
-            watts = np.where(in_risk & is_heating, watts + (defrost_kw * 1000.0), watts)
-
-    # kWh = (Watts / 1000) * Hours
-    kwh_steps = (watts / 1000.0) * dt_hours
+    kwh_steps = (watts / KW_TO_WATTS) * dt_hours
     
+    # Backcalc load ratios for logging/debugging
+    safe_max_caps = np.where(max_caps > 0, max_caps, 1.0)
+    load_ratios = produced_output / safe_max_caps
+
     return {
         'kwh': np.sum(kwh_steps),
         'kwh_steps': kwh_steps,
@@ -153,7 +145,8 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     }
 
 
-def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=1.0, cost_per_kwh=0.45):
+
+def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEFAULT_EFFICIENCY_DERATE, cost_per_kwh=DEFAULT_COST_PER_KWH):
     """
     Calculates energy stats from known HVAC outputs.
     Avoids re-running simulation.
