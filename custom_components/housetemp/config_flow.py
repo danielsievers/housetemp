@@ -306,18 +306,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_CENTER_PREFERENCE,
                     default=get_opt(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=selector.NumberSelectorMode.SLIDER)
+                ),
                 vol.Optional(
                     CONF_MIN_SETPOINT,
                     default=get_opt(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
                 ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=40, max=80, step=1, unit_of_measurement="°F")
+                    selector.NumberSelectorConfig(min=40, max=80, step=1, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Optional(
                     CONF_MAX_SETPOINT,
                     default=get_opt(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
                 ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=50, max=95, step=1, unit_of_measurement="°F")
+                    selector.NumberSelectorConfig(min=50, max=95, step=1, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Required(
                     CONF_FORECAST_DURATION,
