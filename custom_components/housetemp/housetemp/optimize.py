@@ -24,7 +24,7 @@ except (ImportError, ValueError):
 
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---
-DEFAULT_EFFICIENCY_DERATE = 0.85
+DEFAULT_EFFICIENCY_DERATE = 0.75
 DEFAULT_MIN_SETPOINT = 60.0
 DEFAULT_MAX_SETPOINT = 75.0
 DEFAULT_CENTER_PREFERENCE = 1.0  # User preference for hitting the exact target
