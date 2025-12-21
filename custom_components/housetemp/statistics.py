@@ -212,6 +212,18 @@ class StatsStore:
         await self.async_save()
         _LOGGER.info("Statistics reset, new epoch started at %s", self.epoch_start)
     
+    def discard_pending_predictions(self) -> int:
+        """Discard all unresolved predictions (invalidated by mode/config change).
+        
+        Returns: Number of predictions discarded.
+        """
+        before = len(self.predictions)
+        self.predictions = [p for p in self.predictions if p.actual_temp is not None]
+        discarded = before - len(self.predictions)
+        if discarded > 0:
+            _LOGGER.info("Discarded %d pending predictions due to mode change", discarded)
+        return discarded
+    
     def prune_old_data(self) -> None:
         """Remove data older than retention windows."""
         now = dt_util.now()

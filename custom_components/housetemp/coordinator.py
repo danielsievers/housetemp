@@ -1217,6 +1217,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
         
+        # Discard pending predictions - they were made for normal schedule, now invalid
+        stats_store = getattr(self, "stats_store", None)
+        if stats_store:
+            stats_store.discard_pending_predictions()
+        
         # 3. Schedule Smart Wake-Up (12 hours before return)
         # Cancel any existing timer
         if hasattr(self, "_away_timer_unsub") and self._away_timer_unsub:
@@ -1262,6 +1267,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             new_options = {k: v for k, v in options.items() 
                           if k not in ("away_end", "away_temp")}
             self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
+            
+            # Discard pending predictions - they were made for away mode, now invalid
+            stats_store = getattr(self, "stats_store", None)
+            if stats_store:
+                stats_store.discard_pending_predictions()
         except Exception as e:
             _LOGGER.warning("Error parsing away_end: %s", e)
             

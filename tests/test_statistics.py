@@ -470,3 +470,32 @@ class TestStatsStore:
         assert len(stats_store.predictions) == 1
         assert stats_store.predictions[0].predicted_temp == 72.0
         assert len(stats_store.comfort_samples) == 1
+    
+    def test_discard_pending_predictions(self, stats_store):
+        """Pending predictions are discarded, resolved ones are kept."""
+        now = dt_util.now()
+        
+        stats_store.predictions = [
+            PredictionRecord(
+                timestamp=(now - timedelta(hours=1)).isoformat(),
+                predicted_temp=70.0,
+                actual_temp=69.5,  # Resolved
+            ),
+            PredictionRecord(
+                timestamp=(now + timedelta(hours=5)).isoformat(),
+                predicted_temp=72.0,
+                actual_temp=None,  # Pending
+            ),
+            PredictionRecord(
+                timestamp=(now + timedelta(hours=6)).isoformat(),
+                predicted_temp=73.0,
+                actual_temp=None,  # Pending
+            ),
+        ]
+        
+        discarded = stats_store.discard_pending_predictions()
+        
+        assert discarded == 2
+        assert len(stats_store.predictions) == 1
+        assert stats_store.predictions[0].actual_temp == 69.5  # Only resolved remains
+
