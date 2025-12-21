@@ -16,22 +16,29 @@ from custom_components.housetemp.housetemp.energy import estimate_consumption
 
 DATA_DIR = 'data/scenarios'
 
-def get_weather_data(name, date_str):
-    filename = f"{name.split(' (')[0].lower().replace(' ', '_')}.csv"
+def get_weather_data(name, date_str, lat=None, lon=None):
+    # Default San Jose if not specified
+    if lat is None: lat = 37.3382
+    if lon is None: lon = -121.8863
+    
+    # Differentiate cache by location if not default
+    suffix = ""
+    if abs(lat - 37.3382) > 0.001:
+        suffix = f"_{lat:.2f}_{lon:.2f}"
+        
+    filename = f"{name.split(' (')[0].lower().replace(' ', '_')}{suffix}.csv"
     filepath = os.path.join(DATA_DIR, filename)
     
     if os.path.exists(filepath):
         print(f"Loading cached weather from {filepath}...")
-        df = pd.read_csv(filepath, parse_dates=['time'], index_col='time')
+        df = pd.read_csv(filepath, index_col=0, parse_dates=[0])
         # Ensure 5min freq
         series_5min = df['temperature']
         timestamps = series_5min.index
         t_out = series_5min.values
         return timestamps, t_out
         
-    print(f"Fetching OpenMeteo data for {date_str}...")
-    lat = 37.3382  # San Jose, CA
-    lon = -121.8863
+    print(f"Fetching OpenMeteo data for {date_str} at {lat}, {lon}...")
     
     start_date = date_str
     # OpenMeteo daily API needs end_date too
@@ -67,6 +74,7 @@ def get_weather_data(name, date_str):
     # Save to CSV
     os.makedirs(DATA_DIR, exist_ok=True)
     series_5min.name = 'temperature'
+    series_5min.index.name = 'time'
     series_5min.to_csv(filepath, index=True, header=True)
     print(f"Saved weather data to {filepath}")
     
@@ -122,10 +130,13 @@ def main():
     
     plt.figure(figsize=(10, 6))
     
-    for name, date_str, mode in scenarios:
+    for item in scenarios:
+        name, date_str, mode = item[:3]
+        lat, lon = item[3] if len(item) > 3 else (None, None)
+        
         print(f"Running Scenario: {name}...")
         try:
-            timestamps, t_out = get_weather_data(name, date_str)
+            timestamps, t_out = get_weather_data(name, date_str, lat, lon)
             n = len(t_out)
             
             # Target Schedule
