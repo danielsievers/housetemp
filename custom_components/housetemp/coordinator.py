@@ -458,7 +458,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
 
         # A. Continuous Optimized (The run we just did)
-        eng_continuous_opt_res = calc_energy(np.array(hvac_produced_continuous), measurements.setpoint, hvac_mode_val)
+        eng_continuous_opt_res = calc_energy(
+            np.array(hvac_produced_continuous), 
+            measurements.setpoint, 
+            hvac_mode_val, 
+            hvac_states=measurements.hvac_state
+        )
         energy_kwh_continuous_optimized = eng_continuous_opt_res['kwh']
         # energy_kwh_steps is now fetched from Discrete below
 
@@ -485,7 +490,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         )
         
         eng_discrete_opt_res = calc_energy(
-            np.array(hvac_produced_discrete), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_discrete)
+            np.array(hvac_produced_discrete), 
+            measurements.setpoint, 
+            hvac_mode_val, 
+            hvac_states=measurements.hvac_state
         )
         energy_kwh_discrete_optimized = eng_discrete_opt_res['kwh']
         # Use Discrete Steps for Hourly Graph (Real-World)
@@ -528,7 +536,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 )
             )
             eng_discrete_naive_res = calc_energy(
-                np.array(hvac_produced_naive_disc), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_naive_disc)
+                np.array(hvac_produced_naive_disc), 
+                measurements.setpoint, 
+                hvac_mode_val, 
+                hvac_states=measurements.hvac_state
             )
             energy_kwh_discrete_naive = eng_discrete_naive_res['kwh']
             energy_kwh_naive_steps = eng_discrete_naive_res.get('kwh_steps')
