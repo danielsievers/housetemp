@@ -3,19 +3,31 @@ import logging
 from . import run_model
 
 try:
-    from ..const import TOLERANCE_BTU_ACTIVE
+    from ..const import (
+        KW_TO_WATTS,
+        TOLERANCE_BTU_ACTIVE,
+        TOLERANCE_BTU_FRACTION,
+        DEFAULT_EFFICIENCY_DERATE,
+        DEFAULT_COST_PER_KWH,
+        DEFAULT_OFF_INTENT_EPS
+    )
 except (ImportError, ValueError):
-    # Fallback for standalone library usage
+    # Fallback to defaults if running standalone
+    KW_TO_WATTS = 1000.0
     TOLERANCE_BTU_ACTIVE = 1.0
+    TOLERANCE_BTU_FRACTION = 0.05
+    DEFAULT_EFFICIENCY_DERATE = 0.75
+    DEFAULT_COST_PER_KWH = 0.45
+    DEFAULT_OFF_INTENT_EPS = 0.1
 
 _LOGGER = logging.getLogger(__name__)
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---
-DEFAULT_COST_PER_KWH = 0.45
-DEFAULT_EFFICIENCY_DERATE = 0.75
+# DEFAULT_COST_PER_KWH = 0.45 # Now imported from const or fallback
+# DEFAULT_EFFICIENCY_DERATE = 0.75 # Now imported from const or fallback
 
 # --- TRUE CONSTANTS (Physical/Mathematical) ---
-KW_TO_WATTS = 1000.0
+# KW_TO_WATTS = 1000.0 # Now imported from const or fallback
 BTU_TO_WATTS = 0.293071 # 1 / 3.412
 BTU_TO_KWH = 0.000293071
 
@@ -27,7 +39,7 @@ TOLERANCE_COP_WARN = 0.1    # Physical plausibility warning threshold
 # PLF Constants
 PLF_MIN_DEFAULT = 0.5   # Default minimum Part-Load Factor if not on HW
 
-def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1):
+def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS):
     """
     Calculates estimated kWh usage and cost based on the thermal model fits.
     Applies Mitsubishi-specific Part-Load Efficiency corrections.
@@ -90,7 +102,7 @@ def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, se
     )
 
 
-def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw, eff_derate=1.0, hvac_states=None, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1, t_out=None, include_defrost=False):
+def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw, eff_derate=1.0, hvac_states=None, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS, t_out=None, include_defrost=False):
     """
     Vectorized energy calculation with True-Off accounting (Epsilon-tolerant).
     
@@ -238,7 +250,7 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
 
 
 
-def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEFAULT_EFFICIENCY_DERATE, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1):
+def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEFAULT_EFFICIENCY_DERATE, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS):
     """
     Calculates energy stats from known HVAC outputs.
     Avoids re-running simulation.

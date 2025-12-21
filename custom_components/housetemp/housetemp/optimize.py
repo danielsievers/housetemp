@@ -16,11 +16,13 @@ try:
     from ..const import (
         DEFAULT_SWING_TEMP,
         DEFAULT_MIN_CYCLE_MINUTES,
+        DEFAULT_OFF_INTENT_EPS
     )
 except (ImportError, ValueError):
     # Fallback when running as standalone library (parent const unreachable)
     DEFAULT_SWING_TEMP = 1.0
     DEFAULT_MIN_CYCLE_MINUTES = 15
+    DEFAULT_OFF_INTENT_EPS = 0.1
 
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---
@@ -31,7 +33,8 @@ DEFAULT_CENTER_PREFERENCE = 1.0  # User preference for hitting the exact target
 DEFAULT_DEADBAND_SLACK = 1.5  # Degrees of freedom without penalty
 DEFAULT_COMFORT_MODE = 'quadratic'
 DEFAULT_AVOID_DEFROST = False
-DEFAULT_OFF_INTENT_EPS = 0.1 # Tolerance for detecting "Off" intent at boundaries
+# DEFAULT_OFF_INTENT_EPS override removed, now using const or fallback
+# DEFAULT_OFF_INTENT_EPS = 0.1 
 
 # Optimization Solver Defaults
 DEFAULT_SOLVER_MAXITER = 500
@@ -588,18 +591,20 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     
     final_setpoints = final_blocks[indices]
     
-    # --- Post-Processing: Snap-to-Boundary (Visual/UI only) ---
-    # When setpoint is far below room temp (heating) or above (cooling), 
-    # snap to min/max for cleaner UI. This is cosmetic, not part of optimization.
-    # Use a simple heuristic based on scheduled target temps.
+    # --- Post-Processing: Snap-to-Boundary (Visual/UI & True-Off Consistency) ---
+    # Instead of a wide "Target - X" heuristic (which overrides legitimate setbacks),
+    # we use a local "hover" snap. If the solver gets close to the min/max (within 0.5F),
+    # we snap it exactly to the limit to ensure "True Off" logic triggers downstream.
+    SNAP_EPS = 0.5
+    
     if hvac_mode_val > 0:  # Heating
-        off_threshold = target_temps - 3.0  # Well below target
-        is_off = final_setpoints < off_threshold
-        final_setpoints = np.where(is_off, min_setpoint, final_setpoints)
+        # If hovering near min_setpoint
+        is_near_min = final_setpoints <= (min_setpoint + SNAP_EPS)
+        final_setpoints = np.where(is_near_min, min_setpoint, final_setpoints)
     else:  # Cooling
-        off_threshold = target_temps + 3.0  # Well above target
-        is_off = final_setpoints > off_threshold
-        final_setpoints = np.where(is_off, max_setpoint, final_setpoints)
+        # If hovering near max_setpoint
+        is_near_max = final_setpoints >= (max_setpoint - SNAP_EPS)
+        final_setpoints = np.where(is_near_max, max_setpoint, final_setpoints)
     
     # Metadata
     debug_info = {

@@ -113,13 +113,24 @@ class HeatPump:
         # This is optimistic (efficiency should drop), but we logged the warning above.
         return cop
 
+try:
+    from ..const import (
+        DEFAULT_SWING_TEMP,
+        DEFAULT_MIN_CYCLE_MINUTES,
+        DEFAULT_OFF_INTENT_EPS
+    )
+except (ImportError, ValueError):
+    # Fallback to defaults if running standalone (e.g. tests)
+    DEFAULT_SWING_TEMP = 1.0
+    DEFAULT_MIN_CYCLE_MINUTES = 15.0
+    DEFAULT_OFF_INTENT_EPS = 0.1
 
-
-def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, min_setpoint=-999, max_setpoint=999, off_intent_eps=0.1):
+def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS):
     """
-    Run Continuous Physics Model (Differentiable-ish).
-    Returns (sim_temps, hvac_outputs, hvac_produced).
+    Continuous Physics Model.
+    Calculates thermodynamic response in a single pass.
     """
+    # off_intent_eps is passed in from caller (optimize.py owns the authoritative value) or defaults to const.
     # Unpack params
     C_thermal = params[0]
     UA = params[1]
