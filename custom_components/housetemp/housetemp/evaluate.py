@@ -69,8 +69,22 @@ def run_rolling_evaluation(data: Measurements, params, hw):
         )
         
         # 2. Run Simulation (12 hours)
-        # We don't need to pass duration_minutes because the slice is exactly 12h
-        sim_temps, _, _, _, _ = run_model.run_model(params, sliced_data, hw)
+        # Unpack for continuous model
+        max_caps_list = hw.get_max_capacity(sliced_data.t_out).tolist() if hw else [0.0]*len(sliced_data.t_out)
+        
+        sim_temps, _, _ = run_model.run_model_continuous(
+            params,
+            t_out_list=sliced_data.t_out.tolist(),
+            solar_kw_list=sliced_data.solar_kw.tolist(),
+            dt_hours_list=sliced_data.dt_hours.tolist(),
+            setpoint_list=sliced_data.setpoint.tolist(),
+            hvac_state_list=sliced_data.hvac_state.tolist(),
+            max_caps_list=max_caps_list,
+            min_output=hw.min_output_btu_hr if hw else 0,
+            max_cool=hw.max_cool_btu_hr if hw else 0,
+            eff_derate=params[5] if len(params) > 5 else 1.0,
+            start_temp=float(sliced_data.t_in[0])
+        )
         
         # 3. Calculate Errors
         actual_temps = sliced_data.t_in

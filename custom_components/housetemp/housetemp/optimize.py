@@ -3,7 +3,7 @@ import pandas as pd
 import logging
 from scipy.optimize import minimize
 from .run_model import run_model_continuous
-from . import run_model
+from .utils import upsample_dataframe, get_effective_hvac_state
 from .energy import calculate_energy_vectorized
 
 _LOGGER = logging.getLogger(__name__)
@@ -114,8 +114,28 @@ def loss_function(active_params, data, hw, fixed_passive_params=None, fixed_effi
     # Note: run_model returns 5 values now (temps, rmse, delivered, produced, actual_state)
     # But loss_function only needs error.
     # We should unpack carefully.
-    outputs = run_model.run_model(full_params, data, hw)
-    sim_error = outputs[1] # RMSE is 2nd return
+    # Unpack for continuous model
+    max_caps_list = hw.get_max_capacity(data.t_out).tolist() if hw else [0.0]*len(data.t_out)
+    
+    sim_temps, _, _ = run_model_continuous(
+        full_params,
+        t_out_list=data.t_out.tolist(),
+        solar_kw_list=data.solar_kw.tolist(),
+        dt_hours_list=data.dt_hours.tolist(),
+        setpoint_list=data.setpoint.tolist(),
+        hvac_state_list=data.hvac_state.tolist(),
+        max_caps_list=max_caps_list,
+        min_output=hw.min_output_btu_hr if hw else 0,
+        max_cool=hw.max_cool_btu_hr if hw else 0,
+        eff_derate=full_params[5] if len(full_params) > 5 else 1.0,
+        start_temp=float(data.t_in[0])
+    )
+    
+    # Calculate RMSE manually
+    sim_temps_arr = np.array(sim_temps)
+    actual_temps = data.t_in[:len(sim_temps_arr)]
+    mse = np.mean((sim_temps_arr - actual_temps)**2)
+    sim_error = np.sqrt(mse)
     
     # 2. Compare to Reality (RMSE)
     error = sim_error
@@ -386,19 +406,14 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             start_temp = float(data.t_in[0]) # Ensure start_temp is float
 
             # --- Upstream True Off (for Optimization Loop) ---
-            # We calculate this DYNAMICALLY inside the loop because setpoints are changing.
-            # 1. Use effective_setpoints (quantized) for stable True Off detection
-            is_heating_intent = working_hvac_state > 0
-            is_cooling_intent = working_hvac_state < 0
-            
-            # Check boundaries
-            off_heat = is_heating_intent & (effective_setpoints <= (min_setpoint + DEFAULT_OFF_INTENT_EPS))
-            off_cool = is_cooling_intent & (effective_setpoints >= (max_setpoint - DEFAULT_OFF_INTENT_EPS))
-            is_true_off_mask = off_heat | off_cool
-            
-            # 2. Create "Effective Intent" for Physics/Energy
-            # If True Off, intent becomes 0
-            effective_hvac_state = np.where(is_true_off_mask, 0, working_hvac_state)
+            # We calculate this DYNAMICALLY inside the loop using helper
+            effective_hvac_state = get_effective_hvac_state(
+                working_hvac_state, 
+                effective_setpoints, 
+                min_setpoint, 
+                max_setpoint, 
+                DEFAULT_OFF_INTENT_EPS
+            )
             
             # 3. Run Physics Model (Continuous)
             # Pass effective_hvac_state (0 for True Off) so physics naturally shuts down.

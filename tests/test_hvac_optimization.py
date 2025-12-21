@@ -135,13 +135,41 @@ class TestHvacOptimization(unittest.TestCase):
         )
         
         # Run for 30 minutes
-        sim_temps, _, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=30)
-        
-        # Should return 30 steps
+        # Helper for unpacking
+        def run_sim(d, mins=0):
+            t_out_list = d.t_out.tolist()
+            dt_hours_list = d.dt_hours.tolist()
+            setpoint_list = d.setpoint.tolist()
+            hvac_state_list = d.hvac_state.tolist()
+            
+            if mins > 0:
+                steps = int(mins / (d.dt_hours[0]*60))
+                t_out_list = t_out_list[:steps]
+                dt_hours_list = dt_hours_list[:steps]
+                setpoint_list = setpoint_list[:steps]
+                hvac_state_list = hvac_state_list[:steps]
+            
+            # Simplified for test (no solar, etc)
+            max_caps = self.hw.get_max_capacity(np.array(t_out_list)).tolist()
+            
+            sim, _, _ = run_model.run_model_continuous(
+                self.params, t_out_list=t_out_list, 
+                solar_kw_list=[0]*len(t_out_list),
+                dt_hours_list=dt_hours_list,
+                setpoint_list=setpoint_list,
+                hvac_state_list=hvac_state_list,
+                max_caps_list=max_caps,
+                min_output=self.hw.min_output_btu_hr,
+                max_cool=self.hw.max_cool_btu_hr,
+                eff_derate=1.0, start_temp=d.t_in[0]
+            )
+            return sim
+
+        sim_temps = run_sim(data, 30)
         self.assertEqual(len(sim_temps), 30)
-        
+
         # Run for full duration (0)
-        sim_temps, _, _, _, _ = run_model.run_model(self.params, data, self.hw, duration_minutes=0)
+        sim_temps = run_sim(data, 0)
         self.assertEqual(len(sim_temps), 60)
 
     def test_setpoints_only_change_at_block_boundaries(self):

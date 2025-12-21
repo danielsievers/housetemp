@@ -408,35 +408,13 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # 4. Discrete Optimized (Verification)
         
         # Helper for efficient energy calc
-        def calc_energy(produced, setpoints, hvac_mode_val, hvac_states=None):
+        def calc_energy(produced, hvac_states=None):
+            # "True Off" is already enforced in hvac_states upstream!
              return calculate_energy_vectorized(
                  produced, measurements.dt_hours, 
                  self.heat_pump.get_max_capacity(measurements.t_out),
-                 self.heat_pump.get_cop(measurements.t_out), # Vectorized COP getter needed? 
-                 # Wait, heat_pump.get_cop() returns... single value? No, usually interpolated array.
-                 # Actually base_cops logic in energy.py expects array.
-                 # Let's check HeatPump class. It has get_cop(t_out) -> np.array.
+                 self.heat_pump.get_cop(measurements.t_out), 
                  self.heat_pump,
-                 eff_derate=1.0, # Produced is already derated? NO.
-                 # run_model_continuous returns produced (calculated from request) 
-                 # then q_hvac *= eff_derate.
-                 # So produced IS UN-DERATED.
-                 # Wait, in run_model_continuous:
-                 # hvac_produced_list[i] = q_hvac
-                 # if eff_derate != 1.0: q_hvac *= eff_derate
-                 # So produced is GROSS (Pre-Derate)? YES.
-                 # BUT calculate_energy_vectorized applies derate if we pass it.
-                 # In energy.py: final_cops = base_cops * eff_derate.
-                 # produced_output = np.abs(hvac_outputs)
-                 # watts = (produced_output / final_cops) ...
-                 # So yes, we pass 1.0 if produced is already derated? 
-                 # OR we pass eff_derate if produced is PRE-derate?
-                 # Since produced is PRE-derate (Gross Capacity Used), then:
-                 # Real Output = Produced * Derate.
-                 # Real COP = Base COP * Derate.
-                 # Watts = Real Output / Real COP = (Produced * Derate) / (Base COP * Derate) = Produced / Base COP.
-                 # math cancels out derate!!
-                 # So efficiency derate affects DELIVERED HEAT (comfort), but NOT Compressor Power for the same capability utilization?
                  # ACTUALLY:
                  # If we run at 50% capacity:
                  # We consume 50% compressor power.
@@ -445,12 +423,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                  # So yes, eff_derate cancels out in the Watts calc if produced is capacity-side.
                  # So eff_derate=1.0 is correct if produced is "gross capacity".
                  hvac_states=hvac_states,
-                 setpoints=setpoints,
-                 hvac_mode_val=hvac_mode_val,
-                 min_setpoint=self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
-                 max_setpoint=self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
-                 off_intent_eps=DEFAULT_OFF_INTENT_EPS
+                 t_out=measurements.t_out,
+                 include_defrost=True
              )
+
 
         # Config Mode
         hvac_mode = self.config_entry.options.get(CONF_HVAC_MODE, "heat")
@@ -459,9 +435,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # A. Continuous Optimized (The run we just did)
         eng_continuous_opt_res = calc_energy(
-            np.array(hvac_produced_continuous), 
-            measurements.setpoint, 
-            hvac_mode_val, 
+            np.array(hvac_produced_continuous),
             hvac_states=measurements.hvac_state
         )
         energy_kwh_continuous_optimized = eng_continuous_opt_res['kwh']
@@ -490,9 +464,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         )
         
         eng_discrete_opt_res = calc_energy(
-            np.array(hvac_produced_discrete), 
-            measurements.setpoint, 
-            hvac_mode_val, 
+            np.array(hvac_produced_discrete),
             hvac_states=measurements.hvac_state
         )
         energy_kwh_discrete_optimized = eng_discrete_opt_res['kwh']
@@ -536,9 +508,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 )
             )
             eng_discrete_naive_res = calc_energy(
-                np.array(hvac_produced_naive_disc), 
-                measurements.setpoint, 
-                hvac_mode_val, 
+                np.array(hvac_produced_naive_disc),
                 hvac_states=measurements.hvac_state
             )
             energy_kwh_discrete_naive = eng_discrete_naive_res['kwh']
@@ -867,25 +837,23 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # Yes, earlier: measurements.setpoint = np.array(sim_setpoints) (Line 706)
             
             # Helper for calc
-            def calc_energy_svc(produced, setpoints, hvac_state_arr):
+            def calc_energy_svc(produced, hvac_state_arr):
                  return calculate_energy_vectorized(
                      produced, measurements.dt_hours, 
                      self.heat_pump.get_max_capacity(measurements.t_out),
                      self.heat_pump.get_cop(measurements.t_out), 
                      self.heat_pump,
-                     eff_derate=1.0, 
+                     eff_derate=params[5], 
                      hvac_states=hvac_state_arr,
-                     setpoints=setpoints,
-                     hvac_mode_val=1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1,
-                     min_setpoint=self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
-                     max_setpoint=self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
-                     off_intent_eps=DEFAULT_OFF_INTENT_EPS
+                     t_out=measurements.t_out,
+                     include_defrost=True
                  )
             
             hvac_mode_val_svc = 1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1
 
             # 1. Continuous Optimized (Service Run)
-            cont_opt_res = calc_energy_svc(hvac_produced, measurements.setpoint, measurements.hvac_state)
+            # 1. Continuous Optimized (Service Run)
+            cont_opt_res = calc_energy_svc(hvac_produced, measurements.hvac_state)
             optimized_kwh = cont_opt_res['kwh']
             optimized_steps = cont_opt_res['kwh_steps']
             
@@ -910,7 +878,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 )
             )
             
-            disc_opt_res = calc_energy_svc(np.array(hvac_produced_disc_svc), measurements.setpoint, np.array(actual_state_disc_svc))
+            disc_opt_res = calc_energy_svc(np.array(hvac_produced_disc_svc), np.array(actual_state_disc_svc))
             optimized_kwh_discrete = disc_opt_res['kwh']
             optimized_steps_discrete = disc_opt_res['kwh_steps']
             
@@ -933,7 +901,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 )
             )
             
-            disc_naive_res = calc_energy_svc(np.array(hvac_produced_naive_disc), target_temps, np.array(actual_state_naive_disc))
+            disc_naive_res = calc_energy_svc(np.array(hvac_produced_naive_disc), np.array(actual_state_naive_disc))
             discrete_naive_kwh = disc_naive_res['kwh']
             
             metrics = {
@@ -1191,28 +1159,18 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              )
             
              # --- Upstream "True Off" Enforcement ---
-             # If setpoint is pinned to min/max boundaries, force hvac_state to 0.
-             # This simplifies downstream physics/energy logic (they trust the state).
+             from .housetemp.utils import get_effective_hvac_state
+            
              min_setpoint = self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)
              max_setpoint = self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)
             
-             hvac_state_arr = np.array(hvac_state_arr, dtype=int)
-             setpoint_arr = np.array(setpoint_arr, dtype=float)
-            
-             # Use centralized epsilon
-             # Note: explicit loop or numpy filter. Numpy is better.
-             is_heating = hvac_state_arr > 0
-             is_cooling = hvac_state_arr < 0
-            
-             # Check boundaries
-             # Heat: setpoint <= min + eps
-             off_heat = is_heating & (setpoint_arr <= (min_setpoint + DEFAULT_OFF_INTENT_EPS))
-            
-             # Cool: setpoint >= max - eps
-             off_cool = is_cooling & (setpoint_arr >= (max_setpoint - DEFAULT_OFF_INTENT_EPS))
-            
-             # Apply True Off (Force to 0)
-             hvac_state_arr[off_heat | off_cool] = 0
+             hvac_state_arr = get_effective_hvac_state(
+                 hvac_state_arr, 
+                 setpoint_arr, 
+                 min_setpoint, 
+                 max_setpoint, 
+                 DEFAULT_OFF_INTENT_EPS
+             )
 
         steps = len(timestamps)
         t_in_arr = np.zeros(steps)

@@ -15,6 +15,57 @@ from housetemp import evaluate
 from housetemp import run_model
 
 from housetemp import schedule
+from housetemp.run_model import run_model_continuous
+import numpy as np
+
+def run_simulation_local(params, data, hw, duration_minutes=0):
+    """Local helper to unpack data for run_model_continuous."""
+    # Slicing Logic
+    t_out = data.t_out.tolist()
+    solar_kw = data.solar_kw.tolist()
+    dt_hours = data.dt_hours.tolist()
+    setpoint = data.setpoint.tolist()
+    hvac_state = data.hvac_state.tolist()
+    
+    if duration_minutes > 0:
+        avg_dt = np.mean(data.dt_hours) * 60
+        if avg_dt > 0:
+            steps = int(duration_minutes / avg_dt)
+            steps = min(steps, len(t_out))
+            t_out = t_out[:steps]
+            solar_kw = solar_kw[:steps]
+            dt_hours = dt_hours[:steps]
+            setpoint = setpoint[:steps]
+            hvac_state = hvac_state[:steps]
+    
+    # Caps
+    t_out_np = np.array(t_out)
+    max_caps = hw.get_max_capacity(t_out_np).tolist() if hw else [0.0]*len(t_out_np)
+    
+    start_temp = float(data.t_in[0])
+    eff_derate = params[5] if len(params) > 5 else 1.0
+
+    sim_temps, delivered, produced = run_model_continuous(
+        params,
+        t_out_list=t_out,
+        solar_kw_list=solar_kw,
+        dt_hours_list=dt_hours,
+        setpoint_list=setpoint,
+        hvac_state_list=hvac_state,
+        max_caps_list=max_caps,
+        min_output=hw.min_output_btu_hr if hw else 0,
+        max_cool=hw.max_cool_btu_hr if hw else 0,
+        eff_derate=eff_derate,
+        start_temp=start_temp
+    )
+    
+    # Calculate RMSE
+    sim_np = np.array(sim_temps)
+    # Use original t_in sliced safely
+    actual = data.t_in[:len(sim_np)]
+    rmse = np.sqrt(np.mean((sim_np - actual)**2))
+    
+    return sim_temps, rmse, delivered, produced, np.array(hvac_state)
 
 def save_model(params, filename):
     data = {
@@ -279,7 +330,7 @@ def run_main(args_list=None):
         
         # Debug output (optional)
         if args.debug_output:
-            sim_temps, rmse, hvac_delivered, hvac_produced, _ = run_model.run_model(params, measurements, hw, duration_minutes=args.duration)
+            sim_temps, rmse, hvac_delivered, hvac_produced, _ = run_simulation_local(params, measurements, hw, duration_minutes=args.duration)
             export_debug_output(
                 args.debug_output,
                 mode="optimize-hvac" if args.optimize_hvac else "predict",

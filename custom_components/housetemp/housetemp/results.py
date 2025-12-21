@@ -8,7 +8,48 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     # hw is passed in
     
     # Run final simulation with best params
-    simulated_t_in, rmse, hvac_outputs, _, _ = run_model.run_model(optimized_params, data, hw, duration_minutes=duration_minutes)
+    # Run final simulation with best params
+    # Unpack for continuous model
+    
+    # Slicing for duration
+    t_out = data.t_out.tolist()
+    solar_kw = data.solar_kw.tolist()
+    dt_hours = data.dt_hours.tolist()
+    setpoint = data.setpoint.tolist()
+    hvac_state = data.hvac_state.tolist()
+    
+    if duration_minutes > 0:
+        avg_dt = np.mean(data.dt_hours) * 60
+        if avg_dt > 0:
+            steps = int(duration_minutes / avg_dt)
+            steps = min(steps, len(t_out))
+            t_out = t_out[:steps]
+            solar_kw = solar_kw[:steps]
+            dt_hours = dt_hours[:steps]
+            setpoint = setpoint[:steps]
+            hvac_state = hvac_state[:steps]
+
+    t_out_np = np.array(t_out)
+    max_caps_list = hw.get_max_capacity(t_out_np).tolist() if hw else [0.0]*len(t_out_np)
+    
+    simulated_t_in, hvac_outputs, _ = run_model.run_model_continuous(
+        optimized_params,
+        t_out_list=t_out,
+        solar_kw_list=solar_kw,
+        dt_hours_list=dt_hours,
+        setpoint_list=setpoint,
+        hvac_state_list=hvac_state,
+        max_caps_list=max_caps_list,
+        min_output=hw.min_output_btu_hr if hw else 0,
+        max_cool=hw.max_cool_btu_hr if hw else 0,
+        eff_derate=optimized_params[5] if len(optimized_params) > 5 else 1.0,
+        start_temp=float(data.t_in[0])
+    )
+    
+    # Calculate RMSE
+    sim_np = np.array(simulated_t_in)
+    actual_sliced = data.t_in[:len(sim_np)]
+    rmse = np.sqrt(np.mean((sim_np - actual_sliced)**2))
     
     # Calculate Error (Manual Verification)
     # We need to slice data.t_in to match simulation length if duration was limited

@@ -146,12 +146,30 @@ async def main():
     # HASS coordinator runs `run_model` with `duration_hours*60`
     
     print(f"\n[HASS Stack] Running Simulation ({len(timestamps)} steps)...")
-    sim_temps, rmse, hvac_outputs, _, _ = run_model(
+    print(f"\n[HASS Stack] Running Simulation ({len(timestamps)} steps)...")
+    
+    # Manually unpack for continuous model
+    max_caps_list = hp.get_max_capacity(measurements.t_out).tolist()
+    
+    # Import
+    from housetemp.housetemp.run_model import run_model_continuous
+    
+    sim_temps, hvac_outputs, _ = run_model_continuous(
         params, 
-        measurements, 
-        hp, 
-        duration_minutes=duration_hours*60
+        t_out_list=measurements.t_out.tolist(),
+        solar_kw_list=measurements.solar_kw.tolist(),
+        dt_hours_list=measurements.dt_hours.tolist(),
+        setpoint_list=measurements.setpoint.tolist(),
+        hvac_state_list=measurements.hvac_state.tolist(),
+        max_caps_list=max_caps_list,
+        min_output=hp.min_output_btu_hr,
+        max_cool=hp.max_cool_btu_hr,
+        eff_derate=1.0,
+        start_temp=measurements.t_in[0]
     )
+    
+    # Mock RMSE (meaningless here as t_in is dummy)
+    rmse = 0.0
     
     # 7. Energy Stats
     # Assuming params[4] matches H_factor from file (it does)

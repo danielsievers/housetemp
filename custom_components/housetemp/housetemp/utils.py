@@ -139,3 +139,37 @@ async def fetch_history_frame(hass, entity_ids, start_time, end_time, minimal_re
     
     return df
 
+import numpy as np
+
+def get_effective_hvac_state(hvac_state_arr, setpoint_arr, min_setpoint, max_setpoint, off_eps):
+    """
+    Applies 'True Off' logic: Force HVAC State to 0 if setpoints are pinned to boundaries.
+    
+    Args:
+        hvac_state_arr: Array of intended states (-1, 0, 1) or scalar.
+        setpoint_arr: Array of setpoints or scalar.
+        min_setpoint: User config min (float).
+        max_setpoint: User config max (float).
+        off_eps: Tolerance epsilon.
+    
+    Returns:
+        Effective HVAC state array (0 where pinned).
+    """
+    # Ensure numpy arrays for vectorized logic
+    states = np.array(hvac_state_arr, dtype=int, copy=True)
+    setpoints = np.array(setpoint_arr, dtype=float)
+    
+    # Logic
+    is_heating = states > 0
+    is_cooling = states < 0
+    
+    # Heat: setpoint <= min + eps
+    off_heat = is_heating & (setpoints <= (min_setpoint + off_eps))
+    
+    # Cool: setpoint >= max - eps
+    off_cool = is_cooling & (setpoints >= (max_setpoint - off_eps))
+    
+    # Apply
+    states[off_heat | off_cool] = 0
+    
+    return states
