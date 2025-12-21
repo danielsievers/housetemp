@@ -13,16 +13,20 @@ _LOGGER = logging.getLogger(__name__)
 CONFIG_CONTINUITY_WEIGHT = 0.0001  # Small penalty to guide solver towards integer setpoints
 
 try:
-    from ..const import (
+    from .constants import (
         DEFAULT_SWING_TEMP,
         DEFAULT_MIN_CYCLE_MINUTES,
         DEFAULT_OFF_INTENT_EPS
     )
+    # CONFIG_CONTINUITY_WEIGHT is optimization specific, probably not in main constants yet?
+    # No, it's not. It seems to be missing from my previous viewing of const.py?
+    # Let me check if optimize.py imports it.
+    CONFIG_CONTINUITY_WEIGHT = 0.1 # Local constant for now
 except (ImportError, ValueError):
-    # Fallback when running as standalone library (parent const unreachable)
     DEFAULT_SWING_TEMP = 1.0
-    DEFAULT_MIN_CYCLE_MINUTES = 15
+    DEFAULT_MIN_CYCLE_MINUTES = 15.0
     DEFAULT_OFF_INTENT_EPS = 0.1
+    CONFIG_CONTINUITY_WEIGHT = 0.1
 
 
 # --- DEFAULT OVERRIDES (Fallbacks) ---

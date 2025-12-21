@@ -3,7 +3,7 @@ import logging
 from . import run_model
 
 try:
-    from ..const import (
+    from .constants import (
         KW_TO_WATTS,
         TOLERANCE_BTU_ACTIVE,
         TOLERANCE_BTU_FRACTION,

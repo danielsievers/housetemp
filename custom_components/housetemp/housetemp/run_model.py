@@ -4,7 +4,7 @@ import logging
 from .measurements import Measurements
 
 try:
-    from ..const import TOLERANCE_BTU_ACTIVE, TOLERANCE_BTU_FRACTION
+    from .constants import TOLERANCE_BTU_ACTIVE, TOLERANCE_BTU_FRACTION
 except (ImportError, ValueError):
     # Fallback for standalone library usage
     TOLERANCE_BTU_ACTIVE = 1.0
@@ -114,16 +114,28 @@ class HeatPump:
         return cop
 
 try:
-    from ..const import (
+    from .constants import (
+        TOLERANCE_BTU_ACTIVE, 
+        TOLERANCE_BTU_FRACTION,
         DEFAULT_SWING_TEMP,
         DEFAULT_MIN_CYCLE_MINUTES,
         DEFAULT_OFF_INTENT_EPS
     )
-except (ImportError, ValueError):
-    # Fallback to defaults if running standalone (e.g. tests)
-    DEFAULT_SWING_TEMP = 1.0
-    DEFAULT_MIN_CYCLE_MINUTES = 15.0
-    DEFAULT_OFF_INTENT_EPS = 0.1
+except ImportError:
+    # This might happen if running script directly without package context?
+    # But usually .constants should work if in same package.
+    # Fallback just in case, or assume package structure.
+    # Actually, if we are inside the package, simple relative import works.
+    from .constants import *
+
+# (Better: just explicit imports)
+from .constants import (
+    TOLERANCE_BTU_ACTIVE,
+    TOLERANCE_BTU_FRACTION,
+    DEFAULT_SWING_TEMP,
+    DEFAULT_MIN_CYCLE_MINUTES,
+    DEFAULT_OFF_INTENT_EPS
+)
 
 def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
     """
