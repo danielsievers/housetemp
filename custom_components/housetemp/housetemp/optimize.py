@@ -381,22 +381,35 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # 2. Run THIN Kernel
             start_temp = float(data.t_in[0]) # Ensure start_temp is float
 
-            # --- 3. Run Physics Model (Continuous) ---
+            # --- Upstream True Off (for Optimization Loop) ---
+            # We calculate this DYNAMICALLY inside the loop because setpoints are changing.
+            # 1. Use effective_setpoints (quantized) for stable True Off detection
+            is_heating_intent = working_hvac_state > 0
+            is_cooling_intent = working_hvac_state < 0
+            
+            # Check boundaries
+            off_heat = is_heating_intent & (effective_setpoints <= (min_setpoint + DEFAULT_OFF_INTENT_EPS))
+            off_cool = is_cooling_intent & (effective_setpoints >= (max_setpoint - DEFAULT_OFF_INTENT_EPS))
+            is_true_off_mask = off_heat | off_cool
+            
+            # 2. Create "Effective Intent" for Physics/Energy
+            # If True Off, intent becomes 0
+            effective_hvac_state = np.where(is_true_off_mask, 0, working_hvac_state)
+            
+            # 3. Run Physics Model (Continuous)
+            # Pass effective_hvac_state (0 for True Off) so physics naturally shuts down.
             sim_temps_list, hvac_outputs_list, hvac_produced_list = run_model_continuous(
                 params, 
                 t_out_list=t_out_list, 
                 solar_kw_list=solar_kw_list, 
                 dt_hours_list=dt_hours_list, 
                 setpoint_list=setpoint_list, 
-                hvac_state_list=hvac_state_list,
+                hvac_state_list=effective_hvac_state.tolist(),
                 max_caps_list=max_caps_np.tolist(), 
                 min_output=min_output, 
                 max_cool=max_cool, 
                 eff_derate=eff_derate, 
-                start_temp=start_temp,
-                min_setpoint=min_setpoint,
-                max_setpoint=max_setpoint,
-                off_intent_eps=DEFAULT_OFF_INTENT_EPS
+                start_temp=start_temp
             )
             
             sim_temps = np.array(sim_temps_list)
@@ -407,6 +420,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # A. Comfort Cost (RMSE from Preference Curve)
             
             # B. Energy Cost
+            # Pass effective_hvac_state so energy calculator sees 0 enabled, charging 0 idle.
             res = calculate_energy_vectorized(
                 hvac_produced, 
                 dt_hours_np, 
@@ -414,12 +428,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 base_cops_np, 
                 hw, 
                 eff_derate=1.0, # Produced is Gross (Pre-Derate)
-                hvac_states=working_hvac_state, # Working copy for Idle/Blower enablement
-                setpoints=effective_setpoints, # Use quantized setpoints for True-Off/Idle accounting
-                hvac_mode_val=hvac_mode_val, 
-                min_setpoint=min_setpoint,
-                max_setpoint=max_setpoint,
-                off_intent_eps=DEFAULT_OFF_INTENT_EPS
+                hvac_states=effective_hvac_state
             )
             
             if rate_per_step is not None:

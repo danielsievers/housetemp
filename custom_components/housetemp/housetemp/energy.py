@@ -39,16 +39,13 @@ TOLERANCE_COP_WARN = 0.1    # Physical plausibility warning threshold
 # PLF Constants
 PLF_MIN_DEFAULT = 0.5   # Default minimum Part-Load Factor if not on HW
 
-def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS):
+def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, hvac_states=None):
     """
     Calculates estimated kWh usage and cost based on the thermal model fits.
     Applies Mitsubishi-specific Part-Load Efficiency corrections.
     
     Args:
-        setpoints: If provided, enables True-Off accounting. If None, uses data.setpoint.
-        hvac_mode_val: +1 for heat, -1 for cool.
-        min_setpoint, max_setpoint: Bounds for True-Off detection.
-        off_intent_eps: Tolerance for boundary detection.
+        hvac_states: Optional override for intent.
     """
     # hw is passed in
     
@@ -63,7 +60,7 @@ def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, se
         solar_kw_list=data.solar_kw.flatten().tolist(),
         dt_hours_list=data.dt_hours.flatten().tolist(),
         setpoint_list=data.setpoint.flatten().tolist(),
-        hvac_state_list=data.hvac_state.flatten().tolist(),
+        hvac_state_list=data.hvac_state.flatten().tolist() if hvac_states is None else hvac_states.flatten().tolist(),
         max_caps_list=hw.get_max_capacity(data.t_out).flatten().tolist(),
         min_output=hw.min_output_btu_hr,
         max_cool=hw.max_cool_btu_hr,
@@ -85,42 +82,28 @@ def estimate_consumption(data, params, hw, cost_per_kwh=DEFAULT_COST_PER_KWH, se
     else:
         eff_derate = 1.0
     
-    # Use provided setpoints or fall back to data.setpoint for True-Off accounting
-    effective_setpoints = setpoints if setpoints is not None else data.setpoint
-        
     # hvac_produced is GROSS (Pre-Derate). Pass eff_derate=1.0.
     return calculate_energy_stats(
         hvac_produced, data, hw, 
         h_factor=params[4], 
         eff_derate=1.0, 
         cost_per_kwh=cost_per_kwh,
-        setpoints=effective_setpoints,
-        hvac_mode_val=hvac_mode_val,
-        min_setpoint=min_setpoint,
-        max_setpoint=max_setpoint,
-        off_intent_eps=off_intent_eps
+        hvac_states=hvac_states
     )
 
 
-def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw, eff_derate=1.0, hvac_states=None, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS, t_out=None, include_defrost=False):
+def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw, eff_derate=1.0, hvac_states=None, t_out=None, include_defrost=False):
     """
     Vectorized energy calculation with True-Off accounting (Epsilon-tolerant).
     
     Args:
         hvac_outputs: Produced BTU/hr (Gross/Pre-derate).
         hvac_states: Optional 'enabled intent' (-1/0/1).
-        setpoints: Array of setpoints (required for True Off).
-        hvac_mode_val: +1 (Heat) or -1 (Cool).
-        min_setpoint, max_setpoint: Bounds.
-        off_intent_eps: Tolerance for off-intent detection.
     """
     # --- Robustness Shape Checks ---
     assert len(hvac_outputs) == len(dt_hours) == len(max_caps) == len(base_cops), \
         f"Input shape mismatch in energy calc: outputs={len(hvac_outputs)}, dt={len(dt_hours)}, caps={len(max_caps)}, cops={len(base_cops)}"
     
-    if setpoints is not None:
-        assert len(setpoints) == len(hvac_outputs), "Setpoint array must match simulation length"
-
     # 1) Compressor watts from physics ALWAYS
     # 1) Determine Effective Operating Point (Duty Cycle Logic)
     produced_output = np.abs(hvac_outputs)
@@ -161,8 +144,6 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     # Protect against div/0
     final_cops = np.maximum(final_cops, TOLERANCE_COP_FLOOR) 
     
-    produced_output = np.abs(hvac_outputs)
-    
     # Instantaneous Watts (When ON)
     watts_inst = (effective_capacity / final_cops) * BTU_TO_WATTS
     
@@ -171,29 +152,16 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     
     # 2) Determine enabled / active / idle
     if hvac_states is None:
-        is_enabled_intent = np.ones_like(produced_output, dtype=bool)
+        is_enabled = np.ones_like(produced_output, dtype=bool)
     else:
         # allow float states; treat near-zero as off
-        is_enabled_intent = np.abs(hvac_states) > 1e-6
+        # Since we TRUST input state now (filtered upstream), 
+        # State != 0 implies Enablement.
+        is_enabled = np.abs(hvac_states) > 1e-6
         
     # Active means the physics is actually producing meaningful output AND enabled
-    is_active = (produced_output > TOLERANCE_BTU) & is_enabled_intent
+    # (Note: we use is_enabled here, not separate intent, because intent IS enablement now)
     
-    # --- True-Off intent derived from setpoints ---
-    if setpoints is not None:
-        if hvac_mode_val > 0:
-            off_intent = setpoints <= (min_setpoint + off_intent_eps)
-        elif hvac_mode_val < 0:
-            off_intent = setpoints >= (max_setpoint - off_intent_eps)
-        else:
-             off_intent = np.zeros_like(produced_output, dtype=bool)
-             
-        # If off-intent: do NOT charge idle/blower adders.
-        is_enabled = is_enabled_intent & (~off_intent)
-    else:
-        is_enabled = is_enabled_intent
-        off_intent = np.zeros_like(produced_output, dtype=bool)
-
     # Recompute active/idle under enabled mask
     is_active = (produced_output > TOLERANCE_BTU) & is_enabled
     is_idle = (~is_active) & is_enabled
@@ -212,12 +180,11 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
         # Active adder applies during the ON portion (Duty)
         watts = np.where(is_enabled, watts + (active_kw * KW_TO_WATTS * duty_cycle), watts)
         
-    # 4) Validation warning
-    mismatch = off_intent & (produced_output > TOLERANCE_BTU)
-    if np.any(mismatch):
-        mismatch_count = np.sum(mismatch)
-        max_output = np.max(produced_output[mismatch])
-        _LOGGER.debug(f"True-Off mismatch: {mismatch_count} steps have output (max {max_output:.0f} BTU/hr) despite off-intent setpoint.")
+    # 4) Validation warning (Removed: relies on off_intent which is now upstream)
+    if active_kw > 0:
+        # Active adder applies during the ON portion (Duty)
+        watts = np.where(is_enabled, watts + (active_kw * KW_TO_WATTS * duty_cycle), watts)
+
 
     # 5. Defrost Penalty (Reporting Only)
     # Re-using logic if needed, but keeping it simple for now to fix syntax.
@@ -250,16 +217,13 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
 
 
 
-def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEFAULT_EFFICIENCY_DERATE, cost_per_kwh=DEFAULT_COST_PER_KWH, setpoints=None, hvac_mode_val=0, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS):
+def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEFAULT_EFFICIENCY_DERATE, cost_per_kwh=DEFAULT_COST_PER_KWH, hvac_states=None):
     """
     Calculates energy stats from known HVAC outputs.
     Avoids re-running simulation.
     
     Args:
-        setpoints: If provided, enables True-Off accounting (setpoint at floor/ceiling = no idle power).
-        hvac_mode_val: +1 for heat, -1 for cool.
-        min_setpoint, max_setpoint: Bounds for True-Off detection.
-        off_intent_eps: Tolerance for boundary detection.
+        hvac_states: Optional overrides for hvac_state (simulated intent). If None, uses data.hvac_state.
     """
     if hw is None:
         return {'total_kwh': 0.0, 'total_cost': 0.0}
@@ -281,18 +245,17 @@ def calculate_energy_stats(hvac_outputs, data, hw, h_factor=None, eff_derate=DEF
     dt_slice = data.dt_hours[:num_steps]
     max_slice = max_caps[:num_steps]
     cop_slice = base_cops[:num_steps]
-    hvac_state_slice = data.hvac_state[:num_steps]
-    setpoint_slice = setpoints[:num_steps] if setpoints is not None else None
+    
+    # Use override or data
+    if hvac_states is None:
+        hvac_state_slice = data.hvac_state[:num_steps]
+    else:
+         hvac_state_slice = hvac_states[:num_steps]
     
     res = calculate_energy_vectorized(
         hvac_out_slice, dt_slice, max_slice, cop_slice, hw, 
         eff_derate=eff_derate, 
         hvac_states=hvac_state_slice, 
-        setpoints=setpoint_slice,
-        hvac_mode_val=hvac_mode_val,
-        min_setpoint=min_setpoint,
-        max_setpoint=max_setpoint,
-        off_intent_eps=off_intent_eps,
         t_out=data.t_out[:num_steps], 
         include_defrost=True
     )

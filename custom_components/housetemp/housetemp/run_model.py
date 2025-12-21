@@ -125,12 +125,11 @@ except (ImportError, ValueError):
     DEFAULT_MIN_CYCLE_MINUTES = 15.0
     DEFAULT_OFF_INTENT_EPS = 0.1
 
-def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp, min_setpoint=-999, max_setpoint=999, off_intent_eps=DEFAULT_OFF_INTENT_EPS):
+def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, setpoint_list, hvac_state_list, max_caps_list, min_output, max_cool, eff_derate, start_temp):
     """
     Continuous Physics Model.
     Calculates thermodynamic response in a single pass.
     """
-    # off_intent_eps is passed in from caller (optimize.py owns the authoritative value) or defaults to const.
     # Unpack params
     C_thermal = params[0]
     UA = params[1]
@@ -148,8 +147,6 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
     # Soft Start State
     elapsed_active_minutes = 0.0
     
-    # off_intent_eps is passed in from caller (optimize.py owns the authoritative value)
-
     for i in range(total_steps):
         sim_temps_list[i] = current_temp
         
@@ -160,19 +157,9 @@ def run_model_continuous(params, *, t_out_list, solar_kw_list, dt_hours_list, se
         setpoint = setpoint_list[i]
         requested_mode = hvac_state_list[i] # 1=Heat, -1=Cool, 0=Off
         
-        # Check True-Off Intent (Hard Clamp)
-        # If setpoint is pinned to boundary, we treat it as OFF to avoid phantom heat.
-        is_true_off = False
-        if requested_mode > 0:
-            if setpoint <= (min_setpoint + off_intent_eps):
-                is_true_off = True
-        elif requested_mode < 0:
-            if setpoint >= (max_setpoint - off_intent_eps):
-                is_true_off = True
-
         q_hvac = 0.0
         
-        if requested_mode != 0 and not is_true_off:
+        if requested_mode != 0:
             if requested_mode > 0: # HEATING
                 # Proportional Control (Inverter Logic)
                 gap = setpoint - current_temp

@@ -1189,6 +1189,30 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                      default_mode=configured_mode
                  )
              )
+            
+             # --- Upstream "True Off" Enforcement ---
+             # If setpoint is pinned to min/max boundaries, force hvac_state to 0.
+             # This simplifies downstream physics/energy logic (they trust the state).
+             min_setpoint = self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)
+             max_setpoint = self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)
+            
+             hvac_state_arr = np.array(hvac_state_arr, dtype=int)
+             setpoint_arr = np.array(setpoint_arr, dtype=float)
+            
+             # Use centralized epsilon
+             # Note: explicit loop or numpy filter. Numpy is better.
+             is_heating = hvac_state_arr > 0
+             is_cooling = hvac_state_arr < 0
+            
+             # Check boundaries
+             # Heat: setpoint <= min + eps
+             off_heat = is_heating & (setpoint_arr <= (min_setpoint + DEFAULT_OFF_INTENT_EPS))
+            
+             # Cool: setpoint >= max - eps
+             off_cool = is_cooling & (setpoint_arr >= (max_setpoint - DEFAULT_OFF_INTENT_EPS))
+            
+             # Apply True Off (Force to 0)
+             hvac_state_arr[off_heat | off_cool] = 0
 
         steps = len(timestamps)
         t_in_arr = np.zeros(steps)

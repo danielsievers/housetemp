@@ -113,7 +113,7 @@ def test_optimizer_avoids_peak_rates():
             start_temp=68.0
         )
         res = calculate_energy_vectorized(
-            np.array(hvac_produced), np.full(steps, 0.5), np.full(steps, 20000.0), np.full(steps, 3.0), hw, setpoints=sps
+            np.array(hvac_produced), np.full(steps, 0.5), np.full(steps, 20000.0), np.full(steps, 3.0), hw
         )
         energy_cost = np.sum(res['kwh_steps'] * rates)
         

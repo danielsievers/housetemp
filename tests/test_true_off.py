@@ -25,51 +25,30 @@ class TestTrueOffSemantics(unittest.TestCase):
 
     def test_true_off_suppresses_idle_power(self):
         """
-        Verify that pinning setpoint to min_setpoint (Heat) suppresses idle & blower power
-        even when hvac_states is 'enabled' (+1).
+        Verify that passing hvac_states=0 suppresses idle power,
+        mirroring the upstream True-Off logic.
         """
         # Scenario: Heating Mode
-        hvac_mode_val = 1
-        min_setpoint = 60.0
-        max_setpoint = 75.0
-        off_eps = 0.1
         
-        # Case A: Enabled (+1) and Active Setpoint (70F) -> Should Charge Idle/Blower
-        # ---------------------------------------------------------------------------
-        hvac_states = np.array([1, 1]) # Fully Enabled Intent
-        setpoints_active = np.array([70.0, 70.0]) # Well above min
-        # Produced heat must be > 0 ideally, but for this accounting test 
-        # we can just zero it to check *idle* adder specifically?
-        # Energy calc logic:
-        # is_active = (produced > TOL) & enabled
-        # is_idle = (~is_active) & enabled
-        # If we pass produced=0, it should be IDLE.
+        # Case A: Enabled (+1) -> Should Charge Idle/Blower
+        hvac_states_enabled = np.array([1, 1]) 
         hvac_produced_zero = np.zeros(2) 
         
         res_active = energy.calculate_energy_vectorized(
-            hvac_outputs=hvac_produced_zero, # 0 output -> Idle
+            hvac_outputs=hvac_produced_zero, 
             dt_hours=self.dt_hours,
             max_caps=self.hw.get_max_capacity(self.t_out),
             base_cops=self.hw.get_cop(self.t_out),
             hw=self.hw,
-            hvac_states=hvac_states,
-            setpoints=setpoints_active, # 70F
-            hvac_mode_val=hvac_mode_val,
-            min_setpoint=min_setpoint,
-            max_setpoint=max_setpoint,
-            off_intent_eps=off_eps
+            hvac_states=hvac_states_enabled
         )
         
-        # Expectation: 
-        # Produced = 0 -> Watts = 0
-        # Idle = True (Enabled & Not Active) -> Watts += 0.5 kW
-        # Total kWh = 0.5 kW * 1 hr (2x30min) = 0.5 kWh
+        # Expectation: 0.5 kWh (Idle)
         self.assertAlmostEqual(res_active['kwh'], 0.5, delta=0.01, 
-            msg="Failed to charge idle power when enabled and setpoint is active")
+            msg="Failed to charge idle power when enabled")
 
-        # Case B: Enabled (+1) BUT Pinned Setpoint (60F) -> Should BE TRUE OFF (0 kWh)
-        # ---------------------------------------------------------------------------
-        setpoints_pinned = np.array([60.0, 60.0]) # Exactly min_setpoint
+        # Case B: True Off (0) -> Should NOT Charge Idle
+        hvac_states_off = np.array([0, 0]) # Manually set to 0 (simulating upstream logic)
         
         res_true_off = energy.calculate_energy_vectorized(
             hvac_outputs=hvac_produced_zero,
@@ -77,63 +56,37 @@ class TestTrueOffSemantics(unittest.TestCase):
             max_caps=self.hw.get_max_capacity(self.t_out),
             base_cops=self.hw.get_cop(self.t_out),
             hw=self.hw,
-            hvac_states=hvac_states, # STILL ENABLED INTENT!
-            setpoints=setpoints_pinned, # Pinned -> Off Intent
-            hvac_mode_val=hvac_mode_val,
-            min_setpoint=min_setpoint,
-            max_setpoint=max_setpoint,
-            off_intent_eps=off_eps
+            hvac_states=hvac_states_off
         )
         
-        # Expectation:
-        # Pinned setpoint triggers off_intent.
-        # off_intent suppresses is_enabled.
-        # So is_idle becomes False.
-        # Total kWh should be 0.0
         self.assertAlmostEqual(res_true_off['kwh'], 0.0, delta=0.0001,
-            msg="Failed to suppress idle power when setpoint pinned to boundary (True Off)")
+            msg="Failed to suppress idle power when hvac_states=0")
 
     def test_true_off_cooling_mode(self):
-        """Verify True-Off works symmetrically for Cooling (Pinned to Max)."""
-        hvac_mode_val = -1
-        min_setpoint = 60.0
-        max_setpoint = 75.0
-        off_eps = 0.1
-        
-        hvac_states = np.array([-1, -1])
+        """Verify True-Off works symmetrically for Cooling (0 State)."""
         hvac_produced_zero = np.zeros(2)
         
-        # Case A: Active Setpoint (70F) -> Idle Charge
-        setpoints_active = np.array([70.0, 70.0]) 
+        # Case A: Active (-1) -> Idle Charge
+        hvac_states_cool = np.array([-1, -1])
         res_active = energy.calculate_energy_vectorized(
             hvac_outputs=hvac_produced_zero,
             dt_hours=self.dt_hours,
             max_caps=self.hw.get_max_capacity(self.t_out),
-            base_cops=self.hw.get_cooling_cop(self.t_out), # Use cooling COP mock
+            base_cops=self.hw.get_cooling_cop(self.t_out),
             hw=self.hw,
-            hvac_states=hvac_states,
-            setpoints=setpoints_active,
-            hvac_mode_val=hvac_mode_val,
-            min_setpoint=min_setpoint,
-            max_setpoint=max_setpoint,
-            off_intent_eps=off_eps
+            hvac_states=hvac_states_cool
         )
         self.assertAlmostEqual(res_active['kwh'], 0.5, delta=0.01)
 
-        # Case B: Pinned Setpoint (75F) -> True Off
-        setpoints_pinned = np.array([75.0, 75.0])
+        # Case B: True Off (0) -> No Charge
+        hvac_states_off = np.array([0, 0])
         res_true_off = energy.calculate_energy_vectorized(
             hvac_outputs=hvac_produced_zero,
             dt_hours=self.dt_hours,
             max_caps=self.hw.get_max_capacity(self.t_out),
             base_cops=self.hw.get_cooling_cop(self.t_out),
             hw=self.hw,
-            hvac_states=hvac_states,
-            setpoints=setpoints_pinned, # Pinned to Max
-            hvac_mode_val=hvac_mode_val,
-            min_setpoint=min_setpoint,
-            max_setpoint=max_setpoint,
-            off_intent_eps=off_eps
+            hvac_states=hvac_states_off
         )
         self.assertAlmostEqual(res_true_off['kwh'], 0.0, delta=0.0001)
 
