@@ -274,6 +274,12 @@ class StatsStore:
         if self.predictions:
             last_dt = dt_util.parse_datetime(self.predictions[-1].timestamp)
             if last_dt and abs((target_dt - last_dt).total_seconds()) < 1800:  # 30 minutes
+                # Update existing record with latest prediction
+                self.predictions[-1].predicted_temp = f_pred
+                self.predictions[-1].horizon_hours = horizon_hours
+                # Note: We keep original timestamp to maintain 30m grid, 
+                # or update it? Updating it shifts the grid. 
+                # Better to just update the value.
                 return
 
         record = PredictionRecord(

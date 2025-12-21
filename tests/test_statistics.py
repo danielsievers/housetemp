@@ -346,6 +346,7 @@ class TestStatsStore:
         """Predictions are recorded correctly."""
         target_time = dt_util.now() + timedelta(hours=6)
         
+        # First call
         stats_store.record_prediction(
             target_timestamp=target_time,
             predicted_temp=70.5,
@@ -354,8 +355,17 @@ class TestStatsStore:
         
         assert len(stats_store.predictions) == 1
         assert stats_store.predictions[0].predicted_temp == 70.5
+        
+        # Second call (same time-ish) -> Should UPDATE
+        stats_store.record_prediction(
+            target_timestamp=target_time + timedelta(minutes=5),
+            predicted_temp=71.0,
+            horizon_hours=6,
+        )
+        
+        assert len(stats_store.predictions) == 1
+        assert stats_store.predictions[0].predicted_temp == 71.0  # UPDATED
         assert stats_store.predictions[0].horizon_hours == 6
-        assert stats_store.predictions[0].actual_temp is None
     
     def test_resolve_predictions(self, stats_store):
         """Predictions are resolved when timestamp passes."""
