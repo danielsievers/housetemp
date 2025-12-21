@@ -9,7 +9,7 @@ from .energy import calculate_energy_vectorized
 _LOGGER = logging.getLogger(__name__)
 
 # --- CONFIGURATION (Tuning Parameters) ---
-CONFIG_SNAP_WEIGHT = 0.01  # Incentivizes closing a 2F gap (0.16 cost) vs. paying 0.15kW idle power
+# Note: snap_weight removed from loss function - now done as post-processing
 CONFIG_CONTINUITY_WEIGHT = 0.0001  # Small penalty to guide solver towards integer setpoints
 
 try:
@@ -281,6 +281,10 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     if len(params) > 5:
         eff_derate = params[5]
     start_temp = float(data.t_in[0])
+    
+    # Hoist setpoint bounds for use in both _run_pass and post-processing
+    min_setpoint = comfort_config.get('min_setpoint', DEFAULT_MIN_SETPOINT)
+    max_setpoint = comfort_config.get('max_setpoint', DEFAULT_MAX_SETPOINT)
 
     def _run_pass(current_block_size, initial_guess_blocks=None, optimization_options=None):
         """Helper to run a single optimization pass at a specific resolution."""
@@ -340,9 +344,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         # Using const defaults
         swing_temp = DEFAULT_SWING_TEMP
         min_cycle_minutes = DEFAULT_MIN_CYCLE_MINUTES
-        
-        # Tuning weights
-        snap_weight = CONFIG_SNAP_WEIGHT
+
 
         def schedule_loss(candidate_blocks):
             # 1. Update Setpoints via Hoisted Map (Fast)
@@ -454,16 +456,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
 
             comfort_cost = center_preference * (effective_errors**2 + inside_cost)
             
-            # Snap-to-boundary regularization
-            # Now primarily a visual tie-breaker
-            if hvac_mode_val > 0:
-                is_off = full_res_setpoints < (sim_temps - 1.0)
-                snap_cost = np.where(is_off, snap_weight * (full_res_setpoints - min_setpoint)**2, 0)
-            else:
-                is_off = full_res_setpoints > (sim_temps + 1.0)
-                snap_cost = np.where(is_off, snap_weight * (full_res_setpoints - max_setpoint)**2, 0)
-            
-            total_penalty = np.sum((comfort_cost + snap_cost) * dt_hours_np)
+            total_penalty = np.sum(comfort_cost * dt_hours_np)
             
             # Defrost
             defrost_cost = 0.0
@@ -586,6 +579,19 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     indices = np.clip(indices, 0, len(final_blocks) - 1)
     
     final_setpoints = final_blocks[indices]
+    
+    # --- Post-Processing: Snap-to-Boundary (Visual/UI only) ---
+    # When setpoint is far below room temp (heating) or above (cooling), 
+    # snap to min/max for cleaner UI. This is cosmetic, not part of optimization.
+    # Use a simple heuristic based on scheduled target temps.
+    if hvac_mode_val > 0:  # Heating
+        off_threshold = target_temps - 3.0  # Well below target
+        is_off = final_setpoints < off_threshold
+        final_setpoints = np.where(is_off, min_setpoint, final_setpoints)
+    else:  # Cooling
+        off_threshold = target_temps + 3.0  # Well above target
+        is_off = final_setpoints > off_threshold
+        final_setpoints = np.where(is_off, max_setpoint, final_setpoints)
     
     # Metadata
     debug_info = {
