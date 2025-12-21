@@ -460,9 +460,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # A. Continuous Optimized (The run we just did)
         eng_continuous_opt_res = calc_energy(np.array(hvac_produced_continuous), measurements.setpoint, hvac_mode_val)
         energy_kwh_continuous_optimized = eng_continuous_opt_res['kwh']
-        energy_kwh_steps = eng_continuous_opt_res.get('kwh_steps')
+        # energy_kwh_steps is now fetched from Discrete below
 
-        # B. Discrete Optimized (Verification)
+        # B. Discrete Optimized (Verification and Reporting)
         # --------------------------------------------------------------------------------
         swing = self.config_entry.options.get(CONF_SWING_TEMP, DEFAULT_SWING_TEMP)
         min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
@@ -484,9 +484,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             )
         )
         
-        energy_kwh_discrete_optimized = calc_energy(
+        eng_discrete_opt_res = calc_energy(
             np.array(hvac_produced_discrete), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_discrete)
-        )['kwh']
+        )
+        energy_kwh_discrete_optimized = eng_discrete_opt_res['kwh']
+        # Use Discrete Steps for Hourly Graph (Real-World)
+        energy_kwh_steps = eng_discrete_opt_res.get('kwh_steps')
         
         # Diagnostics from Discrete Optimized
         diagnostics = diag_discrete
@@ -537,9 +540,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     min_cycle_minutes=float(min_cycle)
                 )
             )
-            energy_kwh_discrete_naive = calc_energy(
+            eng_discrete_naive_res = calc_energy(
                 np.array(hvac_produced_naive_disc), measurements.setpoint, hvac_mode_val, hvac_states=np.array(actual_state_naive_disc)
-            )['kwh']
+            )
+            energy_kwh_discrete_naive = eng_discrete_naive_res['kwh']
+            energy_kwh_naive_steps = eng_discrete_naive_res.get('kwh_steps')
             
             # Restore Optimized
             measurements.setpoint = optimized_setpoint_array
@@ -597,9 +602,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "setpoint": display_setpoints, # Return original schedule for comparison
             "solar": measurements.solar_kw,
             "outdoor": measurements.t_out,
-            # Legacy fields (mapped to Continuous for backward compat or primary display)
-            "energy_kwh": metrics.get("continuous_naive"),
-            "optimized_energy_kwh": metrics.get("continuous_optimized"),
+            # Legacy fields (mapped directly to Discrete for Sensor Reporting)
+            "energy_kwh": metrics.get("discrete_naive"),
+            "optimized_energy_kwh": metrics.get("discrete_optimized"),
             "energy_kwh_steps": energy_kwh_steps,  # Per-step energy for sensor hourly aggregation
             # NEW: Detailed Metrics
             "energy_metrics": {
@@ -915,22 +920,34 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             disc_opt_res = calc_energy_svc(np.array(hvac_produced_disc_svc), measurements.setpoint, np.array(actual_state_disc_svc))
             optimized_kwh_discrete = disc_opt_res['kwh']
+            optimized_steps_discrete = disc_opt_res['kwh_steps']
             
-            # 3. Naive Metrics (Reuse baseline_kwh passed in?)
-            # The 'baseline_kwh' var comes from 'calculate_energy_stats(hvac_produced_naive...)' earlier in function
-            # BUT that was using calculate_energy_stats (old).
-            # We should probably trust it as "Continuous Naive" approximation, or recalculate if we want exact parity.
-            # To be safe, let's map it to continuous_naive.
-            # We don't have discrete naive here unless we run it.
-            # For speed, we'll leave discrete_naive as None (or calculate it if critical). 
-            # Given this is "Run Optimization", comparing against "Current State" (Naive) is the goal.
-            # But calculating discrete naive requires another run.
-            # Let's Skip discrete naive for the service response to keep it faster, or just use None.
+            # 3. Naive Metrics (Discrete & Continuous)
+            # Calculate Discrete Naive (Baseline)
+            _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
+                partial(run_model_discrete, params, 
+                    t_out_list=measurements.t_out.tolist(), 
+                    solar_kw_list=measurements.solar_kw.tolist(),
+                    dt_hours_list=measurements.dt_hours.tolist(), 
+                    setpoint_list=target_temps.tolist(), # Original Schedule
+                    hvac_state_list=measurements.hvac_state.tolist(),
+                    max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
+                    min_output=self.heat_pump.min_output_btu_hr, 
+                    max_cool=self.heat_pump.max_cool_btu_hr, 
+                    eff_derate=params[5], 
+                    start_temp=float(measurements.t_in[0]),
+                    swing_temp=float(swing), 
+                    min_cycle_minutes=float(min_cycle)
+                )
+            )
+            
+            disc_naive_res = calc_energy_svc(np.array(hvac_produced_naive_disc), target_temps, np.array(actual_state_naive_disc))
+            discrete_naive_kwh = disc_naive_res['kwh']
             
             metrics = {
                 "continuous_naive": baseline_kwh, # From earlier simulation
                 "continuous_optimized": optimized_kwh,
-                "discrete_naive": None, # Not calculated in service for speed
+                "discrete_naive": discrete_naive_kwh,
                 "discrete_optimized": optimized_kwh_discrete,
                 "discrete_diagnostics": diag_disc_svc
             }
@@ -940,7 +957,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 timestamps, sim_temps, measurements, optimized_setpoints,
                 metrics=metrics,
                 original_schedule=target_temps,
-                energy_kwh_steps=optimized_steps  # Per-step energy for hourly aggregation
+                energy_kwh_steps=optimized_steps_discrete  # Per-step energy for hourly aggregation (Discrete)
             )
             
             # Preserve optimization status
@@ -979,8 +996,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     "duration_seconds": opt_duration,
                     "points": len(timestamps),
                     "start_time": start_time.isoformat(),
-                    "total_energy_use_kwh": float(baseline_kwh),
-                    "total_energy_use_optimized_kwh": float(optimized_kwh)
+                    "total_energy_use_kwh": float(discrete_naive_kwh),
+                    "total_energy_use_optimized_kwh": float(optimized_kwh_discrete)
                 }
             }
             
