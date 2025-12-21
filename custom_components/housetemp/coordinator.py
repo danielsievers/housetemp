@@ -503,25 +503,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             # Revert to Schedule
             optimized_setpoint_array = measurements.setpoint
             measurements.setpoint = np.array(setpoint_arr)
+
             
-            # C1. Continuous Naive
-            _, _, hvac_produced_naive_cont = await self.hass.async_add_executor_job(
-                partial(run_model_continuous, params, 
-                    t_out_list=measurements.t_out.tolist(), 
-                    solar_kw_list=measurements.solar_kw.tolist(),
-                    dt_hours_list=measurements.dt_hours.tolist(), 
-                    setpoint_list=measurements.setpoint.tolist(), 
-                    hvac_state_list=measurements.hvac_state.tolist(),
-                    max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-                    min_output=self.heat_pump.min_output_btu_hr, 
-                    max_cool=self.heat_pump.max_cool_btu_hr, 
-                    eff_derate=params[5], 
-                    start_temp=float(measurements.t_in[0])
-                )
-            )
-            naive_eng_res = calc_energy(np.array(hvac_produced_naive_cont), measurements.setpoint, hvac_mode_val)
-            energy_kwh_continuous_naive = naive_eng_res['kwh']
-            energy_kwh_naive_steps = naive_eng_res.get('kwh_steps')
+            # C1. Continuous Naive - SKIPPED (Redundant)
+            # We don't need continuous naive for any UI graph, only discrete naive for energy savings.
+            energy_kwh_continuous_naive = None
+            energy_kwh_naive_steps = None
             
             # C2. Discrete Naive
             _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
@@ -735,16 +722,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         max_setpoint_val = float(options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT))
         
         try:
-             baseline_res = await self.hass.async_add_executor_job(
-                 estimate_consumption, measurements, params, self.heat_pump, 
-                 0.45,  # cost_per_kwh (positional)
-                 None,  # setpoints - use data.setpoint (schedule) for baseline
-                 hvac_mode_val_baseline,
-                 min_setpoint_val,
-                 max_setpoint_val,
-                 DEFAULT_OFF_INTENT_EPS
-             )
-             baseline_kwh = baseline_res.get('total_kwh', 0.0)
+             # SKIPPING Continuous Baseline (Redundant)
+             # We use Discrete Naive for final reporting.
+             baseline_kwh = None
+             
         except Exception as e:
              _LOGGER.warning("Failed to estimate baseline energy: %s", e)
              
