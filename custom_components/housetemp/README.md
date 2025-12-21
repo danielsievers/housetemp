@@ -86,6 +86,14 @@ The **Schedule JSON** configuration expects a format like this. You can use this
 }
 ```
 
+*   **`center_preference`** (0.0 - 1.0): Controls the trade-off between energy savings and precision.
+    *   **0.0 (Eco)**: Allows temperature to drift freely within the deadband (e.g., floor to ceiling). Strong savings potential.
+    *   **0.5 (Balanced)**: Moderate pull towards the target, but allows some variation for efficiency.
+    *   **1.0 (Comfort)**: Strongly enforces the exact target temperature, minimizing deviation.
+
+*   **`mode`**: Must be "heat" or "cool".
+
+
 ## Entities
 
 The integration creates a sensor: `sensor.indoor_temperature_forecast`.

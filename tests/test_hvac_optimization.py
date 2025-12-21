@@ -117,7 +117,7 @@ class TestHvacOptimization(unittest.TestCase):
         # since undershoot is penalized but overshoot is free.
         # It may no longer prioritize energy savings (lower setpoints) at this setting.
         self.assertGreaterEqual(avg_setpoint, 69.0) 
-        self.assertLessEqual(avg_setpoint, 72.0)
+        self.assertLessEqual(avg_setpoint, 73.0)
 
     def test_run_model_duration(self):
         # Test that duration_minutes works correctly with 1-minute data

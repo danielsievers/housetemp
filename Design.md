@@ -125,23 +125,19 @@ Minimize total cost $J$:
 
 $$ J = \sum_{t=0}^{T} \left( \text{Cost}_{kWh}(t) + \text{Cost}_{comfort}(t) \right) $$
 
-### 6.2 Asymmetric Comfort Penalty
-Defined by a target schedule and the HVAC mode (Heat/Cool).
-Let $e(t) = T_{in}(t) - T_{target}(t)$.
+### 6.2 Dual-Weight Comfort Penalty
+The comfort cost is split into two terms to better reflect user preferences:
+1.  **Outside Cost** ($w_{outside}$): Strong penalty for violating the "Essential" boundary (Deadband floor/ceiling).
+2.  **Inside Cost** ($w_{inside}$): Weaker pull towards the exact target within the deadband.
 
-The cost function is asymmetric, penalizing only "bad" deviations while allowing "beneficial" overshooting (which allows the system to bank thermal energy when efficient).
+These weights are derived from the single user-facing knob `center_preference` ($u \in [0, 1]$):
 
-*   **Heating Mode**:
-    *   Goal: $T_{in} \ge T_{target}$
-    *   If $T_{in} < T_{target}$: Penalty $\propto (T_{in} - T_{target})^2$
-    *   If $T_{in} \ge T_{target}$: **Zero Penalty** (Overshoot is allowed).
+*   $w_{outside} = 0.1 + 49.9 \cdot u^3$ (Range: 0.1 - 50.0).  Ensures strong boundary enforcement at high comfort settings.
+*   $w_{inside} = 5.0 \cdot u^2$ (Range: 0.0 - 5.0).  Controls how aggressively the system tries to center the temperature within the available deadband.
 
-*   **Cooling Mode**:
-    *   Goal: $T_{in} \le T_{target}$
-    *   If $T_{in} > T_{target}$: Penalty $\propto (T_{in} - T_{target})^2$
-    *   If $T_{in} \le T_{target}$: **Zero Penalty** (Undershoot/Overcooling is allowed).
+$$ \text{Cost}_{comfort} = w_{outside} \cdot (\text{Error}_{outside})^2 + w_{inside} \cdot (\text{Error}_{inside})^2 $$
 
-$$ \text{Cost}_{comfort} = P_{center} \cdot \left(\text{EffectiveError}\right)^2 $$
+This allows "Eco" mode ($u=0$) to effectively treat the deadband as a "free drift" zone (since $w_{inside}=0$), while "Comfort" mode ($u=1$) strongly enforces the target.
 
 ### 6.3 Precision-Guided Economy (Deadband Mode)
 For installations requiring less rigid control, the system supports a **Deadband Comfort Mode**. This introduces a "Slack" region ($\pm \epsilon$) around the target where the comfort penalty is zero.
