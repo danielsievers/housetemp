@@ -332,8 +332,13 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 bounds.append((min_setpoint, max_setpoint))
         
         # --- Loss Function ---
-        user_preference = comfort_config.get('center_preference', DEFAULT_CENTER_PREFERENCE)
-        center_preference = 0.1 + (user_preference * 5.0)
+        # Dual-weight CP mapping: single user knob u∈[0,1] maps to two weights
+        # cp_outside: penalty for leaving deadband (strong at high u)
+        # cp_inside: pull toward target within deadband (moderate at high u)
+        u = np.clip(comfort_config.get('center_preference', DEFAULT_CENTER_PREFERENCE), 0.0, 1.0)
+        cp_outside = 0.1 + 49.9 * (u ** 3)   # Range: 0.1 (eco) → 50.0 (comfort)
+        cp_inside = 5.0 * (u ** 2)              # Range: 0.0 (eco) → 5.0 (comfort)
+        
         comfort_mode = comfort_config.get('comfort_mode', DEFAULT_COMFORT_MODE)
         deadband_slack = comfort_config.get('deadband_slack', DEFAULT_DEADBAND_SLACK)
         avoid_defrost = comfort_config.get('avoid_defrost', DEFAULT_AVOID_DEFROST)
@@ -422,39 +427,42 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             
             load_ratios = res['load_ratios']
             
-            # Comfort Cost: Two separate terms to avoid kinks
-            # - outside_cost: penalty for violating deadband floor/ceiling
-            # - inside_cost: gentle pull toward target (normalized, capped)
-            inside_cost = np.zeros_like(sim_temps)
-            inside_alpha = np.clip(0.01 * user_preference, 0.0, 0.02)  # Cap at 2%
+            # Comfort Cost: Two separate terms (dual-weight approach)
+            # - outside_cost: penalty for violating deadband floor/ceiling (strong constraint)
+            # - inside_cost: pull toward target within deadband (preference)
             safe_slack = max(deadband_slack, 1e-6)  # Guard against divide-by-zero
             
             if hvac_mode_val > 0:  # Heating
                 if comfort_mode == 'deadband':
                     floor = target_temps - deadband_slack
+                    # Outside violation (too cold)
                     outside_errors = np.minimum(0, sim_temps - floor)
-                    # Normalized inside-band gap (0 at target, 1 at floor)
+                    # Inside gap (normalized 0-1: 0 at target, 1 at floor)
                     inside_gap = np.clip(target_temps - sim_temps, 0, deadband_slack)
-                    inside_gap = np.where(outside_errors < 0, 0, inside_gap)
-                    inside_normalized = inside_gap / safe_slack
-                    inside_cost = inside_alpha * (inside_normalized ** 2)
-                    effective_errors = outside_errors
+                    inside_norm = inside_gap / safe_slack
+                    # Zero out inside term when outside band
+                    inside_norm = np.where(outside_errors < 0, 0, inside_norm)
                 else:
-                    effective_errors = np.minimum(0, sim_temps - target_temps)
+                    outside_errors = np.minimum(0, sim_temps - target_temps)
+                    inside_norm = np.zeros_like(sim_temps)
             else:  # Cooling
                 if comfort_mode == 'deadband':
                     ceiling = target_temps + deadband_slack
+                    # Outside violation (too warm)
                     outside_errors = np.maximum(0, sim_temps - ceiling)
-                    # Normalized inside-band gap (0 at target, 1 at ceiling)
+                    # Inside gap (normalized 0-1: 0 at target, 1 at ceiling)
                     inside_gap = np.clip(sim_temps - target_temps, 0, deadband_slack)
-                    inside_gap = np.where(outside_errors > 0, 0, inside_gap)
-                    inside_normalized = inside_gap / safe_slack
-                    inside_cost = inside_alpha * (inside_normalized ** 2)
-                    effective_errors = outside_errors
+                    inside_norm = inside_gap / safe_slack
+                    # Zero out inside term when outside band
+                    inside_norm = np.where(outside_errors > 0, 0, inside_norm)
                 else:
-                    effective_errors = np.maximum(0, sim_temps - target_temps)
+                    outside_errors = np.maximum(0, sim_temps - target_temps)
+                    inside_norm = np.zeros_like(sim_temps)
 
-            comfort_cost = center_preference * (effective_errors**2 + inside_cost)
+            # Comfort cost per step (two separate terms)
+            outside_cost_term = cp_outside * (outside_errors ** 2)
+            inside_cost_term = cp_inside * (inside_norm ** 2)
+            comfort_cost = outside_cost_term + inside_cost_term
             
             total_penalty = np.sum(comfort_cost * dt_hours_np)
             
