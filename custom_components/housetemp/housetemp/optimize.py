@@ -420,21 +420,39 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             
             load_ratios = res['load_ratios']
             
-            # Comfort
+            # Comfort Cost: Two separate terms to avoid kinks
+            # - outside_cost: penalty for violating deadband floor/ceiling
+            # - inside_cost: gentle pull toward target (normalized, capped)
+            inside_cost = np.zeros_like(sim_temps)
+            inside_alpha = np.clip(0.01 * user_preference, 0.0, 0.02)  # Cap at 2%
+            safe_slack = max(deadband_slack, 1e-6)  # Guard against divide-by-zero
+            
             if hvac_mode_val > 0:  # Heating
                 if comfort_mode == 'deadband':
                     floor = target_temps - deadband_slack
-                    effective_errors = np.minimum(0, sim_temps - floor)
+                    outside_errors = np.minimum(0, sim_temps - floor)
+                    # Normalized inside-band gap (0 at target, 1 at floor)
+                    inside_gap = np.clip(target_temps - sim_temps, 0, deadband_slack)
+                    inside_gap = np.where(outside_errors < 0, 0, inside_gap)
+                    inside_normalized = inside_gap / safe_slack
+                    inside_cost = inside_alpha * (inside_normalized ** 2)
+                    effective_errors = outside_errors
                 else:
                     effective_errors = np.minimum(0, sim_temps - target_temps)
             else:  # Cooling
                 if comfort_mode == 'deadband':
                     ceiling = target_temps + deadband_slack
-                    effective_errors = np.maximum(0, sim_temps - ceiling)
+                    outside_errors = np.maximum(0, sim_temps - ceiling)
+                    # Normalized inside-band gap (0 at target, 1 at ceiling)
+                    inside_gap = np.clip(sim_temps - target_temps, 0, deadband_slack)
+                    inside_gap = np.where(outside_errors > 0, 0, inside_gap)
+                    inside_normalized = inside_gap / safe_slack
+                    inside_cost = inside_alpha * (inside_normalized ** 2)
+                    effective_errors = outside_errors
                 else:
                     effective_errors = np.maximum(0, sim_temps - target_temps)
 
-            comfort_cost = center_preference * (effective_errors**2)
+            comfort_cost = center_preference * (effective_errors**2 + inside_cost)
             
             # Snap-to-boundary regularization
             # Now primarily a visual tie-breaker
