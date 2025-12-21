@@ -116,3 +116,88 @@ async def test_service_missing_target_error(hass: HomeAssistant):
             await hass.services.async_call(
                 DOMAIN, "run_hvac_optimization", {"duration": 24}, blocking=True
             )
+
+
+@pytest.fixture
+def mock_stats_store():
+    """Create a mock StatsStore."""
+    store = MagicMock()
+    store.async_reset = AsyncMock()
+    return store
+
+
+async def test_reset_stats_service_targeted(hass: HomeAssistant, mock_stats_store):
+    """Test reset_stats service calls async_reset on stats_store."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Entry 1", entry_id="entry1")
+    entry.add_to_hass(hass)
+    
+    # Setup domain data with stats_store
+    hass.data[DOMAIN] = {
+        "entry1": MagicMock(),  # coordinator
+        "entry1_stats": mock_stats_store,
+    }
+    
+    assert await async_setup_component(hass, DOMAIN, {})
+    
+    with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = ["entry1"]
+        await hass.services.async_call(
+            DOMAIN, "reset_stats", {}, target={"entity_id": "sensor.entry1_prediction"}, blocking=True
+        )
+        
+        mock_stats_store.async_reset.assert_awaited_once()
+
+
+async def test_reset_stats_service_no_stats_store(hass: HomeAssistant):
+    """Test reset_stats service gracefully handles missing stats_store."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Entry 1", entry_id="entry1")
+    entry.add_to_hass(hass)
+    
+    # Setup domain data WITHOUT stats_store
+    hass.data[DOMAIN] = {
+        "entry1": MagicMock(),  # coordinator only
+    }
+    
+    assert await async_setup_component(hass, DOMAIN, {})
+    
+    with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = ["entry1"]
+        # Should not raise, just silently do nothing
+        await hass.services.async_call(
+            DOMAIN, "reset_stats", {}, target={"entity_id": "sensor.entry1_prediction"}, blocking=True
+        )
+
+
+async def test_calibrate_service_missing_required_args(hass: HomeAssistant):
+    """Test calibrate service raises error when required args missing."""
+    assert await async_setup_component(hass, DOMAIN, {})
+    
+    with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = ["entry1"]
+        
+        # Missing start_time, end_time, solar_power_entity
+        with pytest.raises(ServiceValidationError):
+            await hass.services.async_call(
+                DOMAIN, "calibrate", {}, target={"entity_id": "sensor.entry1_prediction"}, blocking=True
+            )
+
+
+async def test_calibrate_service_missing_hvac_entities(hass: HomeAssistant):
+    """Test calibrate service raises error when hvac_action_entities missing."""
+    assert await async_setup_component(hass, DOMAIN, {})
+    
+    with patch("homeassistant.helpers.service.async_extract_config_entry_ids", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = ["entry1"]
+        
+        # Has times but missing hvac_action_entities
+        with pytest.raises(ServiceValidationError):
+            await hass.services.async_call(
+                DOMAIN, "calibrate", {
+                    "start_time": "2024-01-01T00:00:00",
+                    "end_time": "2024-01-02T00:00:00",
+                    "solar_power_entity": "sensor.solar",
+                    # Missing hvac_action_entities
+                }, 
+                target={"entity_id": "sensor.entry1_prediction"}, 
+                blocking=True
+            )

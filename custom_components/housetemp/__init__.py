@@ -289,8 +289,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                     
                     # Solar (Single)
                     sol = 0.0
-                    if solar_entity:
-                        cell_s = row.get(solar_entity, {})
+                    if solar_entity_use:
+                        cell_s = row.get(solar_entity_use, {})
                         v = get_float(cell_s)
                         if not np.isnan(v): sol = v
                         
