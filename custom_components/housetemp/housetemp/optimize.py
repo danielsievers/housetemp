@@ -9,36 +9,32 @@ from .energy import calculate_energy_vectorized
 _LOGGER = logging.getLogger(__name__)
 
 # --- CONFIGURATION (Tuning Parameters) ---
-# Note: snap_weight removed from loss function - now done as post-processing
-CONFIG_CONTINUITY_WEIGHT = 0.0001  # Small penalty to guide solver towards integer setpoints
+# Continuity penalty guides solver towards integer setpoints
+SNAP_REG_WEIGHT = 0.1  # Canonical value for continuity penalty
 
 try:
     from .constants import (
         DEFAULT_SWING_TEMP,
         DEFAULT_MIN_CYCLE_MINUTES,
-        DEFAULT_OFF_INTENT_EPS
+        DEFAULT_OFF_INTENT_EPS,
+        DEFAULT_MIN_SETPOINT,
+        DEFAULT_MAX_SETPOINT,
+        DEFAULT_EFFICIENCY_DERATE
     )
-    # CONFIG_CONTINUITY_WEIGHT is optimization specific, probably not in main constants yet?
-    # No, it's not. It seems to be missing from my previous viewing of const.py?
-    # Let me check if optimize.py imports it.
-    CONFIG_CONTINUITY_WEIGHT = 0.1 # Local constant for now
-except (ImportError, ValueError):
+except ImportError:
+    # Fallbacks for standalone usage
     DEFAULT_SWING_TEMP = 1.0
     DEFAULT_MIN_CYCLE_MINUTES = 15.0
     DEFAULT_OFF_INTENT_EPS = 0.1
-    CONFIG_CONTINUITY_WEIGHT = 0.1
+    DEFAULT_MIN_SETPOINT = 60.0
+    DEFAULT_MAX_SETPOINT = 75.0
+    DEFAULT_EFFICIENCY_DERATE = 0.75
 
-
-# --- DEFAULT OVERRIDES (Fallbacks) ---
-DEFAULT_EFFICIENCY_DERATE = 0.75
-DEFAULT_MIN_SETPOINT = 60.0
-DEFAULT_MAX_SETPOINT = 75.0
+# --- OPTIMIZER-SPECIFIC DEFAULTS ---
 DEFAULT_CENTER_PREFERENCE = 1.0  # User preference for hitting the exact target
-DEFAULT_DEADBAND_SLACK = 1.5  # Degrees of freedom without penalty
+DEFAULT_DEADBAND_SLACK = 1.5     # Degrees of freedom without penalty
 DEFAULT_COMFORT_MODE = 'quadratic'
 DEFAULT_AVOID_DEFROST = False
-# DEFAULT_OFF_INTENT_EPS override removed, now using const or fallback
-# DEFAULT_OFF_INTENT_EPS = 0.1 
 
 # Optimization Solver Defaults
 DEFAULT_SOLVER_MAXITER = 500
@@ -392,7 +388,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # Nudges the solver towards integer setpoints during the search to 
             # minimize discrepancy between the "gradient-friendly" continuous 
             # simulation and the "reality" of a discrete thermostat.
-            continuity_penalty = CONFIG_CONTINUITY_WEIGHT * np.sum((full_res_setpoints - effective_setpoints)**2)
+            continuity_penalty = SNAP_REG_WEIGHT * np.sum((full_res_setpoints - effective_setpoints)**2)
             
             # Physics sees continuous values for gradients
             setpoint_list = full_res_setpoints.tolist()

@@ -4,16 +4,14 @@ import logging
 from .measurements import Measurements
 
 try:
-    from .constants import TOLERANCE_BTU_ACTIVE, TOLERANCE_BTU_FRACTION
+    from .constants import TOLERANCE_BTU_ACTIVE, TOLERANCE_BTU_FRACTION, DEFAULT_EFFICIENCY_DERATE
 except (ImportError, ValueError):
     # Fallback for standalone library usage
     TOLERANCE_BTU_ACTIVE = 1.0
     TOLERANCE_BTU_FRACTION = 0.05
+    DEFAULT_EFFICIENCY_DERATE = 1.0  # No derate fallback
 
 _LOGGER = logging.getLogger(__name__)
-
-# --- DEFAULT OVERRIDES (Fallbacks) ---
-DEFAULT_EFFICIENCY_DERATE = 1.0
 
 # --- TRUE CONSTANTS (Physical/Mathematical) ---
 # Soft Start / Thermal Inertia Logic

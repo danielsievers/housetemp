@@ -22,10 +22,6 @@ except (ImportError, ValueError):
 
 _LOGGER = logging.getLogger(__name__)
 
-# --- DEFAULT OVERRIDES (Fallbacks) ---
-# DEFAULT_COST_PER_KWH = 0.45 # Now imported from const or fallback
-# DEFAULT_EFFICIENCY_DERATE = 0.75 # Now imported from const or fallback
-
 # --- TRUE CONSTANTS (Physical/Mathematical) ---
 # KW_TO_WATTS = 1000.0 # Now imported from const or fallback
 BTU_TO_WATTS = 0.293071 # 1 / 3.412

@@ -18,6 +18,8 @@ DEFAULT_EFF_DERATE = 0.9
 DEFAULT_SWING_TEMP = 1.0
 DEFAULT_MIN_CYCLE_MINUTES = 15.0
 DEFAULT_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" accounting
+DEFAULT_MIN_SETPOINT = 60.0   # Lower bound for setpoint optimization
+DEFAULT_MAX_SETPOINT = 75.0   # Upper bound for setpoint optimization
 
 # Energy/Physics Tolerances
 TOLERANCE_BTU_ACTIVE = 1.0    # Minimum output (BTU/hr) to consider "active" (absolute floor)
