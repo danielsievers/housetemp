@@ -17,9 +17,14 @@ DEFAULT_EFF_DERATE = 0.9
 # Simulation / Control Defaults
 DEFAULT_SWING_TEMP = 1.0
 DEFAULT_MIN_CYCLE_MINUTES = 15.0
-DEFAULT_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" accounting
+DEFAULT_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" in get_effective_hvac_state (continuous)
 DEFAULT_MIN_SETPOINT = 60.0   # Lower bound for setpoint optimization
 DEFAULT_MAX_SETPOINT = 75.0   # Upper bound for setpoint optimization
+
+# Optimizer Snapping (True Off Redesign)
+W_BOUNDARY_PULL = 0.01        # Gated tie-break weight for plateau regions
+OFF_BLOCK_MINUTES = 60        # Aggregation window for OFF recommendation
+S_GAP_SMOOTH = 0.2            # Sigmoid width for w_idle gating (°F)
 
 # Energy/Physics Tolerances
 TOLERANCE_BTU_ACTIVE = 1.0    # Minimum output (BTU/hr) to consider "active" (absolute floor)

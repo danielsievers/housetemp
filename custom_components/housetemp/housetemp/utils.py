@@ -140,6 +140,37 @@ async def fetch_history_frame(hass, entity_ids, start_time, end_time, minimal_re
     return df
 
 import numpy as np
+import math
+
+
+def quantize_setpoint(raw: float) -> int:
+    """
+    Canonical quantization: Half-up rounding (0.5 -> 1).
+    All code paths MUST use this for consistent thermostat commands.
+    """
+    return int(math.floor(raw + 0.5))
+
+
+def is_off_intent(sp: int, min_sp: int, max_sp: int, 
+                  hvac_mode: int, eps: int = 0) -> bool:
+    """
+    Canonical OFF detection on quantized setpoints.
+    
+    Args:
+        sp: Quantized integer setpoint.
+        min_sp: Minimum setpoint boundary.
+        max_sp: Maximum setpoint boundary.
+        hvac_mode: +1 heating, -1 cooling, 0 off.
+        eps: Integer tolerance (default 0 for 1°F steps).
+    
+    Returns:
+        True if setpoint indicates "True Off" intent.
+    """
+    if hvac_mode > 0:  # Heating
+        return sp <= (min_sp + eps)
+    elif hvac_mode < 0:  # Cooling
+        return sp >= (max_sp - eps)
+    return True  # Mode is off
 
 def get_effective_hvac_state(hvac_state_arr, setpoint_arr, min_setpoint, max_setpoint, off_eps):
     """

@@ -49,7 +49,11 @@ class TestFixedRegression(unittest.TestCase):
         hw.defrost_risk_zone = None
         
         # 3. Optim config
-        comfort_config = {"mode": "heat", "center_preference": 0.0} # Low comfort pref to encourage drift
+        comfort_config = {
+            "mode": "heat", 
+            "center_preference": 0.0,  # Low comfort pref to encourage drift
+            "max_setpoint": 85.0,       # Allow fixed value of 80
+        }
         params = [5000, 200, 0, 0, 5000, 1.0]
 
         # 4. Mock run_model to prevent actual simulation overhead/errors

@@ -66,6 +66,14 @@ def mock_coordinator(hass):
         # Ensure it has basic methods
         mock_hp.return_value.get_max_capacity.return_value = np.zeros(24) 
         mock_hp.return_value.get_cop.return_value = np.zeros(24)
+        mock_hp.return_value.defrost_risk_zone = None  # Disable defrost for test
+        mock_hp.return_value.min_output_btu_hr = 3000
+        mock_hp.return_value.max_cool_btu_hr = 54000
+        mock_hp.return_value.plf_low_load = 1.4
+        mock_hp.return_value.plf_slope = 0.4
+        mock_hp.return_value.plf_min = 0.5
+        mock_hp.return_value.blower_active_kw = 0.0
+        mock_hp.return_value.idle_power_kw = 0.0
         
         coord = HouseTempCoordinator(hass, entry)
         coord.heat_pump = mock_hp.return_value

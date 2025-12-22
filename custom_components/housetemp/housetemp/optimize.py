@@ -3,14 +3,10 @@ import pandas as pd
 import logging
 from scipy.optimize import minimize
 from .run_model import run_model_continuous
-from .utils import upsample_dataframe, get_effective_hvac_state
+from .utils import upsample_dataframe, get_effective_hvac_state, quantize_setpoint, is_off_intent
 from .energy import calculate_energy_vectorized
 
 _LOGGER = logging.getLogger(__name__)
-
-# --- CONFIGURATION (Tuning Parameters) ---
-# Continuity penalty guides solver towards integer setpoints
-SNAP_REG_WEIGHT = 0.1  # Canonical value for continuity penalty
 
 try:
     from .constants import (
@@ -19,7 +15,10 @@ try:
         DEFAULT_OFF_INTENT_EPS,
         DEFAULT_MIN_SETPOINT,
         DEFAULT_MAX_SETPOINT,
-        DEFAULT_EFFICIENCY_DERATE
+        DEFAULT_EFFICIENCY_DERATE,
+        W_BOUNDARY_PULL,
+        OFF_BLOCK_MINUTES,
+        S_GAP_SMOOTH
     )
 except ImportError:
     # Fallbacks for standalone usage
@@ -29,6 +28,9 @@ except ImportError:
     DEFAULT_MIN_SETPOINT = 60.0
     DEFAULT_MAX_SETPOINT = 75.0
     DEFAULT_EFFICIENCY_DERATE = 0.75
+    W_BOUNDARY_PULL = 0.01
+    OFF_BLOCK_MINUTES = 60
+    S_GAP_SMOOTH = 0.2
 
 # --- OPTIMIZER-SPECIFIC DEFAULTS ---
 DEFAULT_CENTER_PREFERENCE = 1.0  # User preference for hitting the exact target
@@ -378,17 +380,9 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # 1. Update Setpoints via Hoisted Map (Fast)
             full_res_setpoints = candidate_blocks[sim_to_block_map]
             
-            # --- Late Rounding Strategy ---
-            # We use RAW setpoints for physics simulation to maintain gradients.
-            # However, for True-Off accounting (Idle/Blower detection), we use 
-            # quantized (effective_setpoints) to match real thermostat behavior.
-            effective_setpoints = np.round(full_res_setpoints)
-            
-            # Continuity Penalty (L2 on Rounding Error): 
-            # Nudges the solver towards integer setpoints during the search to 
-            # minimize discrepancy between the "gradient-friendly" continuous 
-            # simulation and the "reality" of a discrete thermostat.
-            continuity_penalty = SNAP_REG_WEIGHT * np.sum((full_res_setpoints - effective_setpoints)**2)
+            # --- True Off Snapping Redesign ---
+            # NO ROUNDING HERE - use continuous setpoints for smooth gradients.
+            # Quantization happens ONLY post-solve.
             
             # Physics sees continuous values for gradients
             setpoint_list = full_res_setpoints.tolist()
@@ -402,10 +396,10 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             start_temp = float(data.t_in[0]) # Ensure start_temp is float
 
             # --- Upstream True Off (for Optimization Loop) ---
-            # We calculate this DYNAMICALLY inside the loop using helper
+            # Use continuous setpoints for get_effective_hvac_state to maintain gradients
             effective_hvac_state = get_effective_hvac_state(
                 working_hvac_state, 
-                effective_setpoints, 
+                full_res_setpoints,  # Continuous, not rounded
                 min_setpoint, 
                 max_setpoint, 
                 DEFAULT_OFF_INTENT_EPS
@@ -493,6 +487,36 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             
             total_penalty = np.sum(comfort_cost * dt_hours_np)
             
+            # --- Gated Boundary Pull (True Off Snapping Redesign) ---
+            # Only applies in plateau regions where HVAC output is near zero.
+            # This breaks ties when the objective is flat, directing the solver to min/max.
+            
+            # Calculate Gap (Setpoint vs Start-of-Step Indoor Temp)
+            # sim_temps[:-1] gives the temperature at the START of each timestep (pre-control reference)
+            temps_np = sim_temps[:-1] if len(sim_temps) > len(full_res_setpoints) else sim_temps[:len(full_res_setpoints)]
+            
+            if hvac_mode_val > 0:  # Heating
+                gap = full_res_setpoints - temps_np
+            else:  # Cooling
+                gap = temps_np - full_res_setpoints
+            
+            # Sigmoid Gating with numerical stability (prevent exp overflow)
+            z = np.clip(gap / S_GAP_SMOOTH, -50, 50)
+            sigmoid = 1 / (1 + np.exp(-z))
+            w_idle = 1 - sigmoid  # w_idle ≈ 1 when gap <= 0 (plateau), ≈ 0 when gap >> 0 (active)
+            
+            # Apply Weighted Pull (only in plateau regions)
+            if hvac_mode_val > 0:
+                boundary_pull = W_BOUNDARY_PULL * np.sum(dt_hours_np * w_idle * (full_res_setpoints - min_setpoint)**2)
+            else:
+                boundary_pull = W_BOUNDARY_PULL * np.sum(dt_hours_np * w_idle * (max_setpoint - full_res_setpoints)**2)
+            
+            # Diagnostic logging
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(f"boundary_pull contribution: {boundary_pull:.4f}")
+                _LOGGER.debug(f"w_idle: min={w_idle.min():.2f}, max={w_idle.max():.2f}, mean={w_idle.mean():.2f}")
+                _LOGGER.debug(f"gap: min={gap.min():.1f}°F, max={gap.max():.1f}°F")
+            
             # Defrost
             defrost_cost = 0.0
             if hasattr(hw, 'defrost_risk_zone') and hw.defrost_risk_zone is not None:
@@ -508,7 +532,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                     defrost_cost_val *= 10.0
                 defrost_cost = defrost_cost_val
 
-            return energy_cost + total_penalty + defrost_cost + continuity_penalty
+            return energy_cost + total_penalty + defrost_cost + boundary_pull
 
 
         # --- Run Minimize ---
@@ -608,27 +632,71 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     else:
         print(f"Optimization Converged Successfully (Cost: {result.fun:.4f})")
     
-    # Return Upsampled Schedule
-    final_blocks = np.round(result.x) # Round to nearest integer (thermostats don't do floats)
+    # --- Post-Solve Processing (True Off Snapping Redesign) ---
+    
+    # 1. Quantize using canonical half-up rounding
+    final_blocks = np.floor(result.x + 0.5).astype(int)
     indices = np.searchsorted(control_times, sim_minutes, side='right') - 1
     indices = np.clip(indices, 0, len(final_blocks) - 1)
-    
     final_setpoints = final_blocks[indices]
     
-    # --- Post-Processing: Snap-to-Boundary (Visual/UI & True-Off Consistency) ---
-    # Instead of a wide "Target - X" heuristic (which overrides legitimate setbacks),
-    # we use a local "hover" snap. If the solver gets close to the min/max (within 0.5F),
-    # we snap it exactly to the limit to ensure "True Off" logic triggers downstream.
-    SNAP_EPS = 0.5
+    # Clamp to bounds
+    final_setpoints = np.clip(final_setpoints, min_setpoint, max_setpoint).astype(int)
     
-    if hvac_mode_val > 0:  # Heating
-        # If hovering near min_setpoint
-        is_near_min = final_setpoints <= (min_setpoint + SNAP_EPS)
-        final_setpoints = np.where(is_near_min, min_setpoint, final_setpoints)
-    else:  # Cooling
-        # If hovering near max_setpoint
-        is_near_max = final_setpoints >= (max_setpoint - SNAP_EPS)
-        final_setpoints = np.where(is_near_max, max_setpoint, final_setpoints)
+    # 2. Verification Sim with quantized schedule
+    # Ensures user-visible metrics match what will actually be commanded
+    verify_hvac_state = get_effective_hvac_state(
+        working_hvac_state, 
+        final_setpoints.astype(float),
+        min_setpoint, 
+        max_setpoint, 
+        DEFAULT_OFF_INTENT_EPS
+    )
+    
+    verify_temps, _, verify_produced = run_model_continuous(
+        params, 
+        t_out_list=t_out_list, 
+        solar_kw_list=solar_kw_list, 
+        dt_hours_list=dt_hours_list, 
+        setpoint_list=final_setpoints.astype(float).tolist(), 
+        hvac_state_list=verify_hvac_state.tolist(),
+        max_caps_list=max_caps_np.tolist(), 
+        min_output=min_output, 
+        max_cool=max_cool, 
+        eff_derate=eff_derate, 
+        start_temp=float(data.t_in[0])
+    )
+    
+    verify_energy = calculate_energy_vectorized(
+        np.array(verify_produced), 
+        dt_hours_np, 
+        max_caps_np, 
+        base_cops_np, 
+        hw, 
+        eff_derate=1.0,
+        hvac_states=verify_hvac_state
+    )
+    
+    # 3. Block-Level OFF Recommendation (Broadcast 1:1)
+    dt_minutes = np.mean(dt_hours_np) * 60
+    steps_per_block = max(1, int(round(OFF_BLOCK_MINUTES / dt_minutes)))
+    
+    # Warn if block size doesn't align cleanly
+    expected_minutes = steps_per_block * dt_minutes
+    if abs(expected_minutes - OFF_BLOCK_MINUTES) > 1.0:
+        _LOGGER.warning(
+            f"OFF block size ({expected_minutes:.1f}m) differs from target ({OFF_BLOCK_MINUTES}m). "
+            f"Consider adjusting timestep for even division."
+        )
+    
+    off_per_step = np.array([is_off_intent(int(sp), int(min_setpoint), int(max_setpoint), hvac_mode_val) 
+                              for sp in final_setpoints])
+    
+    off_blocks_decisions = [all(off_per_step[i:i+steps_per_block]) 
+                            for i in range(0, len(off_per_step), steps_per_block)]
+    
+    # Broadcast: last partial block handled by slicing
+    off_recommended = np.repeat(off_blocks_decisions, steps_per_block)[:len(final_setpoints)]
     
     # Metadata
     debug_info = {
@@ -636,7 +704,10 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         'message': str(result.message),
         'cost': float(result.fun),
         'iterations': result.nit,
-        'evaluations': result.nfev
+        'evaluations': result.nfev,
+        'off_recommended': off_recommended.tolist(),
+        'verify_energy_kwh': float(verify_energy['kwh']),
+        'verify_temps': np.array(verify_temps).tolist()
     }
     
     # Check for "ABNORMAL" (Deadband success)
