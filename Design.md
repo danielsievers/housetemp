@@ -240,3 +240,61 @@ The system reports four energy metrics for full transparency:
 Savings are calculated as: $\text{Savings} = E_{naive} - E_{optimized}$
 
 The **discrete** metrics reflect real-world achievable savings (accounting for hysteresis and cycling). The **continuous** metrics represent theoretical maximum savings under idealized conditions.
+
+
+## 11. Future Improvements
+
+Potential enhancements to the optimization algorithm, ranked by expected impact:
+
+### 11.1 Warm Start from Previous Schedule
+**Objective**: Initialize decision vector from the previous accepted schedule instead of the midpoint:
+
+$$x_0 \leftarrow x_{prev}$$
+
+Optionally blend with default: $x_0 \leftarrow (1-\alpha)x_{prev} + \alpha x_{default}$
+
+**Implementation**: Persist last accepted schedule; use as `x0` / initial guess for the solver. Strongest stability/runtime win in repeated HA runs.
+
+### 11.2 Post-Quantization Feasibility Check + Repair
+**Objective**: After quantization $sp^{cmd} = Q(sp)$, verify by simulation $T^{ver} = f(sp^{cmd})$. If comfort violation detected:
+
+$$v_t = \max(0, T_{min} - T_t) \quad \text{(heating)}$$
+$$v_t = \max(0, T_t - T_{max}) \quad \text{(cooling)}$$
+
+Then repair: increment offending blocks minimally.
+
+**Implementation**: Deterministic repair loop: find violating timesteps/blocks, bump setpoint one tick (or relax off recommendation), re-sim until feasible or cap iterations. Ensures reported metrics match commanded schedule.
+
+### 11.3 Schedule Regularity (Setpoint-Change Penalty)
+**Objective**: Add smoothness term to prevent jumpy schedules:
+
+$$J_{\Delta} = w_{\Delta} \sum_{t=1}^{T-1} (sp_t - sp_{t-1})^2$$
+
+Or total variation: $w_{TV} \sum |sp_t - sp_{t-1}|$
+
+**Implementation**: Start with L2 (quadratic) for smooth gradients. Limits jitter and actuator churn. Tune $w_{\Delta}$ relative to comfort/energy scales (after normalization).
+
+### 11.4 Objective Conditioning (Normalize Term Scales)
+**Objective**: Make each term dimensionless and comparable:
+
+$$J = w_E \frac{E}{E_{ref}} + w_C \frac{C}{C_{ref}} + w_D \frac{D}{D_{ref}} + \dots$$
+
+**Implementation**: Choose reference scales ($E_{ref}$, $C_{ref}$, ...) based on typical daily kWh, typical comfort error integral. Prevents one term numerically dominating due to units.
+
+### 11.5 Objective Smoothness (Remove Kinks)
+**Objective**: Replace hinge/kink penalties with smooth approximations:
+
+$$\max(0, x) \approx s \cdot \log(1 + e^{x/s}) \quad \text{(softplus)}$$
+$$|x| \approx \sqrt{x^2 + \epsilon^2}$$
+
+**Implementation**: Apply wherever objective uses hard `if/else`, `max`, discontinuous penalties. Improves solver convergence and reduces stagnation. Use small $s$ (e.g., 0.1–0.3°F equivalent).
+
+### 11.6 Dimensionality Reduction
+**Objective**: Optimize block variables ($b_k$, e.g., hourly), expand to fine steps:
+
+$$sp_t = b_{\lfloor t/m \rfloor}$$
+
+where $m$ = steps per block.
+
+**Implementation**: Reduces variable count by ~$m$×; improves solve time and reduces noise chasing. Keep physics sim at fine resolution; only decision vars are coarse. (Partially implemented via multi-scale optimization.)
+
