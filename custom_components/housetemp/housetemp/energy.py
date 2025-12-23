@@ -175,11 +175,6 @@ def calculate_energy_vectorized(hvac_outputs, dt_hours, max_caps, base_cops, hw,
     if active_kw > 0:
         # Active adder applies during the ON portion (Duty)
         watts = np.where(is_enabled, watts + (active_kw * KW_TO_WATTS * duty_cycle), watts)
-        
-    # 4) Validation warning (Removed: relies on off_intent which is now upstream)
-    if active_kw > 0:
-        # Active adder applies during the ON portion (Duty)
-        watts = np.where(is_enabled, watts + (active_kw * KW_TO_WATTS * duty_cycle), watts)
 
 
     # 5. Defrost Penalty (Reporting Only)
