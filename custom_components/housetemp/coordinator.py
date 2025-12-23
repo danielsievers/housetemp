@@ -379,6 +379,19 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
 
         
+        # Recompute effective HVAC state for True-Off gating (optimized intent)
+        # This ensures proper idle/blower accounting
+        from .housetemp.utils import get_effective_hvac_state
+        min_sp = self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)
+        max_sp = self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)
+        effective_hvac_state = get_effective_hvac_state(
+            measurements.hvac_state,
+            measurements.setpoint,
+            min_sp,
+            max_sp,
+            DEFAULT_OFF_INTENT_EPS
+        )
+        
         # 1. Run Continuous Model (for Chart/Display/Optimizer)
         # --------------------------------------------------------------------------------
         sim_temps_continuous, _, hvac_produced_continuous = await self.hass.async_add_executor_job(
@@ -387,7 +400,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 solar_kw_list=measurements.solar_kw.tolist(),
                 dt_hours_list=measurements.dt_hours.tolist(), 
                 setpoint_list=measurements.setpoint.tolist(), 
-                hvac_state_list=measurements.hvac_state.tolist(),
+                hvac_state_list=effective_hvac_state.tolist(),  # Off-gated
                 max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
                 min_output=self.heat_pump.min_output_btu_hr, 
                 max_cool=self.heat_pump.max_cool_btu_hr, 
@@ -436,7 +449,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # A. Continuous Optimized (The run we just did)
         eng_continuous_opt_res = calc_energy(
             np.array(hvac_produced_continuous),
-            hvac_states=measurements.hvac_state
+            hvac_states=effective_hvac_state  # Off-gated
         )
         energy_kwh_continuous_optimized = eng_continuous_opt_res['kwh']
         # energy_kwh_steps is now fetched from Discrete below
@@ -452,7 +465,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 solar_kw_list=measurements.solar_kw.tolist(),
                 dt_hours_list=measurements.dt_hours.tolist(), 
                 setpoint_list=measurements.setpoint.tolist(), 
-                hvac_state_list=measurements.hvac_state.tolist(),
+                hvac_state_list=effective_hvac_state.tolist(),  # Off-gated
                 max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
                 min_output=self.heat_pump.min_output_btu_hr, 
                 max_cool=self.heat_pump.max_cool_btu_hr, 
@@ -465,7 +478,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         eng_discrete_opt_res = calc_energy(
             np.array(hvac_produced_discrete),
-            hvac_states=measurements.hvac_state
+            hvac_states=effective_hvac_state  # Off-gated
         )
         energy_kwh_discrete_optimized = eng_discrete_opt_res['kwh']
         # Use Discrete Steps for Hourly Graph (Real-World)
