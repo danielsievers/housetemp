@@ -4,7 +4,7 @@ import sys
 from . import run_model
 from . import run_model
 
-def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0, marker_interval_minutes=None, target_temps=None, energy_stats=None):
+def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0, marker_interval_minutes=None, target_temps=None, energy_stats=None, setpoint_label="Setpoint"):
     # hw is passed in
     
     # Run final simulation with best params
@@ -133,7 +133,7 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
         target_timestamps = timestamps[indices]
         target_values = data.setpoint[:sim_len][indices]
 
-    plt.plot(target_timestamps, target_values, label='Optimized Setpoint', color='green', marker='x', linestyle='None', markersize=6, markeredgewidth=1.5, alpha=0.8)
+    plt.plot(target_timestamps, target_values, label=setpoint_label, color='green', marker='x', linestyle='None', markersize=6, markeredgewidth=1.5, alpha=0.8)
     plt.plot(timestamps, outdoor_t, label='Outdoor', color='blue', alpha=0.3)
     plt.ylabel("Temperature (F)")
     

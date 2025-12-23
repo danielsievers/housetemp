@@ -243,6 +243,11 @@ def run_main(args_list=None):
         print("Error: You cannot use --use-regression with --fix-passive (params are fixed).")
         return 1
 
+    if args.optimize_hvac and not args.predict:
+        print("Error: --optimize-hvac currently requires --predict <MODEL_JSON> to be specified.")
+        print("       (Optimization of schedule requires a pre-loaded model)")
+        return 1
+
     # 1. Load Data
     measurements = load_csv.load_csv(args.csv_file, override_start_temp=args.start_temp, upsample_freq=args.upsample)
     
@@ -323,9 +328,14 @@ def run_main(args_list=None):
             marker_interval = None
             target_temps = None
 
+        if args.optimize_hvac:
+             setpoint_label = "Optimized Setpoint"
+        else:
+             setpoint_label = "Historical Setpoint"
+
         energy_result = energy.estimate_consumption(measurements, params, hw, cost_per_kwh=0.45)
         if not args.debug_output:
-            results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps, energy_stats=energy_result)
+            results.plot_results(measurements, params, hw, title_suffix=title_suffix, duration_minutes=args.duration, marker_interval_minutes=marker_interval, target_temps=target_temps, energy_stats=energy_result, setpoint_label=setpoint_label)
 
         
         # Debug output (optional)
@@ -400,7 +410,7 @@ def run_main(args_list=None):
         best_params = optimization_result.x
         save_model(best_params, args.output)
         energy_result = energy.estimate_consumption(measurements, best_params, hw, cost_per_kwh=0.45)
-        results.plot_results(measurements, best_params, hw, title_suffix="Optimization Result", energy_stats=energy_result)
+        results.plot_results(measurements, best_params, hw, title_suffix="Optimization Result", energy_stats=energy_result, setpoint_label="Historical Setpoint")
         return 0
     else:
         print("Optimization failed:", optimization_result.message)
