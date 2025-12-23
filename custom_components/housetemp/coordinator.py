@@ -852,12 +852,15 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             # Helper for calc
             def calc_energy_svc(produced, hvac_state_arr):
+                 # hvac_produced from run_model_* is GROSS (pre-derate).
+                 # eff_derate is already applied in thermal physics (run_model).
+                 # Pass eff_derate=1.0 to avoid double-derate in energy calc.
                  return calculate_energy_vectorized(
                      produced, measurements.dt_hours, 
                      self.heat_pump.get_max_capacity(measurements.t_out),
                      self.heat_pump.get_cop(measurements.t_out), 
                      self.heat_pump,
-                     eff_derate=params[5], 
+                     eff_derate=1.0,  # Produced is Gross (Pre-Derate)
                      hvac_states=hvac_state_arr,
                      t_out=measurements.t_out,
                      include_defrost=True
