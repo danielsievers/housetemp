@@ -785,6 +785,20 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     sim_setpoints.append(None)
             
             measurements.setpoint = np.array(sim_setpoints)
+            
+            # Recompute effective HVAC state for True-Off gating
+            # This ensures energy calculations don't charge idle/blower power
+            # when optimized setpoints are parked at min/max boundaries
+            from .housetemp.utils import get_effective_hvac_state
+            min_sp = comfort_config.get("min_setpoint", DEFAULT_MIN_SETPOINT)
+            max_sp = comfort_config.get("max_setpoint", DEFAULT_MAX_SETPOINT)
+            effective_hvac_state = get_effective_hvac_state(
+                measurements.hvac_state,
+                measurements.setpoint,
+                min_sp,
+                max_sp,
+                DEFAULT_OFF_INTENT_EPS
+            )
 
             # Ensure duration is valid for simulation
             sim_duration_hours = duration_hours
@@ -799,7 +813,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     solar_kw_list=measurements.solar_kw.tolist(),
                     dt_hours_list=measurements.dt_hours.tolist(), 
                     setpoint_list=measurements.setpoint.tolist(), 
-                    hvac_state_list=measurements.hvac_state.tolist(),
+                    hvac_state_list=effective_hvac_state.tolist(),  # Off-gated
                     max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
                     min_output=self.heat_pump.min_output_btu_hr, 
                     max_cool=self.heat_pump.max_cool_btu_hr, 
@@ -853,7 +867,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
             # 1. Continuous Optimized (Service Run)
             # 1. Continuous Optimized (Service Run)
-            cont_opt_res = calc_energy_svc(hvac_produced, measurements.hvac_state)
+            cont_opt_res = calc_energy_svc(hvac_produced, effective_hvac_state)  # Off-gated
             optimized_kwh = cont_opt_res['kwh']
             optimized_steps = cont_opt_res['kwh_steps']
             
@@ -867,7 +881,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     solar_kw_list=measurements.solar_kw.tolist(),
                     dt_hours_list=measurements.dt_hours.tolist(), 
                     setpoint_list=measurements.setpoint.tolist(), 
-                    hvac_state_list=measurements.hvac_state.tolist(),
+                    hvac_state_list=effective_hvac_state.tolist(),  # Off-gated
                     max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
                     min_output=self.heat_pump.min_output_btu_hr, 
                     max_cool=self.heat_pump.max_cool_btu_hr, 
