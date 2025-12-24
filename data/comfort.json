@@ -2,6 +2,7 @@
     "center_preference": 0.2,
     "mode": "heat",
     "avoid_defrost": false,
+    "comfort_mode": "deadband",
     "min_setpoint": 63,
     "max_setpoint": 70,
     "schedule": [
