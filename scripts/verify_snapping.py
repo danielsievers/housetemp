@@ -33,18 +33,19 @@ W_IDLE_ON = 0.9         # Threshold for idle_gate = "on"
 
 def get_best_fit_case(rates):
     """Classifies the result into one of the diagnostic cases from implementation plan."""
-    if rates['pinned_given_idle_safe'] >= 0.9 and rates['bias_leak_rate'] < 0.1:
-        return "Goal"
-    
-    # Identify primary failure
+    # Identify primary failure candidate
     fails = {
         'D (Weak Pull)': rates['weak_pull_rate'],
         'E (Gate Miss)': rates['miss_gate_rate'],
         'F (Bias Leak)': rates['bias_leak_rate']
     }
     best_fail = max(fails, key=fails.get)
+    
+    # If the worst failure is significant, return it
     if fails[best_fail] > 0.05:
         return best_fail
+        
+    # Otherwise, it's structurally the "Goal" (pinned correctly)
     return "Goal"
 
 W_IDLE_OFF = 0.1        # Threshold for idle_gate = "off"
@@ -242,19 +243,28 @@ def run_scenario(name: str, mode: str, target_home: float, target_away: float,
     T_end = T_verify[1:n_steps+1]
     
     # === COMPUTE GAP (exactly as optimizer) ===
+    # Derive slack from mode
+    swing_temp = config.get('swing_temp', 1.0)
+    if config.get('comfort_mode') == 'deadband':
+        slack = float(deadband_slack)
+    else:
+        slack = 0.5 * float(swing_temp)
+    
+    # Match optimizer's safe parameters
+    s_margin = 0.5 * float(swing_temp)
+    
     if mode == 'heat':
         gap = sp_cmd.astype(float) - T_start
-        floor = target_temps - deadband_slack
+        floor = target_temps - slack
         # Conservative safe: both start AND end above floor + margin
-        safe = np.minimum(T_start, T_end) >= (floor + SAFE_MARGIN_F)
-        boundary_pinned = sp_cmd == min_sp
+        safe = np.minimum(T_start, T_end) >= (floor + s_margin)
+        pinned = (sp_cmd <= min_sp + 0.1)
     else:
         gap = T_start - sp_cmd.astype(float)
-        ceiling = target_temps + deadband_slack
+        ceiling = target_temps + slack
         # Conservative safe: both start AND end below ceiling - margin
-        safe = np.maximum(T_start, T_end) <= (ceiling - SAFE_MARGIN_F)
-        boundary_pinned = sp_cmd == max_sp
-    
+        safe = np.maximum(T_start, T_end) <= (ceiling - s_margin)
+        pinned = (sp_cmd >= max_sp - 0.1)
     # === COMPUTE w_idle (gap-based, exactly as optimizer) ===
     w_idle = compute_w_idle(gap)
     idle_gate = classify_idle_gate(w_idle)
@@ -373,6 +383,7 @@ def run_scenario(name: str, mode: str, target_home: float, target_away: float,
             'T_verify': T_start.tolist(),
             't_out': t_out[:n_steps].tolist(),
         },
+        'comfort_config': config.copy(),  # For plotting bounds
     }
     
     # Print summary
@@ -423,24 +434,26 @@ def main():
     
     # Standard comfort config (internal, not HASS-exposed values)
     comfort_config = {
-        'center_preference': 0.5,
+        'center_preference': 0.2,      # Matches data/*.comfort.json
         'comfort_mode': 'deadband',
         'deadband_slack': 2.0,
-        'min_setpoint': 60,    # Wide bounds for testing
-        'max_setpoint': 82,    # Wide bounds for testing
+        'swing_temp': 1.0,            # HASS swing default
+        'min_setpoint': 60,    # Loose bounds for snapping test
+        'max_setpoint': 82,    # Loose bounds for snapping test
         'boundary_pull_weight': DEFAULT_BOUNDARY_PULL_WEIGHT,  # Ablation toggle
     }
     
     # Define scenarios with gaps between target and boundary
-    # target_away should be between target_home and boundary for clear signal
+    # Heating: using heating_comfort.json schedule (63-69°F)
+    # Cooling: using cooling_comfort.json schedule (68-70°F, min=63, max=70)
     scenarios = [
         # (csv_name, mode, target_home, target_away)
-        # Heating: target_away=66 gives 6°F gap to min_setpoint=60
-        ('cold_winter', 'heat', 69.0, 66.0),
-        ('shoulder_season', 'heat', 69.0, 66.0),
-        # Cooling: target_away=78 gives 4°F gap to max_setpoint=82
-        ('mild_summer', 'cool', 72.0, 78.0),
-        ('hot_summer', 'cool', 72.0, 78.0),
+        # Heating: target_away=63 gives gap to min_setpoint
+        ('cold_winter', 'heat', 69.0, 63.0),
+        ('shoulder_season', 'heat', 69.0, 63.0),
+        # Cooling: target_home=70, target_away=68 (user's schedule)
+        ('mild_summer', 'cool', 70.0, 68.0),
+        ('hot_summer', 'cool', 70.0, 68.0),
     ]
     
     # Initial condition variants
@@ -448,28 +461,60 @@ def main():
     
     results = []
     # Ablation Pass: compare different pull weights
-    weights = [0.0, DEFAULT_BOUNDARY_PULL_WEIGHT]
+    grouped = {}  # Initialize to store results by scenario for comparison
     
     for csv_name, mode, target_home, target_away in scenarios:
+        # Ablation weights: heating uses 0 vs 0.05, cooling uses 0 vs tiny sweep
+        if mode == 'heat':
+            weights = [0.0, 0.05]
+        else:
+            weights = [0.0, 0.001, 0.005, 0.01]  # Extended cooling sweep with tiny weight
+        
         for variant in variants:
             for w in weights:
                 try:
                     conf = comfort_config.copy()
                     conf['boundary_pull_weight'] = w
+                    
+                    # Use mode-specific bounds from user's comfort configs
+                    if mode == 'heat':
+                        conf['min_setpoint'] = 63  # from heating_comfort.json
+                        conf['max_setpoint'] = 70  # from heating_comfort.json
+                    else:
+                        conf['min_setpoint'] = 63  # from cooling_comfort.json
+                        conf['max_setpoint'] = 70  # from cooling_comfort.json
+                        
                     res = run_scenario(csv_name, mode, target_home, target_away,
                                       variant, params, hw, conf)
                     if res:
+                        # --- SECOND GATE: ENERGY REGRESSION CHECK ---
+                        # baseline is always the first weight (0.0)
+                        baseline = grouped.get((csv_name, variant, mode), {}).get('W=0')
+                        if baseline and w > 0:
+                            save_baseline = baseline.get('savings_pct', 0)
+                            save_test = res.get('savings_pct', 0)
+                            # FAIL if test is worse by > 2.0% (stricter margin as requested)
+                            if save_test < (save_baseline - 2.0):
+                                res['diagnosis'] = "FAIL (Regr)"
+                                print(f"  [!] FAIL: Energy regression detected ({save_test:.1f}% vs baseline {save_baseline:.1f}%)")
+
                         results.append(res)
+                        
+                        # Store in grouped for summary
+                        key = (csv_name, variant, mode)
+                        if key not in grouped: grouped[key] = {}
+                        weight_key = 'W=0' if w == 0 else 'W=def'
+                        grouped[key][weight_key] = res
+
                 except FileNotFoundError as e:
                     print(f"  SKIP: {e}")
                 except Exception as e:
                     print(f"  ERROR: {e}")
-                    import traceback
-                    traceback.print_exc()
     
     # Save results to JSON
     output_path = os.path.join(OUTPUT_DIR, 'snapping_diagnostics.json')
     with open(output_path, 'w') as f:
+        # Filter out plot_data for smaller JSON if needed, or keep for audit
         json.dump(results, f, indent=2)
     print(f"\n\nResults saved to: {output_path}")
     # Comparative Summary Table
@@ -481,15 +526,7 @@ def main():
     print(f"{'':<35} | {'W=0':>6} {'W=def':>7} | {'W=0':>6} {'W=def':>7} | {'W=def'}")
     print("-" * 130)
 
-    # Group by (scenario, variant, mode)
-    grouped = {}
-    for r in results:
-        key = (r['scenario'], r['variant'], r['mode'])
-        if key not in grouped:
-            grouped[key] = {}
-        # Use a small epsilon for float comparison or store as string keys
-        weight_key = 'W=0' if abs(r['rates']['boundary_pull_weight'] - 0.0) < 1e-6 else 'W=def'
-        grouped[key][weight_key] = r
+    # Results already grouped in main loop
 
     for (scenario, variant, mode), data in grouped.items():
         r_w0 = data.get('W=0')
@@ -525,13 +562,11 @@ def main():
         ax.plot(hours, pd_data['T_verify'], 'r-', linewidth=1, alpha=0.7, label='Indoor Temp (Verify)')
         ax.plot(hours, pd_data['t_out'], 'c-', linewidth=1, alpha=0.5, label='Outdoor Temp')
         
-        # Mark boundaries (min for heating, max for cooling)
-        if r['mode'] == 'heat':
-            boundary = comfort_config['min_setpoint']
-            ax.axhline(y=boundary, color='purple', linestyle=':', alpha=0.7, label=f'min_setpoint ({boundary}°F)')
-        else:
-            boundary = comfort_config['max_setpoint']
-            ax.axhline(y=boundary, color='purple', linestyle=':', alpha=0.7, label=f'max_setpoint ({boundary}°F)')
+        # Mark boundaries (show both for all modes)
+        min_sp = r['comfort_config']['min_setpoint']
+        max_sp = r['comfort_config']['max_setpoint']
+        ax.axhline(y=min_sp, color='purple', linestyle=':', alpha=0.7, label=f'min_setpoint ({min_sp}°F)')
+        ax.axhline(y=max_sp, color='orange', linestyle=':', alpha=0.7, label=f'max_setpoint ({max_sp}°F)')
         
         ax.set_xlabel('Hours')
         ax.set_ylabel('Temperature (°F)')

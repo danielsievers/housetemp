@@ -148,11 +148,16 @@ import numpy as np
 import math
 
 
-def quantize_setpoint(raw: float) -> int:
+def quantize_setpoint(raw):
     """
     Canonical quantization: Half-up rounding (0.5 -> 1).
     All code paths MUST use this for consistent thermostat commands.
+    
+    Handles both scalar floats and numpy arrays.
     """
+    import numpy as np
+    if isinstance(raw, np.ndarray):
+        return np.floor(raw + 0.5).astype(int)
     return int(math.floor(raw + 0.5))
 
 

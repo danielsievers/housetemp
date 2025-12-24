@@ -373,8 +373,12 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         # Diagnostic / Snapping Term Weights
         # Use mode-specific constants
         W_WEIGHT = W_BOUNDARY_PULL_HEAT if hvac_mode_val > 0 else W_BOUNDARY_PULL_COOL
-        # Using const defaults
-        swing_temp = DEFAULT_SWING_TEMP
+        
+        # Extract swing for (optional) OFF-safety gating.
+        # IMPORTANT: swing_temp is interpreted as a HALF-BAND (±swing_temp around target), not full width.
+        swing_temp = float(comfort_config.get('swing_temp', DEFAULT_SWING_TEMP))
+        swing_temp = max(0.1, swing_temp)  # guard against misconfig/0
+        
         min_cycle_minutes = DEFAULT_MIN_CYCLE_MINUTES
 
 
@@ -471,7 +475,7 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             else:  # Cooling
                 if comfort_mode == 'deadband':
                     ceiling = target_temps + deadband_slack
-                    # Outside violation (too warm)
+                    # Outside violation (too hot)
                     outside_errors = np.maximum(0, sim_temps - ceiling)
                     # Inside gap (normalized 0-1: 0 at target, 1 at ceiling)
                     inside_gap = np.clip(sim_temps - target_temps, 0, deadband_slack)
@@ -482,10 +486,8 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                     outside_errors = np.maximum(0, sim_temps - target_temps)
                     inside_norm = np.zeros_like(sim_temps)
 
-            # Comfort cost per step (two separate terms)
-            outside_cost_term = cp_outside * (outside_errors ** 2)
-            inside_cost_term = cp_inside * (inside_norm ** 2)
-            comfort_cost = outside_cost_term + inside_cost_term
+            comfort_cost = cp_outside * (outside_errors**2) + \
+                          cp_inside * (inside_norm**2)
             
             total_penalty = np.sum(comfort_cost * dt_hours_np)
             
@@ -496,9 +498,18 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # Internal config override (not exposed to HASS/JSON)
             boundary_pull_weight = comfort_config.get('boundary_pull_weight', W_WEIGHT)
             
-            # Calculate Gap (Setpoint vs Start-of-Step Indoor Temp)
-            # sim_temps[:-1] gives the temperature at the START of each timestep (pre-control reference)
-            temps_np = sim_temps[:-1] if len(sim_temps) > len(full_res_setpoints) else sim_temps[:len(full_res_setpoints)]
+            # Explicitly form step-aligned temperature vectors to avoid length mismatch.
+            # run_model_continuous may return N+1 temps (start + end of each step).
+            N = len(dt_hours_np)
+            if len(sim_temps) == N + 1:
+                T_step = sim_temps[1:]      # end-of-step temps (for comfort)
+                T_start = sim_temps[:-1]    # start-of-step temps (for gap gating)
+            else:
+                T_step = sim_temps[:N]
+                T_start = sim_temps[:N]
+            
+            # Use T_start for gap calculation (pre-control reference)
+            temps_np = T_start
             
             if hvac_mode_val > 0:  # Heating
                 gap = full_res_setpoints - temps_np
@@ -509,7 +520,95 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             z = np.clip(gap / S_GAP_SMOOTH, -50, 50)
             sigmoid = 1 / (1 + np.exp(-z))
             w_idle = 1 - sigmoid  # w_idle ≈ 1 when gap <= 0 (plateau), ≈ 0 when gap >> 0 (active)
-            
+
+            # --- Optional: Cheap OFF-Safety Gate (Block-Level) ---
+            # Only relevant if boundary pull is enabled (W_WEIGHT > 0). If W=0, skip for speed.
+            # Purpose: prevent boundary_pull from pinning to min/max in cases where being OFF for the
+            # full OFF_BLOCK_MINUTES window would violate comfort.
+            #
+            # We approximate "HVAC OFF" end-of-block temp using passive drift:
+            #   dT/dt ≈ ( UA*(T_out - T) + K_solar*solar + Q_int ) / C
+            #
+            # w_safe_block ~= 1 if OFF is safe for the whole block, ~= 0 if unsafe.
+            # We apply: w_idle <- w_idle * w_safe_per_step
+            if boundary_pull_weight > 0.0 and OFF_BLOCK_MINUTES and OFF_BLOCK_MINUTES > 0:
+                dt_minutes = float(np.median(dt_hours_np) * 60.0)
+                steps_per_off_block = max(1, int(round(OFF_BLOCK_MINUTES / dt_minutes)))
+
+                n_steps = len(full_res_setpoints)
+                off_block_ids = (np.arange(n_steps) // steps_per_off_block).astype(int)
+                n_off_blocks = int(off_block_ids[-1]) + 1 if n_steps > 0 else 0
+
+                # swing_temp is HALF-BAND (±swing). Keep margin < slack so "safe" doesn't collapse.
+                safe_margin = 0.5 * swing_temp
+                safe_smooth = max(0.05, 0.25 * swing_temp)
+
+                C_thermal = float(params[0])
+                UA = float(params[1])
+                K_solar = float(params[2])
+                Q_int = float(params[3])
+                inv_C = 1.0 / max(C_thermal, 1e-9)
+
+                block_hours = float(OFF_BLOCK_MINUTES) / 60.0
+                w_safe_blocks = np.ones(n_off_blocks, dtype=float)
+
+                for b in range(n_off_blocks):
+                    i0 = b * steps_per_off_block
+                    if i0 >= n_steps:
+                        break
+                    i1 = min(i0 + steps_per_off_block, n_steps)
+
+                    T0 = float(temps_np[i0])
+                    
+                    # Conservative block extrema for OFF drift estimate
+                    Tout_slice = np.asarray(t_out_list[i0:i1], dtype=float)
+                    Sol_slice = np.asarray(solar_kw_list[i0:i1], dtype=float)
+                    if Tout_slice.size == 0:
+                        Tout_slice = np.asarray([float(t_out_list[i0])], dtype=float)
+                    if Sol_slice.size == 0:
+                        Sol_slice = np.asarray([float(solar_kw_list[i0])], dtype=float)
+
+                    # For heating safety: use min (coldest) outdoor conditions
+                    # For cooling safety: use max (hottest) outdoor conditions
+                    if hvac_mode_val > 0:
+                        Tout_blk = float(np.min(Tout_slice))
+                        Sol_blk = float(np.min(Sol_slice))
+                    else:
+                        Tout_blk = float(np.max(Tout_slice))
+                        Sol_blk = float(np.max(Sol_slice))
+
+                    q_passive = UA * (Tout_blk - T0) + K_solar * Sol_blk + Q_int
+                    dTdt_off = q_passive * inv_C  # °F/hr
+                    T_end_off = T0 + dTdt_off * block_hours
+
+                    targ0 = float(target_temps[i0])
+                    
+                    # Slack: use deadband_slack in deadband mode, else swing_temp (half-band = ±swing)
+                    if comfort_mode == 'deadband':
+                        slack = float(deadband_slack)
+                    else:
+                        slack = swing_temp  # HALF-BAND semantics (±swing)
+
+                    if hvac_mode_val > 0:  # Heating: safe if OFF stays above floor+margin
+                        floor0 = targ0 - slack
+                        safe_gap = T_end_off - (floor0 + safe_margin)
+                    else:  # Cooling: safe if OFF stays below ceiling-margin
+                        ceil0 = targ0 + slack
+                        safe_gap = (ceil0 - safe_margin) - T_end_off
+
+                    zsafe = np.clip(safe_gap / safe_smooth, -50, 50)
+                    w_safe_blocks[b] = 1.0 / (1.0 + np.exp(-zsafe))
+
+                w_safe = w_safe_blocks[off_block_ids] if n_off_blocks > 0 else np.ones(n_steps)
+                w_idle = w_idle * w_safe
+
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug(
+                        f"w_safe: min={w_safe.min():.2f}, max={w_safe.max():.2f}, mean={w_safe.mean():.2f}, "
+                        f"steps_per_off_block={steps_per_off_block}, dt_minutes={dt_minutes:.2f}, "
+                        f"swing_temp={swing_temp:.2f}, safe_margin={safe_margin:.2f}, safe_smooth={safe_smooth:.2f}"
+                    )
+
             # Apply Weighted Pull (only in plateau regions)
             if hvac_mode_val > 0:
                 boundary_pull = boundary_pull_weight * np.sum(dt_hours_np * w_idle * (full_res_setpoints - min_setpoint)**2)
@@ -639,8 +738,8 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
     
     # --- Post-Solve Processing (True Off Snapping Redesign) ---
     
-    # 1. Quantize using canonical half-up rounding
-    final_blocks = np.floor(result.x + 0.5).astype(int)
+    # 1. Quantize using canonical helper (half-up rounding)
+    final_blocks = quantize_setpoint(result.x)
     indices = np.searchsorted(control_times, sim_minutes, side='right') - 1
     indices = np.clip(indices, 0, len(final_blocks) - 1)
     final_setpoints = final_blocks[indices]

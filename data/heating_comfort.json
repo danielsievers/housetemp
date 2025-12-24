@@ -1,0 +1,65 @@
+{
+    "center_preference": 0.2,
+    "mode": "heat",
+    "avoid_defrost": false,
+    "comfort_mode": "deadband",
+    "min_setpoint": 63,
+    "max_setpoint": 70,
+    "schedule": [
+        {
+            "weekdays": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 63,
+                    "rate": 1.0
+                },
+                {
+                    "time": "07:00",
+                    "temp": 69
+                },
+                {
+                    "time": "17:00",
+                    "temp": 69,
+                    "rate": 1.3
+                },
+                {
+                    "time": "20:00",
+                    "temp": 69,
+                    "rate": 1.0
+                },
+                {
+                    "time": "21:00",
+                    "temp": 63
+                }
+            ]
+        },
+        {
+            "weekdays": [
+                "saturday",
+                "sunday"
+            ],
+            "daily_schedule": [
+                {
+                    "time": "00:00",
+                    "temp": 63,
+                    "rate": 1.0
+                },
+                {
+                    "time": "08:00",
+                    "temp": 69
+                },
+                {
+                    "time": "21:00",
+                    "temp": 63
+                }
+            ]
+        }
+    ]
+}

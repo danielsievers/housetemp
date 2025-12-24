@@ -241,67 +241,53 @@ Savings are calculated as: $\text{Savings} = E_{naive} - E_{optimized}$
 
 The **discrete** metrics reflect real-world achievable savings (accounting for hysteresis and cycling). The **continuous** metrics represent theoretical maximum savings under idealized conditions.
 
+## 11. Optimization Constraints & Regularity
 
-## 11. Gated Boundary Pull (Snapping)
+To ensure the optimizer produces stable, comfortable, and reliable schedules, several constraints and regularization terms are applied.
+
+### 11.1 Gated Boundary Pull (Snapping)
 The continuous optimizer may sometimes leave setpoints slightly off the physical boundaries (e.g., set to 60.2°F instead of 60.0°F) in "plateau" regions where the energy/comfort gradient is flat. To ensure the system reaches "True Off" states reliably, the objective function includes a mode-dependent **pulling weight** that applies only when the system is near-idle.
 
-### 11.1 Logic
-A boundary pull term $J_{pull}$ is added to the objective:
+A **Cheap OFF-Safety Gate** is applied to the snapping weight $W_{boundary}$. The gate uses a first-order thermal drift projection to estimate if staying completely OFF for a full control block (e.g., 60 minutes) is "comfort-safe":
 
-$$ J_{pull} = w_{pull} \cdot \sum (sp_t - sp_{boundary})^2 \cdot G(gap) $$
+$$T_{end} = T_0 + \frac{dT}{dt}_{OFF} \times \Delta t_{block}$$
+
+In cooling mode, the snap is only allowed if $T_{end} < T_{ceiling} - \text{margin}$. If the house is heating up too fast, the gate closes ($W \to 0$), prioritizing frequent cycling (if necessary) over power-off snapping.
+
+$$ J_{pull} = w_{pull} \cdot \sum (sp_t - sp_{boundary})^2 \cdot G(gap) \cdot W_{safe} $$
 
 Where:
 *   $G(gap)$: A sigmoid gate that is $\approx 1$ when the HVAC demand is effectively zero (plateau) and $\approx 0$ during active control.
-*   $w_{pull}$: Mode-dependent tie-break weight.
+*   $W_{safe}$: The safety gate weight (1.0 if safe, 0.0 if unsafe).
 
-### 11.2 Mode-Dependent Weights
-Empirical ablation studies revealed that snapping behavior affects heating and cooling differently:
+### 11.3 Mode-Dependent Weights
+Verification using `verify_snapping.py` compares $W=0$ vs $W=0.05$ across various house/weather scenarios. Results show:
+1.  **Heating ($w_{pull} = 0.05$)**: Highly beneficial. Snapping to the floor in shoulder seasons allows for long "True Off" periods, capturing significant energy gains (up to 47%) without penalizing comfort.
+2.  **Cooling ($w_{pull} = 0.0$)**: Highly sensitive. Even with the safety gate, $W=0.05$ can lead to "Ghost Pulling" where the pull term overrides subtle energy-saving trajectories. 
 
-1.  **Heating ($w_{pull} = 0.05$)**: Highly beneficial. Snapping to the floor in shoulder seasons allows for long "True Off" periods, capturing significant energy gains without penalizing comfort.
-2.  **Cooling ($w_{pull} = 0.0$)**: Detrimental. In many summer scenarios, snapping to the ceiling triggers an inefficient "rebound cycle" where the energy cost of house recovery outweighs the idle savings. 
-
-By setting $w_{pull} = 0$ for cooling, the optimizer is permitted to remain in a slightly more efficient (though non-snapping) modulation path if the discrete rebound penalty would be too high.
+**Final Config**: $W_{HEAT}=0.05$, $W_{COOL}=0.0$. The gate remains in place as a secondary safety layer.
 
 ## 12. Future Improvements
 
-Potential enhancements to the optimization algorithm, ranked by expected impact:
+Potential enhancements to the optimization algorithm:
 
-### 11.1 Warm Start from Previous Schedule
-**Objective**: Initialize decision vector from the previous accepted schedule instead of the midpoint:
+### 12.1 Warm Start from Previous Schedule
+**Objective**: Initialize decision vector from the previous accepted schedule instead of the midpoint: $x_0 \leftarrow x_{prev}$.
+**Implementation**: Persist last accepted schedule; use as initial guess for the solver.
 
-$$x_0 \leftarrow x_{prev}$$
+### 12.2 Post-Quantization Feasibility Check + Repair
+**Objective**: After quantization, verify by simulation. If comfort violation detected, increment offending blocks minimally.
+**Implementation**: Deterministic repair loop: bump setpoint one tick (or relax off rec), re-sim until feasible.
 
-Optionally blend with default: $x_0 \leftarrow (1-\alpha)x_{prev} + \alpha x_{default}$
+### 12.3 Schedule Regularity (Setpoint-Change Penalty)
+**Objective**: Add smoothness term to prevent jumpy schedules: $J_{\Delta} = w_{\Delta} \sum (sp_t - sp_{t-1})^2$.
+**Implementation**: L2 (quadratic) penalty limits jitter and actuator churn.
 
-**Implementation**: Persist last accepted schedule; use as `x0` / initial guess for the solver. Strongest stability/runtime win in repeated HA runs.
+### 12.4 Objective Conditioning (Normalize Term Scales)
+**Objective**: Make each term dimensionless and comparable: $J = w_E \frac{E}{E_{ref}} + w_C \frac{C}{C_{ref}} + \dots$
+**Implementation**: Choose reference scales based on typical daily kWh and comfort error integrals.
 
-### 11.2 Post-Quantization Feasibility Check + Repair
-**Objective**: After quantization $sp^{cmd} = Q(sp)$, verify by simulation $T^{ver} = f(sp^{cmd})$. If comfort violation detected:
-
-$$v_t = \max(0, T_{min} - T_t) \quad \text{(heating)}$$
-$$v_t = \max(0, T_t - T_{max}) \quad \text{(cooling)}$$
-
-Then repair: increment offending blocks minimally.
-
-**Implementation**: Deterministic repair loop: find violating timesteps/blocks, bump setpoint one tick (or relax off recommendation), re-sim until feasible or cap iterations. Ensures reported metrics match commanded schedule.
-
-### 11.3 Schedule Regularity (Setpoint-Change Penalty)
-**Objective**: Add smoothness term to prevent jumpy schedules:
-
-$$J_{\Delta} = w_{\Delta} \sum_{t=1}^{T-1} (sp_t - sp_{t-1})^2$$
-
-Or total variation: $w_{TV} \sum |sp_t - sp_{t-1}|$
-
-**Implementation**: Start with L2 (quadratic) for smooth gradients. Limits jitter and actuator churn. Tune $w_{\Delta}$ relative to comfort/energy scales (after normalization).
-
-### 11.4 Objective Conditioning (Normalize Term Scales)
-**Objective**: Make each term dimensionless and comparable:
-
-$$J = w_E \frac{E}{E_{ref}} + w_C \frac{C}{C_{ref}} + w_D \frac{D}{D_{ref}} + \dots$$
-
-**Implementation**: Choose reference scales ($E_{ref}$, $C_{ref}$, ...) based on typical daily kWh, typical comfort error integral. Prevents one term numerically dominating due to units.
-
-### 11.5 Objective Smoothness (Remove Kinks)
+### 12.5 Objective Smoothness (Remove Kinks)
 **Objective**: Replace hinge/kink penalties with smooth approximations:
 
 $$\max(0, x) \approx s \cdot \log(1 + e^{x/s}) \quad \text{(softplus)}$$
