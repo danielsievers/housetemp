@@ -22,7 +22,8 @@ DEFAULT_MIN_SETPOINT = 60.0   # Lower bound for setpoint optimization
 DEFAULT_MAX_SETPOINT = 75.0   # Upper bound for setpoint optimization
 
 # Optimizer Snapping (True Off Redesign)
-W_BOUNDARY_PULL = 0.01        # Gated tie-break weight for plateau regions
+W_BOUNDARY_PULL_HEAT = 0.05    # Tie-break weight for heating
+W_BOUNDARY_PULL_COOL = 0.0     # Tie-break weight for cooling (avoids rebound)
 OFF_BLOCK_MINUTES = 60        # Aggregation window for OFF recommendation
 S_GAP_SMOOTH = 0.2            # Sigmoid width for w_idle gating (°F)
 

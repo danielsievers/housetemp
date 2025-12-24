@@ -16,7 +16,8 @@ try:
         DEFAULT_MIN_SETPOINT,
         DEFAULT_MAX_SETPOINT,
         DEFAULT_EFFICIENCY_DERATE,
-        W_BOUNDARY_PULL,
+        W_BOUNDARY_PULL_HEAT,
+        W_BOUNDARY_PULL_COOL,
         OFF_BLOCK_MINUTES,
         S_GAP_SMOOTH
     )
@@ -28,7 +29,8 @@ except ImportError:
     DEFAULT_MIN_SETPOINT = 60.0
     DEFAULT_MAX_SETPOINT = 75.0
     DEFAULT_EFFICIENCY_DERATE = 0.75
-    W_BOUNDARY_PULL = 0.01
+    W_BOUNDARY_PULL_HEAT = 0.05
+    W_BOUNDARY_PULL_COOL = 0.0
     OFF_BLOCK_MINUTES = 60
     S_GAP_SMOOTH = 0.2
 
@@ -368,9 +370,9 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         deadband_slack = comfort_config.get('deadband_slack', DEFAULT_DEADBAND_SLACK)
         avoid_defrost = comfort_config.get('avoid_defrost', DEFAULT_AVOID_DEFROST)
         
-        # Thermostat Parity Config
-        # Hardcoding defaults for now as they are not yet in comfort_config
-        # But should probably pull from there if available
+        # Diagnostic / Snapping Term Weights
+        # Use mode-specific constants
+        W_WEIGHT = W_BOUNDARY_PULL_HEAT if hvac_mode_val > 0 else W_BOUNDARY_PULL_COOL
         # Using const defaults
         swing_temp = DEFAULT_SWING_TEMP
         min_cycle_minutes = DEFAULT_MIN_CYCLE_MINUTES
@@ -491,6 +493,9 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             # Only applies in plateau regions where HVAC output is near zero.
             # This breaks ties when the objective is flat, directing the solver to min/max.
             
+            # Internal config override (not exposed to HASS/JSON)
+            boundary_pull_weight = comfort_config.get('boundary_pull_weight', W_WEIGHT)
+            
             # Calculate Gap (Setpoint vs Start-of-Step Indoor Temp)
             # sim_temps[:-1] gives the temperature at the START of each timestep (pre-control reference)
             temps_np = sim_temps[:-1] if len(sim_temps) > len(full_res_setpoints) else sim_temps[:len(full_res_setpoints)]
@@ -507,9 +512,9 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             
             # Apply Weighted Pull (only in plateau regions)
             if hvac_mode_val > 0:
-                boundary_pull = W_BOUNDARY_PULL * np.sum(dt_hours_np * w_idle * (full_res_setpoints - min_setpoint)**2)
+                boundary_pull = boundary_pull_weight * np.sum(dt_hours_np * w_idle * (full_res_setpoints - min_setpoint)**2)
             else:
-                boundary_pull = W_BOUNDARY_PULL * np.sum(dt_hours_np * w_idle * (max_setpoint - full_res_setpoints)**2)
+                boundary_pull = boundary_pull_weight * np.sum(dt_hours_np * w_idle * (max_setpoint - full_res_setpoints)**2)
             
             # Diagnostic logging
             if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -707,7 +712,8 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         'evaluations': result.nfev,
         'off_recommended': off_recommended.tolist(),
         'verify_energy_kwh': float(verify_energy['kwh']),
-        'verify_temps': np.array(verify_temps).tolist()
+        'verify_temps': np.array(verify_temps).tolist(),
+        'verify_produced': np.array(verify_produced).tolist(),
     }
     
     # Check for "ABNORMAL" (Deadband success)

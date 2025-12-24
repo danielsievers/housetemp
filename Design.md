@@ -242,7 +242,27 @@ Savings are calculated as: $\text{Savings} = E_{naive} - E_{optimized}$
 The **discrete** metrics reflect real-world achievable savings (accounting for hysteresis and cycling). The **continuous** metrics represent theoretical maximum savings under idealized conditions.
 
 
-## 11. Future Improvements
+## 11. Gated Boundary Pull (Snapping)
+The continuous optimizer may sometimes leave setpoints slightly off the physical boundaries (e.g., set to 60.2°F instead of 60.0°F) in "plateau" regions where the energy/comfort gradient is flat. To ensure the system reaches "True Off" states reliably, the objective function includes a mode-dependent **pulling weight** that applies only when the system is near-idle.
+
+### 11.1 Logic
+A boundary pull term $J_{pull}$ is added to the objective:
+
+$$ J_{pull} = w_{pull} \cdot \sum (sp_t - sp_{boundary})^2 \cdot G(gap) $$
+
+Where:
+*   $G(gap)$: A sigmoid gate that is $\approx 1$ when the HVAC demand is effectively zero (plateau) and $\approx 0$ during active control.
+*   $w_{pull}$: Mode-dependent tie-break weight.
+
+### 11.2 Mode-Dependent Weights
+Empirical ablation studies revealed that snapping behavior affects heating and cooling differently:
+
+1.  **Heating ($w_{pull} = 0.05$)**: Highly beneficial. Snapping to the floor in shoulder seasons allows for long "True Off" periods, capturing significant energy gains without penalizing comfort.
+2.  **Cooling ($w_{pull} = 0.0$)**: Detrimental. In many summer scenarios, snapping to the ceiling triggers an inefficient "rebound cycle" where the energy cost of house recovery outweighs the idle savings. 
+
+By setting $w_{pull} = 0$ for cooling, the optimizer is permitted to remain in a slightly more efficient (though non-snapping) modulation path if the discrete rebound penalty would be too high.
+
+## 12. Future Improvements
 
 Potential enhancements to the optimization algorithm, ranked by expected impact:
 
