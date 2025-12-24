@@ -1,7 +1,9 @@
 {
-    "center_preference": 1.0,
+    "center_preference": 0.2,
     "mode": "heat",
-    "avoid_defrost": true,
+    "avoid_defrost": false,
+    "min_setpoint": 63,
+    "max_setpoint": 70,
     "schedule": [
         {
             "weekdays": [

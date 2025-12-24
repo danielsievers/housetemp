@@ -289,13 +289,33 @@ def run_main(args_list=None):
                     print(f"Limiting optimization to first {args.duration} minutes ({limit_idx} steps).")
                     measurements = measurements.slice(0, limit_idx)
             
-            # Load Comfort Schedule
-            target_temps, comfort_config = schedule.load_comfort_schedule(args.comfort, measurements.timestamps)
+            # Load Comfort Schedule (JSON)
+            with open(args.comfort, "r") as f:
+                comfort_config = json.load(f)
+
+            # Process Schedule (Align with HASS: Get TOU Rates + Fixed Mask)
+            # Note: We pass timezone=None to rely on auto-detection or 'time_local' if present
+            # matching how HASS likely behaves implicitly or with explicit config.
+            _, target_temps, fixed_mask, rates = schedule.process_schedule_data(
+                measurements.timestamps,
+                comfort_config,
+                timezone=None 
+            )
             
             # Run Optimization
             block_size = args.control_timestep
             # Default to Legacy (Single-Scale) on Desktop unless flag added later
-            opt_result = optimize.optimize_hvac_schedule(measurements, params, hw, target_temps, comfort_config, block_size_minutes=block_size, enable_multiscale=False)
+            opt_result = optimize.optimize_hvac_schedule(
+                measurements, 
+                params, 
+                hw, 
+                target_temps, 
+                comfort_config, 
+                block_size_minutes=block_size, 
+                fixed_mask=fixed_mask,
+                enable_multiscale=False,
+                rate_per_step=rates
+            )
             
             # Unpack
             if isinstance(opt_result, tuple):
