@@ -813,55 +813,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 DEFAULT_OFF_INTENT_EPS
             )
 
-            # Ensure duration is valid for simulation
-            sim_duration_hours = duration_hours
-            if sim_duration_hours is None:
-                 sim_duration_hours = self.config_entry.options.get(CONF_FORECAST_DURATION, DEFAULT_FORECAST_DURATION)
-                 
-            # Run Model for Temp Curve (Continuous)
-            _LOGGER.info("Running simulation for service response (duration: %.1f h)...", sim_duration_hours)
-            sim_temps_list, _, hvac_produced_list = await self.hass.async_add_executor_job(
-                partial(run_model_continuous, params, 
-                    t_out_list=measurements.t_out.tolist(), 
-                    solar_kw_list=measurements.solar_kw.tolist(),
-                    dt_hours_list=measurements.dt_hours.tolist(), 
-                    setpoint_list=measurements.setpoint.tolist(), 
-                    hvac_state_list=effective_hvac_state.tolist(),  # Off-gated
-                    max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
-                    min_output=self.heat_pump.min_output_btu_hr, 
-                    max_cool=self.heat_pump.max_cool_btu_hr, 
-                    eff_derate=params[5], 
-                    start_temp=float(measurements.t_in[0])
-                )
-            )
-            sim_temps = np.array(sim_temps_list)
-            hvac_produced = np.array(hvac_produced_list)
-            
-            # --- Record predictions for accuracy tracking ---
-            stats_store = getattr(self, "stats_store", None)
-            if stats_store and len(sim_temps) > 0:
-                try:
-                    now = dt_util.now()
-                    # Find index closest to 6 hours out
-                    target_time_6h = now + timedelta(hours=6)
-                    for i, ts in enumerate(timestamps):
-                        if ts >= target_time_6h:
-                            # Record this prediction
-                            stats_store.record_prediction(
-                                target_timestamp=ts,
-                                predicted_temp=float(sim_temps[i]),
-                                horizon_hours=6,
-                            )
-                            _LOGGER.debug("Recorded 6h prediction: %.1f°F at %s", sim_temps[i], ts)
-                            break
-                except Exception as e:
-                    _LOGGER.warning("Failed to record prediction: %s", e)
-            
-            # -- Optimized Energy Calculation (Continuous) --
-            # Reuse hvac_produced (Gross) from the continuous run
-            # Note: setpoints are technically optimized inside 'measurements' if measurements.setpoint was updated?
-            # Wait, run_model_continuous used measurements.setpoint. Was it updated?
-            # Yes, earlier: measurements.setpoint = np.array(sim_setpoints) (Line 706)
+            # -- Optimized Energy Calculation (Discrete) --
             
             # Helper for calc
             def calc_energy_svc(produced, hvac_state_arr):
@@ -881,17 +833,16 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             hvac_mode_val_svc = 1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1
 
-            # 1. Continuous Optimized (Service Run)
-            # 1. Continuous Optimized (Service Run)
-            cont_opt_res = calc_energy_svc(hvac_produced, effective_hvac_state)  # Off-gated
-            optimized_kwh = cont_opt_res['kwh']
-            optimized_steps = cont_opt_res['kwh_steps']
+            # 1. Continuous Optimized (Removed - Redundant)
+            # We strictly use Discrete for reporting now.
+            optimized_kwh = None # Placeholder for metrics dict
+            
             
             # 2. Discrete Optimized (Verification Run)
             swing = self.config_entry.options.get(CONF_SWING_TEMP, DEFAULT_SWING_TEMP)
             min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
             
-            _, _, hvac_produced_disc_svc, actual_state_disc_svc, diag_disc_svc = await self.hass.async_add_executor_job(
+            sim_temps_disc_svc, _, hvac_produced_disc_svc, actual_state_disc_svc, diag_disc_svc = await self.hass.async_add_executor_job(
                 partial(run_model_discrete, params, 
                     t_out_list=measurements.t_out.tolist(), 
                     solar_kw_list=measurements.solar_kw.tolist(),
@@ -908,19 +859,44 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 )
             )
             
-            disc_opt_res = calc_energy_svc(np.array(hvac_produced_disc_svc), np.array(actual_state_disc_svc))
+            # Use 'effective_hvac_state' (Intent) for energy calc, NOT 'actual_state_discrete' (Thermostat State).
+            # This ensures we charge idle power when the system is enabled (Standby) but temperature is satisfied (Off).
+            disc_opt_res = calc_energy_svc(np.array(hvac_produced_disc_svc), effective_hvac_state)
             optimized_kwh_discrete = disc_opt_res['kwh']
             optimized_steps_discrete = disc_opt_res['kwh_steps']
+
+            # --- Record predictions for accuracy tracking (from Discrete Verification) ---
+            stats_store = getattr(self, "stats_store", None)
+            if stats_store and len(sim_temps_disc_svc) > 0:
+                try:
+                    now = dt_util.now()
+                    # Find index closest to 6 hours out
+                    target_time_6h = now + timedelta(hours=6)
+                    for i, ts in enumerate(timestamps):
+                        if ts >= target_time_6h:
+                            # Record this prediction
+                            stats_store.record_prediction(
+                                target_timestamp=ts,
+                                predicted_temp=float(sim_temps_disc_svc[i]),
+                                horizon_hours=6,
+                            )
+                            _LOGGER.debug("Recorded 6h prediction (Discrete): %.1f°F at %s", sim_temps_disc_svc[i], ts)
+                            break
+                except Exception as e:
+                    _LOGGER.warning("Failed to record prediction: %s", e)
+
             
             # 3. Naive Metrics (Discrete & Continuous)
             # Calculate Discrete Naive (Baseline)
+            # Baseline uses the original schedule setpoints and Raw HVAC State (1s).
+            # It should NOT assume "True Off" at min setpoint; it should try to maintain 63F.
             _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
                 partial(run_model_discrete, params, 
                     t_out_list=measurements.t_out.tolist(), 
                     solar_kw_list=measurements.solar_kw.tolist(),
                     dt_hours_list=measurements.dt_hours.tolist(), 
                     setpoint_list=target_temps.tolist(), # Original Schedule
-                    hvac_state_list=measurements.hvac_state.tolist(),
+                    hvac_state_list=measurements.hvac_state.tolist(), # Raw Schedule Intent (1s, not gated)
                     max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
                     min_output=self.heat_pump.min_output_btu_hr, 
                     max_cool=self.heat_pump.max_cool_btu_hr, 
@@ -931,7 +907,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 )
             )
             
-            disc_naive_res = calc_energy_svc(np.array(hvac_produced_naive_disc), np.array(actual_state_naive_disc))
+            # Use 'measurements.hvac_state' (Raw Intent) for energy calc.
+            # This ensures idle power is charged if system is enabled (1) but satisfied.
+            disc_naive_res = calc_energy_svc(np.array(hvac_produced_naive_disc), measurements.hvac_state)
             discrete_naive_kwh = disc_naive_res['kwh']
             
             metrics = {
@@ -944,7 +922,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
             # --- Update Coordinator Data Immediately ---
             result_data = self._build_coordinator_data(
-                timestamps, sim_temps, measurements, optimized_setpoints,
+                timestamps, sim_temps_disc_svc, measurements, optimized_setpoints,
                 metrics=metrics,
                 original_schedule=target_temps,
                 energy_kwh_steps=optimized_steps_discrete  # Per-step energy for hourly aggregation (Discrete)
@@ -966,8 +944,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                     "outdoor_temp": float(measurements.t_out[i]),
                     "solar_kw": float(measurements.solar_kw[i]),
                     "ideal_setpoint": float(optimized_setpoints[i]) if i < len(optimized_setpoints) else None,
-                    "predicted_temp": float(sim_temps[i]) if i < len(sim_temps) else None,
-                    "energy_kwh": float(optimized_steps[i]) if optimized_steps is not None and i < len(optimized_steps) else None
+                    "predicted_temp": float(sim_temps_disc_svc[i]) if i < len(sim_temps_disc_svc) else None,
+                    "energy_kwh": float(optimized_steps_discrete[i]) if optimized_steps_discrete is not None and i < len(optimized_steps_discrete) else None
                 }
                 # hvac_action from schedule
                 state_val = measurements.hvac_state[i]
@@ -1189,18 +1167,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
              )
             
              # --- Upstream "True Off" Enforcement ---
-             from .housetemp.utils import get_effective_hvac_state
-            
              min_setpoint = self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)
              max_setpoint = self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)
-            
-             hvac_state_arr = get_effective_hvac_state(
-                 hvac_state_arr, 
-                 setpoint_arr, 
-                 min_setpoint, 
-                 max_setpoint, 
-                 DEFAULT_OFF_INTENT_EPS
-             )
 
         steps = len(timestamps)
         t_in_arr = np.zeros(steps)
