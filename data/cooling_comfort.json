@@ -3,8 +3,8 @@
     "mode": "cool",
     "avoid_defrost": false,
     "comfort_mode": "deadband",
-    "min_setpoint": 63,
-    "max_setpoint": 70,
+    "min_setpoint": 69,
+    "max_setpoint": 78,
     "schedule": [
         {
             "weekdays": [

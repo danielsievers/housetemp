@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.getcwd())
 
 from custom_components.housetemp.housetemp.optimize import optimize_hvac_schedule
-from custom_components.housetemp.housetemp.run_model import HeatPump, run_model_continuous
+from custom_components.housetemp.housetemp.run_model import HeatPump, run_model_continuous, run_model_discrete
 from custom_components.housetemp.housetemp.measurements import Measurements
 from custom_components.housetemp.housetemp.constants import S_GAP_SMOOTH
 from custom_components.housetemp.housetemp.energy import calculate_energy_vectorized
@@ -227,6 +227,69 @@ def run_scenario(name: str, mode: str, target_home: float, target_away: float,
     savings_pct = (1 - optimized_kwh / naive_kwh) * 100 if naive_kwh > 0 else 0
     print(f"  Naive kWh:    {naive_kwh:.2f} (savings: {savings_pct:.1f}%)")
     
+    # === DISCRETE SIMULATION (realistic thermostat behavior) ===
+    swing_temp = config.get('swing_temp', 1.0)
+    min_cycle_minutes = 5.0  # Standard HVAC min cycle time
+    
+    # Discrete naive (baseline)
+    # Returns: (temps, outputs, produced, hvac_state, diagnostics)
+    naive_disc_temps, naive_disc_outputs, naive_disc_produced, naive_disc_hvac, _ = run_model_discrete(
+        params,
+        t_out_list=t_out.tolist(),
+        solar_kw_list=np.zeros(n).tolist(),
+        dt_hours_list=np.full(n, dt_hours_val).tolist(),
+        setpoint_list=naive_setpoints.astype(float).tolist(),
+        hvac_state_list=naive_hvac_state.tolist(),
+        max_caps_list=max_caps.tolist(),
+        min_output=hw.min_output_btu_hr,
+        max_cool=hw.max_cool_btu_hr,
+        eff_derate=eff_derate,
+        start_temp=float(start_temp),
+        swing_temp=swing_temp,
+        min_cycle_minutes=min_cycle_minutes
+    )
+    naive_discrete_energy = calculate_energy_vectorized(
+        np.array(naive_disc_produced),
+        np.full(n, dt_hours_val),
+        max_caps,
+        base_cops,
+        hw,
+        eff_derate=1.0,
+        hvac_states=np.array(naive_disc_hvac).astype(float)
+    )
+    naive_discrete_kwh = naive_discrete_energy['kwh']
+    
+    # Discrete optimized
+    opt_disc_temps, opt_disc_outputs, opt_disc_produced, opt_disc_hvac, _ = run_model_discrete(
+        params,
+        t_out_list=t_out.tolist(),
+        solar_kw_list=np.zeros(n).tolist(),
+        dt_hours_list=np.full(n, dt_hours_val).tolist(),
+        setpoint_list=opt_setpoints.astype(float).tolist(),
+        hvac_state_list=get_effective_hvac_state(
+            naive_hvac_state, opt_setpoints.astype(float), min_sp, max_sp, 0.1
+        ).tolist(),
+        max_caps_list=max_caps.tolist(),
+        min_output=hw.min_output_btu_hr,
+        max_cool=hw.max_cool_btu_hr,
+        eff_derate=eff_derate,
+        start_temp=float(start_temp),
+        swing_temp=swing_temp,
+        min_cycle_minutes=min_cycle_minutes
+    )
+    opt_discrete_energy = calculate_energy_vectorized(
+        np.array(opt_disc_produced),
+        np.full(n, dt_hours_val),
+        max_caps,
+        base_cops,
+        hw,
+        eff_derate=1.0,
+        hvac_states=np.array(opt_disc_hvac).astype(float)
+    )
+    opt_discrete_kwh = opt_discrete_energy['kwh']
+    discrete_savings_pct = (1 - opt_discrete_kwh / naive_discrete_kwh) * 100 if naive_discrete_kwh > 0 else 0
+
+    
     # === EXTRACT FROM POST-SOLVE VERIFICATION (canonical source) ===
     sp_cmd = opt_setpoints  # Already quantized integers
     T_verify = np.array(meta.get('verify_temps', []))
@@ -366,9 +429,12 @@ def run_scenario(name: str, mode: str, target_home: float, target_away: float,
             'pinned_given_idle_safe': pinned_given_idle_safe,
             'boundary_pull_weight': current_weight,
         },
-        'energy_kwh': optimized_kwh,
-        'naive_kwh': naive_kwh,
-        'savings_pct': savings_pct,
+        'energy_kwh': optimized_kwh,           # Continuous optimized
+        'naive_kwh': naive_kwh,                 # Continuous naive
+        'savings_pct': savings_pct,             # Continuous savings
+        'discrete_kwh': opt_discrete_kwh,       # Discrete optimized
+        'naive_discrete_kwh': naive_discrete_kwh,  # Discrete naive
+        'discrete_savings_pct': discrete_savings_pct,  # Discrete savings
         'diagnosis': get_best_fit_case({
             'pinned_given_idle_safe': pinned_given_idle_safe,
             'weak_pull_rate': weak_pull_rate,
@@ -444,8 +510,8 @@ def main():
     }
     
     # Define scenarios with gaps between target and boundary
-    # Heating: using heating_comfort.json schedule (63-69°F)
-    # Cooling: using cooling_comfort.json schedule (68-70°F, min=63, max=70)
+    # Heating: using heating_comfort.json schedule (63-70°F, target 69°F home, 63°F away)
+    # Cooling: using cooling_comfort.json schedule (69-78°F, target 70°F home, 68°F away)
     scenarios = [
         # (csv_name, mode, target_home, target_away)
         # Heating: target_away=63 gives gap to min_setpoint
@@ -481,8 +547,8 @@ def main():
                         conf['min_setpoint'] = 63  # from heating_comfort.json
                         conf['max_setpoint'] = 70  # from heating_comfort.json
                     else:
-                        conf['min_setpoint'] = 63  # from cooling_comfort.json
-                        conf['max_setpoint'] = 70  # from cooling_comfort.json
+                        conf['min_setpoint'] = 69  # from cooling_comfort.json
+                        conf['max_setpoint'] = 78  # from cooling_comfort.json
                         
                     res = run_scenario(csv_name, mode, target_home, target_away,
                                       variant, params, hw, conf)
