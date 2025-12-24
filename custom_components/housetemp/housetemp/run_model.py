@@ -270,7 +270,7 @@ def run_model_discrete(params, *, t_out_list, solar_kw_list, dt_hours_list, setp
     min_on_timer = 0.0
     min_off_timer = 0.0
     
-    half_swing = swing_temp / 2.0
+    # swing_temp is half-band: ±swing from setpoint
     
     # Diagnostics
     diag_cycles = 0
@@ -303,12 +303,12 @@ def run_model_discrete(params, *, t_out_list, solar_kw_list, dt_hours_list, setp
             if min_off_timer <= 0 and req_intent != 0:
                 # Check thresholds
                 if req_intent > 0: # Heat
-                    if current_temp < (setpoint - half_swing):
+                    if current_temp < (setpoint - swing_temp):
                         next_state = 1
                         min_on_timer = min_cycle_minutes
                         diag_cycles += 1
                 elif req_intent < 0: # Cool
-                    if current_temp > (setpoint + half_swing):
+                    if current_temp > (setpoint + swing_temp):
                         next_state = -1
                         min_on_timer = min_cycle_minutes
                         diag_cycles += 1
@@ -337,11 +337,11 @@ def run_model_discrete(params, *, t_out_list, solar_kw_list, dt_hours_list, setp
                 # Normal Hysteresis Check
                 if min_on_timer <= 0:
                     if current_state == 1: # Heat
-                        if current_temp > (setpoint + half_swing):
+                        if current_temp > (setpoint + swing_temp):
                             next_state = 0
                             min_off_timer = min_cycle_minutes
                     elif current_state == -1: # Cool
-                        if current_temp < (setpoint - half_swing):
+                        if current_temp < (setpoint - swing_temp):
                             next_state = 0
                             min_off_timer = min_cycle_minutes
         
