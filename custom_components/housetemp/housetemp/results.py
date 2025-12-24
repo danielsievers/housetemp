@@ -88,9 +88,13 @@ def plot_results(data, optimized_params, hw, title_suffix="", duration_minutes=0
     import pandas as pd
     ts_idx = pd.to_datetime(timestamps_raw)
     if ts_idx.tz is not None:
-        timestamps = ts_idx.tz_convert('America/Los_Angeles').tz_localize(None)
+        from . import utils
+        local_tz = utils.get_system_timezone()
+        timestamps = ts_idx.tz_convert(local_tz).tz_localize(None)
     else:
-        timestamps = ts_idx.tz_localize('UTC').tz_convert('America/Los_Angeles').tz_localize(None)
+        # Assumed already local naive (per consistent project standard from load_csv)
+        print("Plotting: Assuming naive timestamps are already Local Time.")
+        timestamps = ts_idx
     actual_t_in = data.t_in[:sim_len]
     outdoor_t = data.t_out[:sim_len]
     

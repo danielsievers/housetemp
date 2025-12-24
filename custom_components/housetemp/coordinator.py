@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 from functools import partial
+from typing import Optional
 
 import numpy as np
 
@@ -620,10 +621,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
     async def _record_stats(
         self,
         actual_temp: float,
-        schedule_target: float | None,
-        optimized_target: float | None,
-        used_kwh: float | None,
-        baseline_kwh: float | None,
+        schedule_target: Optional[float],
+        optimized_target: Optional[float],
+        used_kwh: Optional[float],
+        baseline_kwh: Optional[float],
     ) -> None:
         """Record statistics samples for accuracy, comfort, and energy tracking."""
         # Check if stats_store is available (attached by __init__.py)

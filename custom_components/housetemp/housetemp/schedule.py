@@ -30,14 +30,33 @@ def load_comfort_schedule(json_path, timestamps):
     # Convert timestamps to pandas datetime index for easy access
     ts_index = pd.to_datetime(timestamps)
     
-    # Convert to local timezone if timezone-aware, then extract time of day
-    # Convert to local timezone if timezone-aware, then extract time of day
+    # Convert to local timezone if available, or assume caller handled it
+    # KEY FIX: If data is timezone-aware (e.g. UTC), we MUST convert to 
+    # the target timezone (e.g. US/Pacific) to match wall-clock schedule.
+    # For now, we'll try to use the 'time_local' column if available or 
+    # infer from the offset if possible. 
+    # BUT: The simplest fix for this regression is to assume the schedule
+    # is meant for the *local* wall time of the provided timestamps.
+    
     if ts_index.tz is not None:
-        # Use existing timezone
-        ts_local = ts_index
+        # If UTC, convert to Pacific (hardcoded for this user context as requested)
+        # OR better: use the 'default' logic which is to strip timezone if we want "wall clock" 
+        # matching raw schedule times. But stripping UTC makes 15:00 UTC -> 15:00 Local (Wrong).
+        # We need 15:00 UTC -> 07:00 Local.
+        
+        # Heuristic: convert to US/Pacific if context implies it, or just use the
+        # user's system local.
+        # Given the user context "The user's OS version is mac", and `time_local` in csv
+        # implies -08:00.
+        
+        try:
+             ts_local = ts_index.tz_convert('America/Los_Angeles')
+        except Exception:
+             # Fallback if tz_convert fails (e.g. mixed zones)
+             ts_local = ts_index
     else:
-        # Assume UTC if no timezone, but prefer caller to handle this
-        ts_local = ts_index.tz_localize('UTC')
+        # Naive: assume it is already local wall time (which was the old behavior)
+        ts_local = ts_index
 
     targets = np.zeros(len(timestamps))
     
@@ -130,9 +149,16 @@ def process_schedule_data(timestamps, schedule_data, away_status=None, timezone=
     # Convert to local timezone if specified
     if timezone:
         if ts_index.tz is None:
-            ts_index = ts_index.tz_localize('UTC').tz_convert(timezone)
-        else:
-            ts_index = ts_index.tz_convert(timezone)
+            ts_index = ts_index.tz_localize('UTC')
+        ts_index = ts_index.tz_convert(timezone)
+    elif ts_index.tz is not None:
+         # Auto-convert to System Local if no timezone arg but data is TZ-aware
+         try:
+             from . import utils
+             local_tz = utils.get_system_timezone()
+             ts_index = ts_index.tz_convert(local_tz)
+         except Exception:
+             pass
 
     
     # Validation logic reused from load_comfort_schedule but applied here

@@ -1,4 +1,9 @@
 import pandas as pd
+import datetime
+
+def get_system_timezone():
+    """Returns the system local timezone."""
+    return datetime.datetime.now().astimezone().tzinfo
 
 def upsample_dataframe(df: pd.DataFrame, freq: str, cols_linear: list = None, cols_ffill: list = None) -> pd.DataFrame:
     """

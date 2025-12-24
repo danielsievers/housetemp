@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from . import utils
 from .measurements import Measurements
 
 def load_csv(filepath: str, override_start_temp: float = None, upsample_freq: str = None) -> Measurements:
@@ -9,7 +10,30 @@ def load_csv(filepath: str, override_start_temp: float = None, upsample_freq: st
     # Note: Adjust column names below to match your specific CSV export if needed
     df = pd.read_csv(filepath)
     # Convert time immediately
-    df['time'] = pd.to_datetime(df['time'])
+    # PRIORITIZE 'time_local' if available (corrected for local time)
+    if 'time_local' in df.columns:
+        print("Using 'time_local' column for timestamps.")
+        df['time'] = pd.to_datetime(df['time_local'])
+    else:
+        df['time'] = pd.to_datetime(df['time'])
+
+    # Ensure measurements use NAIVE LOCAL TIME (Project Standard)
+    # If aware, satisfy Measurements contract (which uses numpy array -> naive)
+    # by converting to Local first, then stripping TZ.
+    if df['time'].dt.tz is not None:
+        # Default to US/Pacific if not specified (since project context implies it)
+        # Verify if it's already in a TZ or if it's UTC
+        # If the CSV has UTC, we must convert.
+        # Check an item
+        sample_tz = df['time'].iloc[0].tz
+        if str(sample_tz) == 'UTC':
+             # Convert to System Local Time
+             local_tz = utils.get_system_timezone()
+             print(f"Converting UTC timestamps to System Local Time ({local_tz})...")
+             df['time'] = df['time'].dt.tz_convert(local_tz)
+        
+        # Finally strip timezone to make it naive (so numpy doesn't revert to UTC)
+        df['time'] = df['time'].dt.tz_localize(None)
 
     # Calculate median time diff for warning/check
     if len(df) > 1:
