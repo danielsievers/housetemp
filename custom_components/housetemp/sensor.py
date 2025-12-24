@@ -379,7 +379,7 @@ class HouseTempComfortSensor(CoordinatorEntity, SensorEntity):
         stats_24h = StatsCalculator.compute_comfort_24h(
             self._stats_store.comfort_samples,
         )
-        val = stats_24h["schedule"].get("time_in_range")
+        val = stats_24h.get("time_in_range")
         return round(val, 1) if val is not None else None
 
     @property
@@ -393,25 +393,15 @@ class HouseTempComfortSensor(CoordinatorEntity, SensorEntity):
         )
         
         attrs = {
-            # 24h rolling - schedule target
-            "time_in_range_24h": stats_24h["schedule"].get("time_in_range"),
-            "mean_deviation_24h": stats_24h["schedule"].get("mean_deviation"),
-            "max_deviation_24h": stats_24h["schedule"].get("max_deviation"),
+            # 24h rolling - deviation from schedule target
+            "time_in_range_24h": stats_24h.get("time_in_range"),
+            "mean_deviation_24h": stats_24h.get("mean_deviation"),
+            "max_deviation_24h": stats_24h.get("max_deviation"),
             
-            # 24h rolling - optimized target
-            "optimized_time_in_range_24h": stats_24h["optimized"].get("time_in_range"),
-            "optimized_mean_deviation_24h": stats_24h["optimized"].get("mean_deviation"),
-            "optimized_max_deviation_24h": stats_24h["optimized"].get("max_deviation"),
-            
-            # Lifetime - schedule target
-            "time_in_range_lifetime": stats_lifetime["schedule"].get("time_in_range"),
-            "mean_deviation_lifetime": stats_lifetime["schedule"].get("mean_deviation"),
-            "max_deviation_lifetime": stats_lifetime["schedule"].get("max_deviation"),
-            
-            # Lifetime - optimized target
-            "optimized_time_in_range_lifetime": stats_lifetime["optimized"].get("time_in_range"),
-            "optimized_mean_deviation_lifetime": stats_lifetime["optimized"].get("mean_deviation"),
-            "optimized_max_deviation_lifetime": stats_lifetime["optimized"].get("max_deviation"),
+            # Lifetime - deviation from schedule target
+            "time_in_range_lifetime": stats_lifetime.get("time_in_range"),
+            "mean_deviation_lifetime": stats_lifetime.get("mean_deviation"),
+            "max_deviation_lifetime": stats_lifetime.get("max_deviation"),
             
             "total_samples_lifetime": self._stats_store.lifetime_comfort.total_samples,
         }

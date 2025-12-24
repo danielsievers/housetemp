@@ -26,9 +26,8 @@ STORAGE_KEY = f"{DOMAIN}_stats"
 ACCURACY_WINDOW_DAYS = 7
 COMFORT_WINDOW_HOURS = 24
 
-# Default comfort tolerances
+# Default comfort tolerance
 DEFAULT_SCHEDULE_TOLERANCE = 2.0  # ±°F - fallback if swing_temp not available
-DEFAULT_OPTIMIZED_TOLERANCE = 0.5  # ±°F - tighter for control accuracy
 
 # Prune predictions older than this
 PREDICTION_RETENTION_DAYS = 8  # Slightly longer than accuracy window
@@ -58,13 +57,14 @@ class ComfortSample:
     timestamp: str  # ISO format
     actual_temp: float
     schedule_target: float  # User's schedule setpoint
-    optimized_target: float | None  # Optimizer's setpoint (may be None)
     
     def to_dict(self) -> dict:
         return asdict(self)
     
     @classmethod
     def from_dict(cls, data: dict) -> "ComfortSample":
+        # Handle legacy data that had optimized_target field
+        data = {k: v for k, v in data.items() if k in ('timestamp', 'actual_temp', 'schedule_target')}
         return cls(**data)
 
 
@@ -95,17 +95,14 @@ class LifetimeComfortStats:
     schedule_deviation_sum: float = 0.0
     schedule_max_deviation: float = 0.0
     
-    # Optimized target deviation
-    optimized_in_range_count: int = 0
-    optimized_deviation_sum: float = 0.0
-    optimized_max_deviation: float = 0.0
-    optimized_sample_count: int = 0  # May differ from total if optimizer not always running
-    
     def to_dict(self) -> dict:
         return asdict(self)
     
     @classmethod
     def from_dict(cls, data: dict) -> "LifetimeComfortStats":
+        # Handle legacy data that had optimized fields
+        valid_keys = ('total_samples', 'schedule_in_range_count', 'schedule_deviation_sum', 'schedule_max_deviation')
+        data = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**data)
 
 
@@ -314,9 +311,7 @@ class StatsStore:
         self,
         actual_temp: float,
         schedule_target: float,
-        optimized_target: float | None = None,
         schedule_tolerance: float = DEFAULT_SCHEDULE_TOLERANCE,
-        optimized_tolerance: float = DEFAULT_OPTIMIZED_TOLERANCE,
     ) -> None:
         """Record a comfort measurement and update lifetime stats."""
         # Validate inputs to avoid math errors
@@ -332,7 +327,6 @@ class StatsStore:
             timestamp=now.isoformat(),
             actual_temp=f_actual,
             schedule_target=f_sched,
-            optimized_target=self._validate_float(optimized_target),
         )
         self.comfort_samples.append(sample)
         
@@ -347,18 +341,6 @@ class StatsStore:
         )
         if schedule_dev <= schedule_tolerance:
             self.lifetime_comfort.schedule_in_range_count += 1
-        
-        # Optimized target deviation (if available)
-        f_opt = self._validate_float(optimized_target)
-        if f_opt is not None:
-            self.lifetime_comfort.optimized_sample_count += 1
-            opt_dev = abs(f_actual - f_opt)
-            self.lifetime_comfort.optimized_deviation_sum += opt_dev
-            self.lifetime_comfort.optimized_max_deviation = max(
-                self.lifetime_comfort.optimized_max_deviation, opt_dev
-            )
-            if opt_dev <= optimized_tolerance:
-                self.lifetime_comfort.optimized_in_range_count += 1
     
     def record_energy_sample(
         self,
@@ -437,12 +419,8 @@ class StatsCalculator:
     def compute_comfort_24h(
         samples: list[ComfortSample],
         schedule_tolerance: float = DEFAULT_SCHEDULE_TOLERANCE,
-        optimized_tolerance: float = DEFAULT_OPTIMIZED_TOLERANCE,
     ) -> dict[str, Any]:
-        """Compute comfort stats for the last 24 hours.
-        
-        Returns stats for both schedule target and optimized target.
-        """
+        """Compute comfort stats for the last 24 hours."""
         now = dt_util.now()
         cutoff = now - timedelta(hours=COMFORT_WINDOW_HOURS)
         
@@ -453,36 +431,21 @@ class StatsCalculator:
         
         if not recent:
             return {
-                "schedule": {"time_in_range": None, "mean_deviation": None, "max_deviation": None, "count": 0},
-                "optimized": {"time_in_range": None, "mean_deviation": None, "max_deviation": None, "count": 0},
+                "time_in_range": None,
+                "mean_deviation": None,
+                "max_deviation": None,
+                "count": 0,
             }
         
         # Schedule target stats
         schedule_devs = [abs(s.actual_temp - s.schedule_target) for s in recent]
         schedule_in_range = sum(1 for d in schedule_devs if d <= schedule_tolerance)
         
-        # Optimized target stats
-        opt_samples = [s for s in recent if s.optimized_target is not None]
-        if opt_samples:
-            opt_devs = [abs(s.actual_temp - s.optimized_target) for s in opt_samples]
-            opt_in_range = sum(1 for d in opt_devs if d <= optimized_tolerance)
-            opt_result = {
-                "time_in_range": round(100 * opt_in_range / len(opt_devs), 1),
-                "mean_deviation": round(sum(opt_devs) / len(opt_devs), 2),
-                "max_deviation": round(max(opt_devs), 2),
-                "count": len(opt_devs),
-            }
-        else:
-            opt_result = {"time_in_range": None, "mean_deviation": None, "max_deviation": None, "count": 0}
-        
         return {
-            "schedule": {
-                "time_in_range": round(100 * schedule_in_range / len(schedule_devs), 1),
-                "mean_deviation": round(sum(schedule_devs) / len(schedule_devs), 2),
-                "max_deviation": round(max(schedule_devs), 2),
-                "count": len(schedule_devs),
-            },
-            "optimized": opt_result,
+            "time_in_range": round(100 * schedule_in_range / len(schedule_devs), 1),
+            "mean_deviation": round(sum(schedule_devs) / len(schedule_devs), 2),
+            "max_deviation": round(max(schedule_devs), 2),
+            "count": len(schedule_devs),
         }
     
     @staticmethod
@@ -492,26 +455,16 @@ class StatsCalculator:
         """Format lifetime comfort stats for display."""
         if stats.total_samples == 0:
             return {
-                "schedule": {"time_in_range": None, "mean_deviation": None, "max_deviation": None},
-                "optimized": {"time_in_range": None, "mean_deviation": None, "max_deviation": None},
+                "time_in_range": None,
+                "mean_deviation": None,
+                "max_deviation": None,
             }
         
-        schedule_result = {
+        return {
             "time_in_range": round(100 * stats.schedule_in_range_count / stats.total_samples, 1),
             "mean_deviation": round(stats.schedule_deviation_sum / stats.total_samples, 2),
             "max_deviation": round(stats.schedule_max_deviation, 2),
         }
-        
-        if stats.optimized_sample_count > 0:
-            opt_result = {
-                "time_in_range": round(100 * stats.optimized_in_range_count / stats.optimized_sample_count, 1),
-                "mean_deviation": round(stats.optimized_deviation_sum / stats.optimized_sample_count, 2),
-                "max_deviation": round(stats.optimized_max_deviation, 2),
-            }
-        else:
-            opt_result = {"time_in_range": None, "mean_deviation": None, "max_deviation": None}
-        
-        return {"schedule": schedule_result, "optimized": opt_result}
     
     @staticmethod
     def compute_energy_24h(samples: list[EnergySample]) -> dict[str, float | None]:

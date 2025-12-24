@@ -647,7 +647,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 stats_store.record_comfort_sample(
                     actual_temp=actual_temp,
                     schedule_target=schedule_target,
-                    optimized_target=optimized_target,
                     schedule_tolerance=swing_temp,  # Use swing for "in range"
                 )
             

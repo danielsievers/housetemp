@@ -14,7 +14,6 @@ from custom_components.housetemp.statistics import (
     StatsStore,
     StatsCalculator,
     DEFAULT_SCHEDULE_TOLERANCE,
-    DEFAULT_OPTIMIZED_TOLERANCE,
     ACCURACY_WINDOW_DAYS,
 )
 
@@ -160,9 +159,8 @@ class TestStatsCalculator:
         """Empty samples return None values."""
         result = StatsCalculator.compute_comfort_24h([])
         
-        assert result["schedule"]["time_in_range"] is None
-        assert result["schedule"]["count"] == 0
-        assert result["optimized"]["time_in_range"] is None
+        assert result["time_in_range"] is None
+        assert result["count"] == 0
     
     def test_comfort_24h_schedule_deviation(self):
         """Comfort stats correctly calculate schedule deviation."""
@@ -172,55 +170,24 @@ class TestStatsCalculator:
                 timestamp=(now - timedelta(hours=1)).isoformat(),
                 actual_temp=70.0,
                 schedule_target=70.0,  # Perfect
-                optimized_target=None,
             ),
             ComfortSample(
                 timestamp=(now - timedelta(hours=2)).isoformat(),
                 actual_temp=68.0,
                 schedule_target=70.0,  # Deviation = 2.0
-                optimized_target=None,
             ),
         ]
         
         result = StatsCalculator.compute_comfort_24h(
-            samples, schedule_tolerance=1.0, optimized_tolerance=0.5
+            samples, schedule_tolerance=1.0
         )
         
         # 1 of 2 within 1.0°F tolerance
-        assert result["schedule"]["time_in_range"] == 50.0
+        assert result["time_in_range"] == 50.0
         # Mean deviation = (0 + 2) / 2 = 1.0
-        assert result["schedule"]["mean_deviation"] == 1.0
-        assert result["schedule"]["max_deviation"] == 2.0
-        assert result["schedule"]["count"] == 2
-    
-    def test_comfort_24h_optimized_deviation(self):
-        """Optimized target deviation uses tighter tolerance."""
-        now = dt_util.now()
-        samples = [
-            ComfortSample(
-                timestamp=(now - timedelta(hours=1)).isoformat(),
-                actual_temp=70.0,
-                schedule_target=70.0,
-                optimized_target=70.3,  # Deviation = 0.3 (within 0.5 tolerance)
-            ),
-            ComfortSample(
-                timestamp=(now - timedelta(hours=2)).isoformat(),
-                actual_temp=70.0,
-                schedule_target=70.0,
-                optimized_target=71.0,  # Deviation = 1.0 (outside 0.5 tolerance)
-            ),
-        ]
-        
-        result = StatsCalculator.compute_comfort_24h(
-            samples, schedule_tolerance=2.0, optimized_tolerance=0.5
-        )
-        
-        # Optimized: 1 of 2 within 0.5°F tolerance
-        assert result["optimized"]["time_in_range"] == 50.0
-        assert result["optimized"]["count"] == 2
-        
-        # Schedule: both within 2.0°F tolerance
-        assert result["schedule"]["time_in_range"] == 100.0
+        assert result["mean_deviation"] == 1.0
+        assert result["max_deviation"] == 2.0
+        assert result["count"] == 2
     
     def test_comfort_24h_excludes_old_samples(self):
         """Only samples from last 24h are included."""
@@ -230,19 +197,17 @@ class TestStatsCalculator:
                 timestamp=(now - timedelta(hours=1)).isoformat(),
                 actual_temp=70.0,
                 schedule_target=70.0,
-                optimized_target=None,
             ),
             ComfortSample(
                 timestamp=(now - timedelta(hours=30)).isoformat(),  # Too old
                 actual_temp=60.0,
                 schedule_target=70.0,
-                optimized_target=None,
             ),
         ]
         
         result = StatsCalculator.compute_comfort_24h(samples)
         
-        assert result["schedule"]["count"] == 1
+        assert result["count"] == 1
     
     def test_comfort_lifetime_empty(self):
         """Empty lifetime stats return None."""
@@ -250,7 +215,7 @@ class TestStatsCalculator:
         
         result = StatsCalculator.compute_comfort_lifetime(stats)
         
-        assert result["schedule"]["time_in_range"] is None
+        assert result["time_in_range"] is None
     
     def test_comfort_lifetime_computation(self):
         """Lifetime comfort stats are correctly formatted."""
@@ -259,20 +224,13 @@ class TestStatsCalculator:
             schedule_in_range_count=80,
             schedule_deviation_sum=50.0,
             schedule_max_deviation=3.0,
-            optimized_sample_count=50,
-            optimized_in_range_count=45,
-            optimized_deviation_sum=10.0,
-            optimized_max_deviation=1.5,
         )
         
         result = StatsCalculator.compute_comfort_lifetime(stats)
         
-        assert result["schedule"]["time_in_range"] == 80.0  # 80%
-        assert result["schedule"]["mean_deviation"] == 0.5  # 50/100
-        assert result["schedule"]["max_deviation"] == 3.0
-        
-        assert result["optimized"]["time_in_range"] == 90.0  # 45/50 = 90%
-        assert result["optimized"]["mean_deviation"] == 0.2  # 10/50
+        assert result["time_in_range"] == 80.0  # 80%
+        assert result["mean_deviation"] == 0.5  # 50/100
+        assert result["max_deviation"] == 3.0
     
     def test_energy_24h_empty(self):
         """Empty energy samples return None."""
@@ -396,29 +354,23 @@ class TestStatsStore:
         stats_store.record_comfort_sample(
             actual_temp=70.0,
             schedule_target=70.0,
-            optimized_target=70.2,
             schedule_tolerance=1.0,
-            optimized_tolerance=0.5,
         )
         
         assert len(stats_store.comfort_samples) == 1
         assert stats_store.lifetime_comfort.total_samples == 1
         assert stats_store.lifetime_comfort.schedule_in_range_count == 1  # Within 1.0
-        assert stats_store.lifetime_comfort.optimized_in_range_count == 1  # Within 0.5
     
     def test_record_comfort_out_of_range(self, stats_store):
         """Out of range samples don't increment in_range counts."""
         stats_store.record_comfort_sample(
             actual_temp=72.5,
             schedule_target=70.0,  # Deviation = 2.5, outside 1.0 tolerance
-            optimized_target=70.0,  # Deviation = 2.5, outside 0.5 tolerance
             schedule_tolerance=1.0,
-            optimized_tolerance=0.5,
         )
         
         assert stats_store.lifetime_comfort.total_samples == 1
         assert stats_store.lifetime_comfort.schedule_in_range_count == 0
-        assert stats_store.lifetime_comfort.optimized_in_range_count == 0
         assert stats_store.lifetime_comfort.schedule_max_deviation == 2.5
     
     def test_record_energy_sample(self, stats_store):
@@ -465,13 +417,11 @@ class TestStatsStore:
                 timestamp=(now - timedelta(hours=30)).isoformat(),  # Too old
                 actual_temp=70.0,
                 schedule_target=70.0,
-                optimized_target=None,
             ),
             ComfortSample(
                 timestamp=(now - timedelta(hours=1)).isoformat(),  # Recent
                 actual_temp=72.0,
                 schedule_target=70.0,
-                optimized_target=None,
             ),
         ]
         

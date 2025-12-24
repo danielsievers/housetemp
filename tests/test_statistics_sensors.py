@@ -139,13 +139,11 @@ class TestHouseTempComfortSensor:
                 timestamp=(now - timedelta(hours=1)).isoformat(),
                 actual_temp=70.0,
                 schedule_target=70.0,
-                optimized_target=None,
             ),
             ComfortSample(
                 timestamp=(now - timedelta(hours=2)).isoformat(),
                 actual_temp=70.5,
                 schedule_target=70.0,
-                optimized_target=None,
             ),
         ]
         
@@ -173,9 +171,6 @@ class TestHouseTempComfortSensor:
         assert "time_in_range_24h" in attrs
         assert "mean_deviation_24h" in attrs
         assert "max_deviation_24h" in attrs
-        
-        # Optimized 24h keys
-        assert "optimized_time_in_range_24h" in attrs
         
         # Lifetime keys
         assert "time_in_range_lifetime" in attrs
