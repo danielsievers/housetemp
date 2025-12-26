@@ -2,7 +2,7 @@
     "config": {
         "step": {
             "user": {
-                "title": "House Temp Sensors",
+                "title": "SmartAss Thermostat Sensors",
                 "description": "Configure the sensors for temperature prediction",
                 "data": {
                     "sensor_indoor_temp": "Indoor Temperature Sensor",
@@ -36,8 +36,8 @@
     "options": {
         "step": {
             "init": {
-                "title": "House Temp Configuration",
-                "description": "Configure all settings for House Temp Prediction",
+                "title": "SmartAss Thermostat Configuration",
+                "description": "Configure all settings for SmartAss Thermostat",
                 "data": {
                     "sensor_indoor_temp": "Indoor Temperature Sensor",
                     "weather_entity": "Weather Entity",

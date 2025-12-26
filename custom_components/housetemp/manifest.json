@@ -1,6 +1,6 @@
 {
     "domain": "housetemp",
-    "name": "House Temp Prediction",
+    "name": "SmartAss Thermostat",
     "codeowners": [
         "@danielsievers"
     ],
