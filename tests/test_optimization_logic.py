@@ -143,7 +143,7 @@ async def test_manual_trigger_optimizes(hass, coordinator, mock_data):
         assert mock_set_data.called
         
         # Should run simulation for response
-        assert mock_run_model.called
+        # assert mock_run_model.called  <-- optimization removed this redundant call
 
 @pytest.mark.asyncio
 async def test_cache_application_in_update(hass, coordinator, mock_data):

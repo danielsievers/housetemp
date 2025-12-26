@@ -81,6 +81,7 @@ from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.schedule import process_schedule_data
 from .housetemp.energy import estimate_consumption, calculate_energy_stats, calculate_energy_vectorized
+from .housetemp.utils import get_effective_hvac_state
 from .input_handler import SimulationInputHandler
 
 _LOGGER = logging.getLogger(DOMAIN)
@@ -738,8 +739,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "mode": options.get(CONF_HVAC_MODE, "heat"),
             "center_preference": float(options.get(CONF_CENTER_PREFERENCE, DEFAULT_CENTER_PREFERENCE)),
             "avoid_defrost": options.get(CONF_AVOID_DEFROST, True),
-            "comfort_mode": options.get(CONF_COMFORT_MODE, DEFAULT_COMFORT_MODE),
-            "deadband_slack": float(options.get(CONF_DEADBAND_SLACK, DEFAULT_DEADBAND_SLACK)),
             "min_setpoint": float(options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)),
             "max_setpoint": float(options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)),
         }
@@ -768,21 +767,18 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 # --- Immediate Derivation of "True Off" Signal ---
                 # We must derive this NOW so the sensor updates immediately with the correct signal.
                 # Reusing logic from _async_update_data / utils.py
-                from .housetemp.utils import get_effective_hvac_state
                 min_sp = comfort_config.get("min_setpoint", DEFAULT_MIN_SETPOINT)
                 max_sp = comfort_config.get("max_setpoint", DEFAULT_MAX_SETPOINT)
                 
                 derived_effective_hvac = get_effective_hvac_state(
-                    measurements.hvac_state, # Use the vector we just used for optimization
-                    optimized_setpoints,     # The new setpoints
+                    measurements.hvac_state, 
+                    optimized_setpoints,     
                     min_sp,
                     max_sp,
                     DEFAULT_OFF_INTENT_EPS
                 )
                 off_recommended_list = (derived_effective_hvac == 0).tolist()
                 
-                # Update Meta for immediate Return & Display
-                # We want the user/UI to see this "Off" signal immediately.
                 meta_for_display = meta.copy()
                 meta_for_display["off_recommended"] = off_recommended_list
                 self.data["optimization_status"] = meta_for_display
@@ -832,10 +828,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             measurements.setpoint = np.array(sim_setpoints)
             
+
             # Recompute effective HVAC state for True-Off gating
-            # This ensures energy calculations don't charge idle/blower power
-            # when optimized setpoints are parked at min/max boundaries
-            from .housetemp.utils import get_effective_hvac_state
             min_sp = comfort_config.get("min_setpoint", DEFAULT_MIN_SETPOINT)
             max_sp = comfort_config.get("max_setpoint", DEFAULT_MAX_SETPOINT)
             effective_hvac_state = get_effective_hvac_state(
