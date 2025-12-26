@@ -1,4 +1,4 @@
-# Design Document: HouseTemp
+# Design Document: SmartAss Thermostat (HouseTemp)
 
 ## 1. Goal
 The goal of this system is to create a **physics-based thermal model** of a specific house using historical data (indoor temp, outdoor temp, solar radiation, HVAC usage). 

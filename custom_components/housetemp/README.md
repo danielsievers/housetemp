@@ -1,6 +1,6 @@
-# House Temp Prediction (Home Assistant Component)
+# SmartAss Thermostat (Home Assistant Component)
 
-This custom component integrates the HouseTemp thermal model into Home Assistant, providing indoor temperature predictions based on your home's physics, weather forecast, and HVAC schedule.
+This custom component integrates the **SmartAss Thermostat** (powered by HouseTemp) into Home Assistant, providing indoor temperature predictions based on your home's physics, weather forecast, and HVAC schedule.
 
 ## Installation
 
@@ -22,7 +22,7 @@ This custom component integrates the HouseTemp thermal model into Home Assistant
 
 1.  Go to **Settings > Devices & Services**.
 2.  Click **Add Integration**.
-3.  Search for **House Temp Prediction**.
+3.  Search for **SmartAss Thermostat**.
 4.  Follow the configuration steps:
     - **Sensors**: Select your Indoor Temperature sensor and Weather entity. Optionally select a Solar Forecast sensor.
     - **Parameters**: Enter your model parameters (`C_thermal`, `UA`, etc.) derived from the CLI tool.
@@ -96,7 +96,7 @@ The **Schedule JSON** configuration expects a format like this. You can use this
 
 ## Entities
 
-The integration creates a sensor: `sensor.indoor_temperature_forecast`.
+The integration creates a main sensor: `sensor.smartass_thermostat_{friendly_name}`.
 - **State**: The predicted temperature at the end of the forecast period.
 - **Attributes**:
     - `forecast`: A list of hourly/30-min predictions including temperature, HVAC state, and estimated energy usage.
@@ -106,15 +106,15 @@ The integration creates a sensor: `sensor.indoor_temperature_forecast`.
 ### Statistics Sensors
 The integration provides three additional sensors to track performance:
 
-*   **`sensor.housetemp_energy`**: Tracks lifetime energy savings.
+*   **`sensor.smartass_thermostat_{friendly_name}_energy_savings`**: Tracks lifetime energy savings.
     *   **State**: Total kWh saved by the optimizer (Baseline - Optimized).
     *   **Attributes**: `used_kwh` (Total actual usage), `saved_kwh_24h` (Savings in last 24h).
 
-*   **`sensor.housetemp_accuracy`**: validating the physics model.
+*   **`sensor.smartass_thermostat_{friendly_name}_prediction_accuracy`**: validating the physics model.
     *   **State**: Mean Absolute Error (MAE) of predictions over the last 7 days. Lower is better.
     *   **Method**: Compares the 6-hour-ahead forecast against the actual temperature when that time arrives.
 
-*   **`sensor.housetemp_comfort`**: Tracks how well targets are met.
+*   **`sensor.smartass_thermostat_{friendly_name}_comfort_score`**: Tracks how well targets are met.
     *   **State**: "Time in Range" (%) for the last 24 hours.
     *   **Attributes**: Detailed deviation stats for both the original schedule and the optimized plan.
 

@@ -1,10 +1,10 @@
-# HouseTemp: Home Thermal Model
+# SmartAss Thermostat (HouseTemp)
 
 A physics-based thermal model for estimating home insulation (UA), thermal mass (C), and other parameters from Home Assistant history data.
 
 
-## Home Assistant Integration
-This repository includes a custom component for Home Assistant.
+## SmartAss Thermostat (Home Assistant Integration)
+This repository includes the **SmartAss Thermostat** custom component for Home Assistant.
 See [custom_components/housetemp/README.md](custom_components/housetemp/README.md) for installation and usage instructions.
 
 ## Usage
