@@ -559,6 +559,15 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         effective_hvac_state = np.asarray(effective_hvac_state)
         off_recommended = (effective_hvac_state == 0) | simulated_idle
 
+        # E. Adjust energy to reflect off_recommended (True-Off savings)
+        # Zero out energy for blocks where we recommend OFF so reported
+        # energy reflects achievable savings if user follows recommendations
+        if energy_kwh_steps is not None and len(energy_kwh_steps) == len(off_recommended):
+            energy_kwh_steps = np.array(energy_kwh_steps, dtype=float)
+            energy_kwh_steps[off_recommended] = 0.0
+            energy_kwh_discrete_optimized = float(np.sum(energy_kwh_steps))
+            energy_kwh_steps = energy_kwh_steps.tolist()
+
         # 8. Return Result
         return self._build_coordinator_data(
             timestamps, sim_temps, measurements, optimized_setpoint_attr if has_optimized_data else None,
