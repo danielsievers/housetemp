@@ -20,6 +20,7 @@ DEFAULT_MIN_CYCLE_MINUTES = 15.0
 DEFAULT_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" in get_effective_hvac_state (continuous)
 DEFAULT_MIN_SETPOINT = 60.0   # Lower bound for setpoint optimization
 DEFAULT_MAX_SETPOINT = 75.0   # Upper bound for setpoint optimization
+DEFAULT_IDLE_MARGIN = 0.5     # Margin above ON-threshold for reliable idle detection (°F)
 
 # Optimizer Snapping (True Off Redesign)
 W_BOUNDARY_PULL_HEAT = 0.05    # Tie-break weight for heating

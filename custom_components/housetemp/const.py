@@ -83,6 +83,7 @@ from .housetemp.constants import (
     DEFAULT_SWING_TEMP,
     DEFAULT_MIN_CYCLE_MINUTES,
     DEFAULT_OFF_INTENT_EPS,
+    DEFAULT_IDLE_MARGIN,
     TOLERANCE_BTU_ACTIVE,
     TOLERANCE_BTU_FRACTION,
     KW_TO_WATTS  # If needed here

@@ -71,7 +71,8 @@ from .const import (
     DEFAULT_SWING_TEMP,
     CONF_MIN_CYCLE_DURATION,
     DEFAULT_MIN_CYCLE_MINUTES,
-    DEFAULT_OFF_INTENT_EPS
+    DEFAULT_OFF_INTENT_EPS,
+    DEFAULT_IDLE_MARGIN
 )
 
 # Import from the installed package
@@ -81,7 +82,7 @@ from .housetemp.measurements import Measurements
 from .housetemp.optimize import optimize_hvac_schedule
 from .housetemp.schedule import process_schedule_data
 from .housetemp.energy import estimate_consumption, calculate_energy_stats, calculate_energy_vectorized
-from .housetemp.utils import get_effective_hvac_state
+from .housetemp.utils import get_effective_hvac_state, detect_idle_blocks
 from .input_handler import SimulationInputHandler
 
 _LOGGER = logging.getLogger(DOMAIN)
@@ -460,7 +461,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         swing = self.config_entry.options.get(CONF_SWING_TEMP, DEFAULT_SWING_TEMP)
         min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
         
-        _, _, hvac_produced_discrete, actual_state_discrete, diag_discrete = await self.hass.async_add_executor_job(
+        sim_temps_discrete, _, hvac_produced_discrete, actual_state_discrete, diag_discrete = await self.hass.async_add_executor_job(
             partial(run_model_discrete, params, 
                 t_out_list=measurements.t_out.tolist(), 
                 solar_kw_list=measurements.solar_kw.tolist(),
@@ -537,6 +538,27 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             baseline_kwh=base_step,
         )
 
+        # D. Off Recommendation: Combine boundary-based True-Off with simulation-based idle detection
+        # --------------------------------------------------------------------------------
+        model_timestep = max(1, self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP))
+        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
+        steps_per_block = max(1, int(round(control_timestep / model_timestep)))
+        
+        simulated_idle = detect_idle_blocks(
+            actual_state=np.array(actual_state_discrete),
+            sim_temps=np.array(sim_temps_discrete),
+            intent=effective_hvac_state,
+            setpoints=measurements.setpoint,
+            swing=float(swing),
+            steps_per_block=steps_per_block,
+            margin=DEFAULT_IDLE_MARGIN
+        )
+        
+        # Combined signal: True-Off (boundary) OR simulated idle
+        # Ensure effective_hvac_state is numpy array for proper boolean operations
+        effective_hvac_state = np.asarray(effective_hvac_state)
+        off_recommended = (effective_hvac_state == 0) | simulated_idle
+
         # 8. Return Result
         return self._build_coordinator_data(
             timestamps, sim_temps, measurements, optimized_setpoint_attr if has_optimized_data else None,
@@ -548,7 +570,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             },
             original_schedule=setpoint_arr,
             energy_kwh_steps=energy_kwh_steps,
-            off_recommended_list=(effective_hvac_state == 0).tolist()
+            off_recommended_list=off_recommended.tolist()
         )
 
     def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, metrics=None, original_schedule=None, energy_kwh_steps=None, off_recommended_list=None):

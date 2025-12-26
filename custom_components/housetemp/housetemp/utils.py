@@ -214,3 +214,83 @@ def get_effective_hvac_state(hvac_state_arr, setpoint_arr, min_setpoint, max_set
     states[off_heat | off_cool] = 0
     
     return states
+
+
+def detect_idle_blocks(
+    actual_state: np.ndarray,
+    sim_temps: np.ndarray,
+    intent: np.ndarray,
+    setpoints: np.ndarray,
+    swing: float,
+    steps_per_block: int,
+    margin: float = 0.5,
+) -> np.ndarray:
+    """
+    Detect control blocks where discrete simulation shows no HVAC activity AND
+    temperature had sufficient margin from the ON threshold.
+    
+    This mitigates initial-state bias: we only trust "idle" predictions when
+    the temperature was far enough from the ON threshold that the system
+    wouldn't have turned ON regardless of starting state.
+    
+    Args:
+        actual_state: Thermostat state array from run_model_discrete (0/1/-1).
+        sim_temps: Simulated temperatures from the SAME run_model_discrete call.
+        intent: Effective HVAC state used as input to run_model_discrete.
+        setpoints: Setpoint array used in simulation (MUST match discrete run input).
+        swing: Hysteresis half-band (swing_temp parameter).
+        steps_per_block: Number of model timesteps per control block.
+        margin: Additional margin above ON-threshold required for reliable idle (°F).
+    
+    Returns:
+        Boolean array (same length as actual_state) where True indicates
+        the containing block was reliably idle (safe to recommend OFF).
+    """
+    # Type safety: ensure numpy arrays for vectorized operations
+    actual_state = np.asarray(actual_state)
+    sim_temps = np.asarray(sim_temps)
+    intent = np.asarray(intent)
+    setpoints = np.asarray(setpoints)
+    
+    n = len(actual_state)
+    result = np.zeros(n, dtype=bool)
+    
+    for block_start in range(0, n, steps_per_block):
+        block_end = min(block_start + steps_per_block, n)
+        
+        block_states = actual_state[block_start:block_end]
+        block_temps = sim_temps[block_start:block_end]
+        block_sp = setpoints[block_start:block_end]
+        block_intent = intent[block_start:block_end]
+        
+        # Condition A: Thermostat never ran (all states are 0)
+        if not np.all(block_states == 0):
+            continue
+        
+        # Condition B: Was actually enabled at some point (otherwise it's already True-Off)
+        nonzero_intent = block_intent[block_intent != 0]
+        if len(nonzero_intent) == 0:
+            continue
+        
+        # Condition C: No mixed-sign intent (heat/cool switch in same block)
+        # If mixed signs, be conservative and don't recommend OFF
+        signs = np.sign(nonzero_intent)
+        if not np.all(signs == signs[0]):
+            continue
+        
+        # Mode from first nonzero intent
+        mode = int(signs[0])
+        
+        # Margin check: temp must have stayed away from ON threshold
+        if mode > 0:  # Heating: ON when T < (setpoint - swing)
+            safe_floor = (block_sp - swing) + margin
+            margin_ok = np.all(block_temps >= safe_floor)
+        else:  # Cooling: ON when T > (setpoint + swing)
+            safe_ceiling = (block_sp + swing) - margin
+            margin_ok = np.all(block_temps <= safe_ceiling)
+        
+        if margin_ok:
+            result[block_start:block_end] = True
+    
+    return result
+
