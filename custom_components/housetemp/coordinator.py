@@ -567,10 +567,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 "discrete_diagnostics": diagnostics
             },
             original_schedule=setpoint_arr,
-            energy_kwh_steps=energy_kwh_steps
+            energy_kwh_steps=energy_kwh_steps,
+            off_recommended_list=(effective_hvac_state == 0).tolist()
         )
 
-    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, metrics=None, original_schedule=None, energy_kwh_steps=None):
+    def _build_coordinator_data(self, timestamps, sim_temps, measurements, optimized_setpoints=None, metrics=None, original_schedule=None, energy_kwh_steps=None, off_recommended_list=None):
         """Build the coordinator data dict from simulation results."""
         if metrics is None: metrics = {}
         
@@ -614,9 +615,16 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # Include current optimization status in data for sensor attributes
         if self._optimization_status:
-            result["optimization_status"] = self._optimization_status
+            # Inject dynamic off_recommended list into status
+            opt_status = self._optimization_status.copy()
+            if off_recommended_list is not None:
+                opt_status["off_recommended"] = off_recommended_list
+            result["optimization_status"] = opt_status
         
         return result
+
+
+
 
     async def _record_stats(
         self,
@@ -756,7 +764,32 @@ class HouseTempCoordinator(DataUpdateCoordinator):
                 optimized_setpoints, meta = optimization_result
                 if self.data is None:
                     self.data = {}
-                self.data["optimization_status"] = meta
+                
+                # --- Immediate Derivation of "True Off" Signal ---
+                # We must derive this NOW so the sensor updates immediately with the correct signal.
+                # Reusing logic from _async_update_data / utils.py
+                from .housetemp.utils import get_effective_hvac_state
+                min_sp = comfort_config.get("min_setpoint", DEFAULT_MIN_SETPOINT)
+                max_sp = comfort_config.get("max_setpoint", DEFAULT_MAX_SETPOINT)
+                
+                derived_effective_hvac = get_effective_hvac_state(
+                    measurements.hvac_state, # Use the vector we just used for optimization
+                    optimized_setpoints,     # The new setpoints
+                    min_sp,
+                    max_sp,
+                    DEFAULT_OFF_INTENT_EPS
+                )
+                off_recommended_list = (derived_effective_hvac == 0).tolist()
+                
+                # Update Meta for immediate Return & Display
+                # We want the user/UI to see this "Off" signal immediately.
+                meta_for_display = meta.copy()
+                meta_for_display["off_recommended"] = off_recommended_list
+                self.data["optimization_status"] = meta_for_display
+                
+                # Persistence: Store clean status (without large list)
+                # Derived again on next update.
+                self._optimization_status = meta.copy() # Meta itself is clean now (removed from optimize.py)
                 
                 # Check for Failure (Strict Mode)
                 if optimized_setpoints is None:

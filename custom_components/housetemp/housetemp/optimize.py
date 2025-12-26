@@ -793,15 +793,6 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
             f"Consider adjusting timestep for even division."
         )
     
-    off_per_step = np.array([is_off_intent(int(sp), int(min_setpoint), int(max_setpoint), hvac_mode_val) 
-                              for sp in final_setpoints])
-    
-    off_blocks_decisions = [all(off_per_step[i:i+steps_per_block]) 
-                            for i in range(0, len(off_per_step), steps_per_block)]
-    
-    # Broadcast: last partial block handled by slicing
-    off_recommended = np.repeat(off_blocks_decisions, steps_per_block)[:len(final_setpoints)]
-    
     # Metadata
     debug_info = {
         'success': result.success,
@@ -809,7 +800,6 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
         'cost': float(result.fun),
         'iterations': result.nit,
         'evaluations': result.nfev,
-        'off_recommended': off_recommended.tolist(),
         'verify_energy_kwh': float(verify_energy['kwh']),
         'verify_temps': np.array(verify_temps).tolist(),
         'verify_produced': np.array(verify_produced).tolist(),
