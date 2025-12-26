@@ -423,7 +423,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_CONTROL_TIMESTEP,
                     default=get_opt(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP),
-                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CONTROL_TIMESTEP)),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": 15, "label": "15 minutes"},
+                            {"value": 30, "label": "30 minutes (Default)"},
+                            {"value": 60, "label": "1 hour"},
+                            {"value": 120, "label": "2 hours"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 vol.Required(
                     CONF_ENABLE_MULTISCALE,
                     default=get_opt(CONF_ENABLE_MULTISCALE, DEFAULT_ENABLE_MULTISCALE),

@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_FORECAST_RESAMPLE_MINUTES
 from .coordinator import HouseTempCoordinator
 from .statistics import StatsStore, StatsCalculator
 
@@ -143,13 +143,16 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         from homeassistant.util import dt as dt_util
         from datetime import timedelta
 
-        # Resample to 15-minute intervals
-        # Find start time rounded to nearest 15 min
+        # Resample to forecast intervals (default 15m, or matching model resolution if higher)
+        model_timestep = self._entry.options.get("model_timestep", 5)
+        resample_min = max(DEFAULT_FORECAST_RESAMPLE_MINUTES, model_timestep)
+        
+        # Find start time rounded to nearest resample_min
         start_dt = timestamps[0]
-        start_minute = (start_dt.minute // 15) * 15
+        start_minute = (start_dt.minute // resample_min) * resample_min
         current_dt = start_dt.replace(minute=start_minute, second=0, microsecond=0)
         if current_dt < start_dt:
-            current_dt += timedelta(minutes=15)
+            current_dt += timedelta(minutes=resample_min)
 
         end_dt = timestamps[-1]
         
@@ -172,34 +175,32 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         forecast = []
         n_timestamps = len(timestamps)
         
+        forecast_interval = timedelta(minutes=resample_min)
         while current_dt <= end_dt:
-            # Find nearest data point using binary search
-            idx = bisect.bisect_left(timestamps, current_dt)
+            interval_end = current_dt + forecast_interval
             
-            best_idx = 0
-            if idx == 0:
-                best_idx = 0
-            elif idx >= n_timestamps:
-                best_idx = n_timestamps - 1
-            else:
-                # Check idx-1 and idx to see which is closer
-                dist_left = abs((timestamps[idx-1] - current_dt).total_seconds())
-                dist_right = abs((timestamps[idx] - current_dt).total_seconds())
-                if dist_left < dist_right:
-                    best_idx = idx - 1
-                else:
-                    best_idx = idx
+            # Find range of indices in timestamps for this 15-min block
+            idx_start = bisect.bisect_left(timestamps, current_dt)
+            idx_end = bisect.bisect_left(timestamps, interval_end)
+            
+            # Resample non-accumulative values (Temp, Target) using nearest-point at the start
+            best_idx = idx_start if idx_start < n_timestamps else n_timestamps - 1
+            
+            # SUM accumulative values (Energy) across the interval
+            energy_val = 0.0
+            energy_steps = data.get("energy_kwh_steps")
+            if energy_steps is not None:
+                block_steps = energy_steps[idx_start:idx_end]
+                if len(block_steps) > 0:
+                    energy_val = sum(float(k) for k in block_steps if k is not None)
             
             local_dt = dt_util.as_local(current_dt)
-            # Get energy for this point
-            energy_steps = data.get("energy_kwh_steps")
-            energy_val = float(energy_steps[best_idx]) if energy_steps is not None and best_idx < len(energy_steps) else None
-
+            
             item = {
                 "datetime": local_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                 "temperature": float(round(temps[best_idx], 1)) if best_idx < len(temps) else None,
                 "target_temp": float(setpoints[best_idx]) if best_idx < len(setpoints) else None,
-                "energy_kwh": round(energy_val, 3) if energy_val is not None else None,
+                "energy_kwh": round(energy_val, 3) if energy_val is not None else 0.0,
             }
             
             # Check if this specific point is within the generic "Away" window
