@@ -250,6 +250,10 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         kwh = data.get("energy_kwh")
         opt_kwh = data.get("optimized_energy_kwh")
         
+        # Add HVAC Mode
+        from .const import CONF_HVAC_MODE
+        to_return["hvac_mode"] = self.coordinator.config_entry.options.get(CONF_HVAC_MODE, "heat")
+        
         if kwh is not None:
             f_kwh = float(kwh)
             if math.isfinite(f_kwh):
