@@ -21,6 +21,7 @@ DEFAULT_OFF_INTENT_EPS = 0.1  # Setpoint tolerance for "True Off" in get_effecti
 DEFAULT_MIN_SETPOINT = 60.0   # Lower bound for setpoint optimization
 DEFAULT_MAX_SETPOINT = 75.0   # Upper bound for setpoint optimization
 DEFAULT_IDLE_MARGIN = 0.5     # Margin above ON-threshold for reliable idle detection (°F)
+DEFAULT_FORECAST_RESAMPLE_MINUTES = 15 # Minutes for resampling forecast points in HASS UI
 
 # Optimizer Snapping (True Off Redesign)
 W_BOUNDARY_PULL_HEAT = 0.05    # Tie-break weight for heating

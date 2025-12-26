@@ -246,6 +246,9 @@ def detect_idle_blocks(
         Boolean array (same length as actual_state) where True indicates
         the containing block was reliably idle (safe to recommend OFF).
     """
+    import logging
+    _LOGGER = logging.getLogger(__name__)
+    
     # Type safety: ensure numpy arrays for vectorized operations
     actual_state = np.asarray(actual_state)
     sim_temps = np.asarray(sim_temps)
@@ -293,4 +296,5 @@ def detect_idle_blocks(
             result[block_start:block_end] = True
     
     return result
+
 
