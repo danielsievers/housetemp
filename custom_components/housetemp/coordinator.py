@@ -383,7 +383,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         # Recompute effective HVAC state for True-Off gating (optimized intent)
         # This ensures proper idle/blower accounting
-        from .housetemp.utils import get_effective_hvac_state
         min_sp = self.config_entry.options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)
         max_sp = self.config_entry.options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)
         effective_hvac_state = get_effective_hvac_state(
@@ -489,29 +488,21 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Diagnostics from Discrete Optimized
         diagnostics = diag_discrete
         
-        # C. Naive Baselines (Continuous & Discrete)
+        # C. Discrete Naive Baseline
         # --------------------------------------------------------------------------------
-        energy_kwh_continuous_naive = None
+        # Use original schedule setpoints for naive simulation (without mutating measurements.setpoint)
+        original_schedule_setpoints = np.array(setpoint_arr, dtype=float)
         energy_kwh_discrete_naive = None
+        energy_kwh_naive_steps = None
         
         if has_optimized_data:
-            # Revert to Schedule
-            optimized_setpoint_array = measurements.setpoint
-            measurements.setpoint = np.array(setpoint_arr)
-
-            
-            # C1. Continuous Naive - SKIPPED (Redundant)
-            # We don't need continuous naive for any UI graph, only discrete naive for energy savings.
-            energy_kwh_continuous_naive = None
-            energy_kwh_naive_steps = None
-            
-            # C2. Discrete Naive
-            _, _, hvac_produced_naive_disc, actual_state_naive_disc, _ = await self.hass.async_add_executor_job(
+            # Simulate with original schedule setpoints (naive baseline)
+            _, _, hvac_produced_naive_disc, _, _ = await self.hass.async_add_executor_job(
                 partial(run_model_discrete, params, 
                     t_out_list=measurements.t_out.tolist(), 
                     solar_kw_list=measurements.solar_kw.tolist(),
                     dt_hours_list=measurements.dt_hours.tolist(), 
-                    setpoint_list=measurements.setpoint.tolist(), 
+                    setpoint_list=original_schedule_setpoints.tolist(),  # Use original schedule
                     hvac_state_list=measurements.hvac_state.tolist(),
                     max_caps_list=self.heat_pump.get_max_capacity(measurements.t_out).tolist(), 
                     min_output=self.heat_pump.min_output_btu_hr, 
@@ -528,21 +519,10 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             )
             energy_kwh_discrete_naive = eng_discrete_naive_res['kwh']
             energy_kwh_naive_steps = eng_discrete_naive_res.get('kwh_steps')
-            
-            # Restore Optimized
-            measurements.setpoint = optimized_setpoint_array
-        
         else:
-            # We are currently Naive. Optimized = Naive.
-            energy_kwh_continuous_naive = energy_kwh_continuous_optimized
+            # No optimization data: Optimized = Naive (savings = 0)
             energy_kwh_discrete_naive = energy_kwh_discrete_optimized
             energy_kwh_naive_steps = energy_kwh_steps
-            
-            # If we are naive, we set optimized to None? Or keep them equal?
-            # Standard pattern: optimized_energy_kwh is the "Active Plan" energy.
-            # naive_energy_kwh is the "Baseline" energy.
-            # If they are equal, savings = 0.
-            pass
 
         # --- Statistics Recording ---
         # Use explicit None check for numpy arrays to avoid truth value ambiguity
@@ -561,7 +541,6 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         return self._build_coordinator_data(
             timestamps, sim_temps, measurements, optimized_setpoint_attr if has_optimized_data else None,
             metrics={
-                "continuous_naive": energy_kwh_continuous_naive,
                 "continuous_optimized": energy_kwh_continuous_optimized,
                 "discrete_naive": energy_kwh_discrete_naive,
                 "discrete_optimized": energy_kwh_discrete_optimized,
@@ -590,9 +569,8 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             "energy_kwh": metrics.get("discrete_naive"),
             "optimized_energy_kwh": metrics.get("discrete_optimized"),
             "energy_kwh_steps": energy_kwh_steps,  # Per-step energy for sensor hourly aggregation
-            # NEW: Detailed Metrics
+            # Detailed Metrics for debugging/transparency
             "energy_metrics": {
-                "continuous_naive": metrics.get("continuous_naive"),
                 "continuous_optimized": metrics.get("continuous_optimized"),
                 "discrete_naive": metrics.get("discrete_naive"),
                 "discrete_optimized": metrics.get("discrete_optimized"),
@@ -711,28 +689,13 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Target Temps (Schedule)
         target_temps = measurements.setpoint.copy()
         
-        # -- Baseline Energy Calculation (Before Optimization) --
-        # We need to compute energy using the schedule (measurements.setpoint)
-        # Note: estimate_consumption might mutate measurements? It shouldn't, but let's be safe.
-        # It calls run_model, which doesn't mutate.
-        baseline_kwh = 0.0
-        
         # Get True-Off config for consistent energy accounting
         options = self.config_entry.options
         hvac_mode = options.get(CONF_HVAC_MODE, "heat")
         hvac_mode_val_baseline = 1 if hvac_mode == "heat" else -1
         min_setpoint_val = float(options.get(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT))
         max_setpoint_val = float(options.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT))
-        
-        try:
-             # SKIPPING Continuous Baseline (Redundant)
-             # We use Discrete Naive for final reporting.
-             baseline_kwh = None
-             
-        except Exception as e:
-             _LOGGER.warning("Failed to estimate baseline energy: %s", e)
-             
-        # Use configured preference (Default 1.0)
+              
         # Build comfort_config from options
         options = self.config_entry.options
         comfort_config = {
@@ -860,12 +823,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             
             hvac_mode_val_svc = 1 if self.config_entry.options.get(CONF_HVAC_MODE, "heat") == "heat" else -1
 
-            # 1. Continuous Optimized (Removed - Redundant)
-            # We strictly use Discrete for reporting now.
-            optimized_kwh = None # Placeholder for metrics dict
-            
-            
-            # 2. Discrete Optimized (Verification Run)
+            # Discrete Optimized (Verification Run)
             swing = self.config_entry.options.get(CONF_SWING_TEMP, DEFAULT_SWING_TEMP)
             min_cycle = self.config_entry.options.get(CONF_MIN_CYCLE_DURATION, DEFAULT_MIN_CYCLE_MINUTES)
             
@@ -940,8 +898,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             discrete_naive_kwh = disc_naive_res['kwh']
             
             metrics = {
-                "continuous_naive": baseline_kwh, # From earlier simulation
-                "continuous_optimized": optimized_kwh,
+                "continuous_optimized": None,  # Not computed in service path
                 "discrete_naive": discrete_naive_kwh,
                 "discrete_optimized": optimized_kwh_discrete,
                 "discrete_diagnostics": diag_disc_svc
