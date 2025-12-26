@@ -226,6 +226,21 @@ When True Off is detected:
 
 This prevents phantom energy costs from appearing when the optimizer legitimately chooses to keep the HVAC off.
 
+### 9.3 Idle Energy Masking (Fix A/C)
+For the discrete verification path, even if the model predicts the thermostat will remain idle, the heat pump still consumes **Idle Power** ($P_{idle}$) if it remains "Enabled."
+
+To provide a more accurate forecast of achievable savings, the system applies **Idle Energy Masking** using a block-level safety check:
+
+1.  **Block-Level Detection**: The simulation is divided into control blocks (e.g., 60 minutes).
+2.  **Idle Confirmation**: A block is eligible for masking only if:
+    *   The thermostat never fired (Actual State = 0 for all steps).
+    *   The user intent was not already True-Off (System was enabled).
+    *   No mixed-sign intent (heat/cool switch) in the same block.
+3.  **Safety Margin Check**: To account for real-world uncertainty, masking is only allowed if the simulated temperature stayed at least **$0.5°F$** (margin) away from the activation threshold ($T_{set} \pm \text{swing}$).
+4.  **Zeroing**: If all conditions are met, the energy steps for that block are zeroed out ($E \leftarrow 0$), reflecting the savings achievable if the user turns the system fully OFF.
+
+This logic ensures that "Impossible Energy" (e.g., 0.25 kWh in a perfectly idle hour) is removed from the report only when it is safe for the user to act upon.
+
 
 ## 10. Energy Metrics
 The system reports four energy metrics for full transparency:

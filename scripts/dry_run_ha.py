@@ -472,11 +472,27 @@ async def main():
             else:
                 print("Sensor Forecast: MISSING")
                 
+            if "energy_per_hour" in attrs:
+                eph = attrs["energy_per_hour"]
+                print(f"\n--- Hourly Energy Samples (Full List) ---")
+                for item in eph:
+                    print(f"  {item['datetime']}: {item['kwh']:.3f} kWh")
+                
+                # Check for messy numbers
+                messy_indices = [i for i, item in enumerate(eph) if 0.0 < item['kwh'] < 0.25]
+                if messy_indices:
+                    print(f"  WARNING: Found partial values at indices: {messy_indices}")
+                else:
+                    print(f"  SUCCESS: All hourly values are clean.")
+
+            if "forecast" in attrs:
+                print(f"\n--- Forecast Energy Summing Check (Next 3 points) ---")
+                for item in attrs["forecast"][:3]:
+                    print(f"  {item['datetime']}: {item['energy_kwh']:.3f} kWh (Resampled 15-min)")
+            
             if "energy_metrics" in attrs:
                 em = attrs["energy_metrics"]
-                print("\n--- DETAILED ENERGY METRICS (Dual Model) ---")
-                print(f"Continuous Naive:      {em.get('continuous_naive')}")
-                print(f"Continuous Optimized:  {em.get('continuous_optimized')}")
+                print("\n--- DETAILED ENERGY METRICS ---")
                 print(f"Discrete Naive:        {em.get('discrete_naive')}")
                 print(f"Discrete Optimized:    {em.get('discrete_optimized')}")
                 
@@ -484,9 +500,6 @@ async def main():
                     dd = em.get('discrete_diagnostics')
                     print(f"\n--- Discrete Diagnostics (Optimized) ---")
                     print(f"Cycles: {dd.get('cycle_count')} | Active: {dd.get('active_minutes')}m | Off: {dd.get('off_minutes')}m")
-            else:
-                print("Energy Metrics: MISSING")
-
         else:
              logging.error("Coordinator Data is None or Forecast Missing!")
             

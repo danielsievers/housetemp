@@ -1112,7 +1112,13 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # 5. Prepare Simulation Data using Shared Handler
         now = dt_util.now()
-        start_time = now
+        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
+        
+        # Floor start time to the nearest control block boundary (e.g., to the hour or 30-min mark)
+        # This ensures all simulation steps align perfectly with clock-hour energy reporting.
+        start_minute = (now.minute // control_timestep) * control_timestep
+        start_time = now.replace(minute=start_minute, second=0, microsecond=0)
+        
         model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
         
         timestamps, t_out_arr, solar_arr, dt_values = await self.input_handler.prepare_simulation_data(
