@@ -160,10 +160,24 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._data.update(user_input)
             
+            # Generate Unique ID and Title
+            sensor_entity = user_input[CONF_SENSOR_INDOOR_TEMP]
+            await self.async_set_unique_id(sensor_entity)
+            self._abort_if_unique_id_configured()
+            
+            # Dynamic Title: "SmartAss Thermostat (Friendly Name)"
+            # Get the friendly name from the state machine
+            friendly_name = sensor_entity
+            state = self.hass.states.get(sensor_entity)
+            if state and state.name:
+                friendly_name = state.name
+                
+            title = f"SmartAss Thermostat ({friendly_name})"
+            
             # DIRECT CREATION: Skip Model Settings Step
             # Heat pump config is now options-only (defaults used until configured)
             return self.async_create_entry(
-                title="House Temp Prediction", 
+                title=title, 
                 data=self._data,
                 # Initialize options as empty (Coordinator will use defaults)
                 options={} 

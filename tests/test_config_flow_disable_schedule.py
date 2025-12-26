@@ -12,6 +12,20 @@ from custom_components.housetemp.const import (
     CONF_HEAT_PUMP_CONFIG,
     DEFAULT_SCHEDULE_ENABLED,
     DEFAULT_HEAT_PUMP_CONFIG,
+    CONF_HVAC_MODE,
+    CONF_AVOID_DEFROST,
+    CONF_COMFORT_MODE,
+    CONF_DEADBAND_SLACK,
+    CONF_SWING_TEMP,
+    CONF_MIN_CYCLE_DURATION,
+    CONF_UA,
+    CONF_C_THERMAL,
+    CONF_K_SOLAR,
+    CONF_Q_INT,
+    CONF_H_FACTOR,
+    CONF_CENTER_PREFERENCE,
+    CONF_FORECAST_DURATION,
+    CONF_UPDATE_INTERVAL,
 )
 from custom_components.housetemp.config_flow import ConfigFlow
 
@@ -48,12 +62,32 @@ async def test_options_flow_disable_schedule(hass: HomeAssistant):
     
     # 1. Test Submitting DISABLED schedule with INVALID JSON
     # This should pass because validation is skipped
-    user_input = {
+    # 1. Test Submitting DISABLED schedule
+    # Step 1: Init (Schedule, Comfort, Mode)
+    user_input_step1 = {
         CONF_SCHEDULE_ENABLED: False,
-        CONF_SCHEDULE_CONFIG: "INVALID JSON []",
-        # Add other required fields with defaults
-        "hvac_mode": "heat",
-        "avoid_defrost": True,
+        CONF_SCHEDULE_CONFIG: "INVALID JSON []", # Should pass if disabled
+        CONF_HVAC_MODE: "heat",
+        CONF_AVOID_DEFROST: True,
+        # Comfort params required in Step 1
+        CONF_COMFORT_MODE: "quadratic", 
+        CONF_DEADBAND_SLACK: 0.5,
+        CONF_SWING_TEMP: 1.0, 
+        CONF_MIN_CYCLE_DURATION: 5
+    }
+    
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input=user_input_step1,
+    )
+    
+    # Assert transition to Step 2
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "model_params"
+    
+    # Step 2: Model Params
+    user_input_step2 = {
+        CONF_HEAT_PUMP_CONFIG: DEFAULT_HEAT_PUMP_CONFIG,
         "ua": 750.0,
         "c_thermal": 10000.0,
         "k_solar": 3000.0,
@@ -61,12 +95,15 @@ async def test_options_flow_disable_schedule(hass: HomeAssistant):
         "h_factor": 5000.0,
         "center_preference": 1.0,
         "forecast_duration": 8,
-        "update_interval": 15
+        "update_interval": 15,
+        "model_timestep": 5,           
+        "control_timestep": 30,        
+        "enable_multiscale": False,    
     }
     
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        user_input=user_input,
+        user_input=user_input_step2,
     )
     
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
@@ -98,22 +135,17 @@ async def test_options_flow_enable_schedule_validation(hass: HomeAssistant):
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
     
     # 2. Test Submitting ENABLED schedule with INVALID JSON
-    # This should FAIL
+    # This should FAIL in Step 1
     user_input = {
         CONF_SCHEDULE_ENABLED: True,
         CONF_SCHEDULE_CONFIG: "INVALID JSON",
-        CONF_HEAT_PUMP_CONFIG: DEFAULT_HEAT_PUMP_CONFIG,
-        # Add other required fields
-        "hvac_mode": "heat",
-        "avoid_defrost": True,
-        "ua": 750.0,
-        "c_thermal": 10000.0,
-        "k_solar": 3000.0,
-        "q_int": 2000.0,
-        "h_factor": 5000.0,
-        "center_preference": 1.0,
-        "forecast_duration": 8,
-        "update_interval": 15
+        # Only Step 1 fields allowed
+        CONF_HVAC_MODE: "heat",
+        CONF_AVOID_DEFROST: True,
+        CONF_COMFORT_MODE: "quadratic",
+        CONF_DEADBAND_SLACK: 0.5,
+        CONF_SWING_TEMP: 1.0, 
+        CONF_MIN_CYCLE_DURATION: 5
     }
     
     result = await hass.config_entries.options.async_configure(

@@ -72,8 +72,15 @@ async def test_options_flow_migration_fallback(hass: HomeAssistant):
 
     # 3. Init Options Flow
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["step_id"] == "init"
     
-    assert result["type"] == FlowResultType.FORM
+    # Advance to Step 2 (Model Params) where UA is defined
+    # We pass empty input to use defaults for Step 1
+    result = await hass.config_entries.options.async_configure(
+         result["flow_id"], user_input={}
+    )
+    assert result["step_id"] == "model_params"
+    
     schema = result["data_schema"]
     
     # 3. Verify defaults are pulled from data

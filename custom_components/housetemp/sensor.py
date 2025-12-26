@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature, UnitOfEnergy, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -45,7 +46,7 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
     """Representation of a House Temp Prediction Sensor."""
 
     _attr_has_entity_name = True
-    _attr_name = "Indoor Temperature Forecast"
+    _attr_name = None # Inherit Device Name (e.g. "SmartAss Thermostat (Bedroom)")
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -54,7 +55,20 @@ class HouseTempPredictionSensor(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._entry = entry
-        self._attr_unique_id = f"{entry.entry_id}_prediction"
+        # Use persistent unique_id if available, else fallback to entry_id (legacy)
+        base_id = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{base_id}_prediction"
+        
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information about this entity."""
+        base_id = self._entry.unique_id or self._entry.entry_id
+        return DeviceInfo(
+            identifiers={(DOMAIN, base_id)},
+            name=self._entry.title,
+            manufacturer="Daniel Sievers",
+            model="SmartAss Thermostat",
+        )
 
     @property
     def native_value(self):
@@ -314,7 +328,19 @@ class HouseTempAccuracySensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._stats_store = stats_store
-        self._attr_unique_id = f"{entry.entry_id}_accuracy"
+        base_id = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{base_id}_accuracy"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information about this entity."""
+        base_id = self._entry.unique_id or self._entry.entry_id
+        return DeviceInfo(
+            identifiers={(DOMAIN, base_id)},
+            name=self._entry.title,
+            manufacturer="Daniel Sievers",
+            model="SmartAss Thermostat",
+        )
 
     @property
     def native_value(self):
@@ -375,7 +401,19 @@ class HouseTempComfortSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._stats_store = stats_store
-        self._attr_unique_id = f"{entry.entry_id}_comfort"
+        base_id = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{base_id}_comfort"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information about this entity."""
+        base_id = self._entry.unique_id or self._entry.entry_id
+        return DeviceInfo(
+            identifiers={(DOMAIN, base_id)},
+            name=self._entry.title,
+            manufacturer="Daniel Sievers",
+            model="SmartAss Thermostat",
+        )
 
     @property
     def native_value(self):
@@ -436,7 +474,19 @@ class HouseTempEnergySensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._stats_store = stats_store
-        self._attr_unique_id = f"{entry.entry_id}_energy_stats"
+        base_id = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{base_id}_energy_stats"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information about this entity."""
+        base_id = self._entry.unique_id or self._entry.entry_id
+        return DeviceInfo(
+            identifiers={(DOMAIN, base_id)},
+            name=self._entry.title,
+            manufacturer="Daniel Sievers",
+            model="SmartAss Thermostat",
+        )
 
     @property
     def native_value(self):

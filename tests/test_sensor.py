@@ -51,7 +51,9 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         CONF_UPDATE_INTERVAL: 15,
     }
     
-    entry = MockConfigEntry(domain=DOMAIN, data=config_data, options=config_options)
+    
+    # Set title to simulate real setup
+    entry = MockConfigEntry(domain=DOMAIN, title="SmartAss Thermostat", data=config_data, options=config_options)
     entry.add_to_hass(hass)
 
     # 2. Mock Dependencies
@@ -91,13 +93,15 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         mock_hp_cls.return_value = mock_hp_instance
         
         # 3. Setup Integration
-        await hass.config_entries.async_setup(entry.entry_id)
+        assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
         # 4. Verify Sensor State
-        state = hass.states.get("sensor.indoor_temperature_forecast")
+        # Logic Change: Name is now derived from Device. 
+        # With Title="SmartAss Thermostat", main entity is `sensor.smartass_thermostat`.
+        state = hass.states.get("sensor.smartass_thermostat")
         if state is None:
-             # print("Available entities:", [s.entity_id for s in hass.states.async_all()])
+             print("Available entities:", [s.entity_id for s in hass.states.async_all()])
              pass
         assert state is not None
         # Now returns current target temp (70.0 from schedule), not predicted (72.5)

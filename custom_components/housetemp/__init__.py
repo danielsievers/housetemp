@@ -495,7 +495,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = HouseTempCoordinator(hass, entry)
     
     # Initialize StatsStore for this entry
-    stats_store = StatsStore(hass, entry.entry_id)
+    stats_store = StatsStore(hass, entry.entry_id, unique_id=entry.unique_id)
     await stats_store.async_load()
     
     # 1. Setup reactive trackers so we catch any state changes during/after setup

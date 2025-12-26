@@ -124,10 +124,14 @@ class LifetimeEnergyStats:
 class StatsStore:
     """Persistent storage for statistics using HA Store helper."""
     
-    def __init__(self, hass: HomeAssistant, entry_id: str):
+    def __init__(self, hass: HomeAssistant, entry_id: str, unique_id: str | None = None):
         self.hass = hass
         self.entry_id = entry_id
-        self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
+        self.unique_id = unique_id
+        
+        # Prefer unique_id for persistent storage, fallback to entry_id (legacy)
+        storage_key = f"{STORAGE_KEY}_{unique_id}" if unique_id else f"{STORAGE_KEY}_{entry_id}"
+        self._store = Store(hass, STORAGE_VERSION, storage_key)
         
         # In-memory state
         self.predictions: list[PredictionRecord] = []

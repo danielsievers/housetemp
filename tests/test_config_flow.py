@@ -44,14 +44,18 @@ async def test_flow_full_path(hass: HomeAssistant):
     }
     
     # 2. Advance to Settings -> DIRECT CREATION (Refactored)
+    # We must patch async_set_unique_id since this is now called
+    # Also patch state retrieval for Friendly Name logic if we want to test that specific path
     with patch("custom_components.housetemp.async_setup_entry", return_value=True) as mock_setup:
+        # Just use defaults behavior (no custom state name) -> "SmartAss Thermostat (sensor.indoor)"
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], user_input=user_input
         )
     
     # Assert DIRECT Entry Creation
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["title"] == "House Temp Prediction"
+    # We expect title to reflect the key
+    assert result["title"] == "SmartAss Thermostat (sensor.indoor)"
     
     # Verify Split Storage: Data has Identity, Options is Empty
     assert result["data"][CONF_SENSOR_INDOOR_TEMP] == "sensor.indoor"
