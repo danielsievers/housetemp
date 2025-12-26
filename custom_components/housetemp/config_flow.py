@@ -188,7 +188,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
 
     async def async_step_init(self, user_input=None):
-        """Manage the options - main menu."""
+        """Step 1: General Settings (Schedule, Comfort, Mode)."""
         errors = {} 
 
         if user_input is not None:
@@ -204,18 +204,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors[CONF_SCHEDULE_CONFIG] = "invalid_json"
                     _LOGGER.warning("Invalid schedule configuration: %s", e)
             
-            # Validate Heat Pump JSON (always)
-            hp_config = user_input.get(CONF_HEAT_PUMP_CONFIG)
-            if hp_config:
-                try:
-                    json.loads(hp_config)
-                except ValueError as e:
-                    errors[CONF_HEAT_PUMP_CONFIG] = "invalid_json"
-                    _LOGGER.warning("Invalid heat pump configuration: %s", e)
-            
-            # Only create entry if no errors
+            # Only proceed if no errors
             if not errors:
-                return self.async_create_entry(title="", data=user_input)
+                self.step1_data = user_input
+                return await self.async_step_model_params()
         
         # Get current values from OPTIONS (tunable)
         # Fallback to DATA only if migrating (optional, but good for safety)
@@ -226,7 +218,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         def get_opt(key, default_val):
             return opts.get(key, data.get(key, default_val))
         
-        # Re-create schema with current values as defaults
+        # Step 1 Schema: General & Comfort
         schema = vol.Schema(
             {
                 vol.Required(
@@ -273,13 +265,92 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=60, step=1, unit_of_measurement="min")
                 ),
+            }
+        )
+
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+
+    async def async_step_model_params(self, user_input=None):
+        """Step 2: Model & Physics (with Dynamic Setpoint Capping)."""
+        errors = {}
+
+        if user_input is not None:
+            # Validate Heat Pump JSON
+            hp_config = user_input.get(CONF_HEAT_PUMP_CONFIG)
+            if hp_config:
+                try:
+                    json.loads(hp_config)
+                except ValueError as e:
+                    errors[CONF_HEAT_PUMP_CONFIG] = "invalid_json"
+                    _LOGGER.warning("Invalid heat pump configuration: %s", e)
+            
+            if not errors:
+                # Merge Step 1 and Step 2 data
+                final_options = {**self.step1_data, **user_input}
+                return self.async_create_entry(title="", data=final_options)
+
+        # Get existing values
+        opts = self.config_entry.options
+        data = self.config_entry.data
+        def get_opt(key, default_val):
+            return opts.get(key, data.get(key, default_val))
+
+        # --- Dynamic Default Logic ---
+        # 1. Get Limits from CURRENT config (or static default) as fallback
+        current_min = get_opt(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT)
+        current_max = get_opt(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)
+        
+        default_min_sp = current_min
+        default_max_sp = current_max
+
+        # 2. Try to calculate "Smart Caps" from Step 1 Schedule
+        try:
+            # Get data from Step 1
+            if hasattr(self, "step1_data"):
+                schedule_enabled = self.step1_data.get(CONF_SCHEDULE_ENABLED, True)
+                schedule_json = self.step1_data.get(CONF_SCHEDULE_CONFIG, "")
+                hvac_mode = self.step1_data.get(CONF_HVAC_MODE, "heat")
+                slack = self.step1_data.get(CONF_DEADBAND_SLACK, DEFAULT_DEADBAND_SLACK)
+                
+                if schedule_enabled and schedule_json:
+                    schedule_data = json.loads(schedule_json)
+                    # Extract all temps
+                    all_temps = []
+                    for rule in schedule_data.get("schedule", []):
+                        for item in rule.get("daily_schedule", []):
+                            all_temps.append(float(item["temp"]))
+                    
+                    if all_temps:
+                        min_sched = min(all_temps)
+                        max_sched = max(all_temps)
+                        
+                        # Apply Asymmetric Logic:
+                        # HEATING: Cap Max Setpoint. Min SP is untouched.
+                        if hvac_mode == "heat":
+                            smart_max = max_sched + slack + 2.0
+                            # Propose the tighter constraint
+                            default_max_sp = min(current_max, smart_max)
+                            
+                        # COOLING: Cap Min Setpoint. Max SP is untouched.
+                        elif hvac_mode == "cool":
+                            smart_min = min_sched - slack - 2.0
+                            # Propose the tighter constraint (higher min)
+                            default_min_sp = max(current_min, smart_min)
+
+        except Exception as e:
+            # Robustness: Fallback to existing values if anything fails
+            _LOGGER.warning("Failed to calculate dynamic setpoint defaults: %s", e)
+
+        # Step 2 Schema
+        schema = vol.Schema(
+            {
                 vol.Required(
                     CONF_HEAT_PUMP_CONFIG,
                     default=get_opt(CONF_HEAT_PUMP_CONFIG, DEFAULT_HEAT_PUMP_CONFIG),
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(multiline=True)
                 ),
-                vol.Required(
+                 vol.Required(
                     CONF_UA,
                     default=get_opt(CONF_UA, DEFAULT_UA),
                 ): vol.Coerce(float),
@@ -309,15 +380,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=selector.NumberSelectorMode.SLIDER)
                 ),
+                # Dynamic Defaults applied here
                 vol.Optional(
                     CONF_MIN_SETPOINT,
-                    default=get_opt(CONF_MIN_SETPOINT, DEFAULT_MIN_SETPOINT),
+                    default=default_min_sp, 
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=40, max=80, step=1, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Optional(
                     CONF_MAX_SETPOINT,
-                    default=get_opt(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT),
+                    default=default_max_sp,
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=50, max=95, step=1, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
                 ),
@@ -330,7 +402,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=get_opt(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1)),
                 
-                # Advanced Optimization Toggles (Keep specific optimization flags if they were there)
                 vol.Optional(
                     CONF_MODEL_TIMESTEP,
                     default=get_opt(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP),
@@ -346,4 +417,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="model_params", data_schema=schema, errors=errors)
