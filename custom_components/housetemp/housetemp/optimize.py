@@ -446,12 +446,6 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 hvac_states=effective_hvac_state
             )
             
-            if rate_per_step is not None:
-                kwh_steps = res['kwh_steps']
-                energy_cost = np.sum(kwh_steps * rate_per_step)
-            else:
-                energy_cost = res['kwh']  # Fallback to pure kWh minimization
-            
             load_ratios = res['load_ratios']
             
             # Comfort Cost: Two separate terms (dual-weight approach)
@@ -621,22 +615,53 @@ def optimize_hvac_schedule(data, params, hw, target_temps, comfort_config, block
                 _LOGGER.debug(f"w_idle: min={w_idle.min():.2f}, max={w_idle.max():.2f}, mean={w_idle.mean():.2f}")
                 _LOGGER.debug(f"gap: min={gap.min():.1f}°F, max={gap.max():.1f}°F")
             
-            # Defrost
-            defrost_cost = 0.0
+            # Defrost Energy & Penalty
+            # Calculate defrost profile once (vectorized)
+            defrost_kwh_steps = np.zeros_like(dt_hours_np)
+            defrost_penalty = 0.0
+            
             if hasattr(hw, 'defrost_risk_zone') and hw.defrost_risk_zone is not None:
                 risk_min, risk_max = hw.defrost_risk_zone
                 duration_hr = hw.defrost_duration_min / 60.0
                 interval_hr = hw.defrost_interval_min / 60.0
                 power_kw = hw.defrost_power_kw
+                
+                # Identify risk steps
                 in_frost_zone = (data.t_out >= risk_min) & (data.t_out <= risk_max)
-                runtime_in_zone = np.sum(load_ratios * in_frost_zone * dt_hours_np)
-                expected_cycles = runtime_in_zone / interval_hr
-                defrost_cost_val = expected_cycles * duration_hr * power_kw
+                # Defrost only happens if we are actually heating (load > 0)
+                # (Assuming reverse cycle needed to heat. If idle, coils don't freeze as fast?)
+                # Logic: If unit is running significant load in risk zone.
+                # Use load_ratios > 0 as trigger, or just is_active?
+                # Simple model: if running heat in zone.
+                is_heating_active = (load_ratios > 1e-3) & (hvac_mode_val > 0)
+                
+                # Ratio of time spent in defrost vs heating
+                # If interval=60 and duration=10, we spend 10/60 of time defrosting?
+                # Or adds overhead? Usually overhead.
+                overhead_ratio = duration_hr / interval_hr
+                
+                # Added kWh = Power * dt * ratio * mask
+                defrost_kwh_steps = np.where(in_frost_zone & is_heating_active,
+                                           power_kw * overhead_ratio * dt_hours_np,
+                                           0.0)
+                                           
                 if avoid_defrost:
-                    defrost_cost_val *= 10.0
-                defrost_cost = defrost_cost_val
+                    # Avoidance Penalty: Pure Nuisance (Unitless / Virtual Cost)
+                    # Weighting: 10.0 (Strong signal relative to roughly $0.20-0.50 energy cost)
+                    # We penalize the Defrost kWh magnitude itself as a proxy for 'amount of defrosting'
+                    defrost_penalty = np.sum(defrost_kwh_steps) * 10.0
 
-            return energy_cost + total_penalty + defrost_cost + boundary_pull
+            # Total Energy (Base + Defrost)
+            total_kwh_steps = res['kwh_steps'] + defrost_kwh_steps
+
+            if rate_per_step is not None:
+                # Financial Cost (Weighted by TOU)
+                energy_cost = np.sum(total_kwh_steps * rate_per_step)
+            else:
+                # Pure kWh minimization
+                energy_cost = np.sum(total_kwh_steps)
+            
+            return energy_cost + total_penalty + defrost_penalty + boundary_pull
 
 
         # --- Run Minimize ---

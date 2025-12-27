@@ -51,6 +51,7 @@ DEFAULT_HEAT_PUMP_CONFIG = """{
     "y_cop": [1.75, 2.10, 3.40, 4.20]
   },
   "defrost": {
+    "description": "Defrost cycle parameters for cold/humid conditions (Mitsubishi MXZ-SM60NAM)",
     "trigger_temp_f": 32,
     "risk_zone_f": [28, 42],
     "cycle_duration_minutes": 10,
