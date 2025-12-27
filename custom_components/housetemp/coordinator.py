@@ -174,7 +174,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         return (
             _get_stable_val(opts.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)),
-            _get_stable_val(opts.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)),
+            _get_stable_val(int(opts.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP))),
             _get_stable_val(opts.get(CONF_ENABLE_MULTISCALE, DEFAULT_ENABLE_MULTISCALE)),
             _get_stable_val(opts.get(CONF_COMFORT_MODE)),
             _get_stable_val(data.get(CONF_C_THERMAL)),
@@ -257,11 +257,20 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # Remove only PAST entries, keep all FUTURE entries
         old_size = len(self.optimized_setpoints_map)
         
-        # Filter keys: keep if timestamp >= now
-        # Note: We use a new dict comprehension for atomic replacement
+        # Ensure we don't expire entries required for the current simulation block.
+        # The simulation floor-aligns start_time to the control timestep (e.g., nearest hour).
+        # We must keep entries from that floor time onwards, even if they are slightly in the past.
+        control_timestep = int(self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP))
+        start_minute = (now.minute // control_timestep) * control_timestep
+        
+        # Calculate retention cutoff (start of current block)
+        cutoff_dt = now.replace(minute=start_minute, second=0, microsecond=0)
+        cutoff_ts = int(cutoff_dt.timestamp())
+        
+        # Filter keys: keep if timestamp >= cutoff_ts
         self.optimized_setpoints_map = {
             k: v for k, v in self.optimized_setpoints_map.items() 
-            if k >= now_ts
+            if k >= cutoff_ts
         }
         
         # FIFO eviction if cache grows too large (prevent memory leak)
@@ -541,7 +550,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         # D. Off Recommendation: Combine boundary-based True-Off with simulation-based idle detection
         # --------------------------------------------------------------------------------
         model_timestep = max(1, self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP))
-        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
+        control_timestep = int(self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP))
         steps_per_block = max(1, int(round(control_timestep / model_timestep)))
         
         simulated_idle = detect_idle_blocks(
@@ -712,7 +721,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # Optimization Parameters
         model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
-        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
+        control_timestep = int(self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP))
         
         _LOGGER.info(f"Running HVAC Optimization (Model: {model_timestep}m, Control: {control_timestep}m)...")
         opt_start_time = time.time()
@@ -1112,7 +1121,7 @@ class HouseTempCoordinator(DataUpdateCoordinator):
 
         # 5. Prepare Simulation Data using Shared Handler
         now = dt_util.now()
-        control_timestep = self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)
+        control_timestep = int(self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP))
         
         # Floor start time to the nearest control block boundary (e.g., to the hour or 30-min mark)
         # This ensures all simulation steps align perfectly with clock-hour energy reporting.

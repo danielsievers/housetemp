@@ -74,7 +74,8 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         # Setup Mock Return
         # run_model_continuous returns (sim_temps, hvac_delivered, hvac_produced)
         # sim_temps should be array of length steps (5 min intervals default = 12/hr)
-        steps = 8 * 12 
+        # Duration 8h * 12 = 96 steps. Inclusive of start/end means 97 points.
+        steps = (8 * 12) + 1
         mock_run_model.return_value = (np.full(steps, 72.5), np.zeros(steps), np.zeros(steps))
         
         # Properly mock HeatPump instance with required methods and attributes
@@ -110,8 +111,8 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         # Verify Attributes
         attrs = state.attributes
         assert "forecast" in attrs
-        # Now resampled to 15-min intervals: 8 hours * 4 per hour = 32 points
-        assert len(attrs["forecast"]) == 32
+        # Now resampled to 15-min intervals: 8 hours * 4 per hour = 32 intervals -> 33 points (inclusive)
+        assert len(attrs["forecast"]) == 33
         assert attrs["forecast"][0]["temperature"] == 72.5
         assert attrs["forecast"][0]["target_temp"] == 70.0  # From schedule
         assert "forecast_points" in attrs  # Original resolution count

@@ -422,14 +422,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ): vol.All(vol.Coerce(int), vol.Range(min=MIN_MODEL_TIMESTEP)),
                 vol.Optional(
                     CONF_CONTROL_TIMESTEP,
-                    default=get_opt(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP),
+                    default=str(get_opt(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP)),
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"value": 15, "label": "15 minutes"},
-                            {"value": 30, "label": "30 minutes (Default)"},
-                            {"value": 60, "label": "1 hour"},
-                            {"value": 120, "label": "2 hours"},
+                            {"value": "15", "label": "15 minutes"},
+                            {"value": "30", "label": "30 minutes (Default)"},
+                            {"value": "60", "label": "1 hour"},
+                            {"value": "120", "label": "2 hours"},
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )

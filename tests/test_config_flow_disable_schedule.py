@@ -97,7 +97,7 @@ async def test_options_flow_disable_schedule(hass: HomeAssistant):
         "forecast_duration": 8,
         "update_interval": 15,
         "model_timestep": 5,           
-        "control_timestep": 30,        
+        "control_timestep": "30",        
         "enable_multiscale": False,    
     }
     

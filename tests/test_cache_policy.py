@@ -5,7 +5,7 @@ import time
 from homeassistant.util import dt as dt_util
 
 from custom_components.housetemp.coordinator import HouseTempCoordinator
-from custom_components.housetemp.const import DOMAIN
+from custom_components.housetemp.const import DOMAIN, CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP
 
 @pytest.fixture
 def mock_hass():
@@ -90,3 +90,51 @@ def test_cache_cleared_on_reinstantiation(mock_hass, mock_config_entry):
     # Simulating reload: Instance 2
     c2 = HouseTempCoordinator(mock_hass, mock_config_entry)
     assert len(c2.optimized_setpoints_map) == 0
+
+def test_cache_expiration_honors_control_alignment(coordinator):
+    """
+    Regression Test:
+    When start_time is floored to control_timestep (e.g., 30 min), 
+    we must NOT expire cache entries that fall within the current block 
+    but are technically in the past relative to 'now'.
+    
+    Scenario:
+    - Control Step: 30 min
+    - Now: 10:14
+    - Start Time (Floored): 10:00
+    - Cache contains: 10:00, 10:05, 10:10, 10:15
+    - Expected: 10:00, 10:05, 10:10 MUST remain in cache because 
+      simulation will request them (start_time=10:00).
+    """
+    # 2023-01-01 10:14:00
+    now = datetime(2023, 1, 1, 10, 14, 0)
+    
+    # Configure coordinator with 30-min timestep for this test
+    coordinator.config_entry.options = {CONF_CONTROL_TIMESTEP: 30}
+    
+    # Timestamps in the block
+    ts_10_00 = int(datetime(2023, 1, 1, 10, 0, 0).timestamp())
+    ts_10_05 = int(datetime(2023, 1, 1, 10, 5, 0).timestamp())
+    ts_10_10 = int(datetime(2023, 1, 1, 10, 10, 0).timestamp())
+    ts_10_15 = int(datetime(2023, 1, 1, 10, 15, 0).timestamp())
+    
+    coordinator.optimized_setpoints_map = {
+        ts_10_00: 70.0,
+        ts_10_05: 70.0,
+        ts_10_10: 70.0,
+        ts_10_15: 71.0, 
+    }
+    
+    with patch("homeassistant.util.dt.now", return_value=now):
+        coordinator._expire_cache()
+        
+        # Verify
+        # 10:15 is future -> SHOULD exist
+        assert ts_10_15 in coordinator.optimized_setpoints_map, "Future entry missing"
+        
+        # 10:00, 10:05, 10:10 are technically past (10:14)
+        # BUT they are needed for the simulation block starting at 10:00.
+        # They MUST remain.
+        assert ts_10_00 in coordinator.optimized_setpoints_map
+        assert ts_10_05 in coordinator.optimized_setpoints_map
+        assert ts_10_10 in coordinator.optimized_setpoints_map
