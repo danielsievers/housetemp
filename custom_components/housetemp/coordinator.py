@@ -1123,10 +1123,9 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         now = dt_util.now()
         control_timestep = int(self.config_entry.options.get(CONF_CONTROL_TIMESTEP, DEFAULT_CONTROL_TIMESTEP))
         
-        # Floor start time to the nearest control block boundary (e.g., to the hour or 30-min mark)
-        # This ensures all simulation steps align perfectly with clock-hour energy reporting.
-        start_minute = (now.minute // control_timestep) * control_timestep
-        start_time = now.replace(minute=start_minute, second=0, microsecond=0)
+        # Use simulation start time as-is (Current Time) to ensure "Anchor" to reality.
+        # The optimizer logic (optimize.py) handles partial first blocks natively.
+        start_time = now.replace(second=0, microsecond=0)
         
         model_timestep = self.config_entry.options.get(CONF_MODEL_TIMESTEP, DEFAULT_MODEL_TIMESTEP)
         

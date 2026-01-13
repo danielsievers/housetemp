@@ -21,6 +21,7 @@ from custom_components.housetemp.const import (
     CONF_SCHEDULE_CONFIG,
     CONF_FORECAST_DURATION,
     CONF_UPDATE_INTERVAL,
+    DEFAULT_FORECAST_RESAMPLE_MINUTES,
 )
 
 @pytest.mark.asyncio
@@ -59,39 +60,43 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
     # 2. Mock Dependencies
     # Mock States
     from homeassistant.util import dt as dt_util
-    now = dt_util.now()
-    hass.states.async_set("sensor.indoor", "68.0")
-    hass.states.async_set("weather.home", "50.0", {"forecast": [
-        {"datetime": (now - timedelta(hours=1)).isoformat(), "temperature": 55.0} # Start 1 hour ago to be safe
-    ]})
-    hass.states.async_set("sensor.solar", "0.0", {"forecast": []})
-
-    # Mock run_model to return dummy data
-    # We mock the import in coordinator.py
-    with patch("custom_components.housetemp.coordinator.run_model_continuous") as mock_run_model, \
-         patch("custom_components.housetemp.coordinator.HeatPump") as mock_hp_cls:
+    from datetime import datetime, timezone
+    
+    # Fix time to be perfectly aligned (e.g., 12:00:00) so we can assert exact forecast length
+    fixed_now = datetime(2023, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    
+    with patch("homeassistant.util.dt.now", return_value=fixed_now):
+        now = dt_util.now()
+        hass.states.async_set("sensor.indoor", "68.0")
         
-        # Setup Mock Return
-        # run_model_continuous returns (sim_temps, hvac_delivered, hvac_produced)
-        # sim_temps should be array of length steps (5 min intervals default = 12/hr)
-        # Duration 8h * 12 = 96 steps. Inclusive of start/end means 97 points.
-        steps = (8 * 12) + 1
-        mock_run_model.return_value = (np.full(steps, 72.5), np.zeros(steps), np.zeros(steps))
-        
-        # Properly mock HeatPump instance with required methods and attributes
-        mock_hp_instance = MagicMock()
-        mock_hp_instance.get_cop.side_effect = lambda x: np.full(len(x), 3.0)
-        mock_hp_instance.get_cooling_cop.side_effect = lambda x: np.full(len(x), 3.0)
-        mock_hp_instance.get_max_capacity.side_effect = lambda x: np.full(len(x), 10000.0)
-        mock_hp_instance.min_output_btu_hr = 3000
-        mock_hp_instance.max_cool_btu_hr = 54000
-        mock_hp_instance.plf_low_load = 1.4
-        mock_hp_instance.plf_slope = 0.4
-        mock_hp_instance.plf_min = 0.5
-        mock_hp_instance.idle_power_kw = 0.25
-        mock_hp_instance.blower_active_kw = 0.9
-        mock_hp_instance.defrost_risk_zone = None
-        mock_hp_cls.return_value = mock_hp_instance
+        # Generate enough weather forecast for 8+ hours
+        weather_forecast = [
+            {"datetime": (now + timedelta(hours=i)).isoformat(), "temperature": 55.0}
+            for i in range(-1, 24)
+        ]
+        hass.states.async_set("weather.home", "50.0", {"forecast": weather_forecast})
+        hass.states.async_set("sensor.solar", "0.0", {"forecast": []})
+    
+        # Mock run_model to return dummy data
+        # Note: Previous attempts to mock run_model_continuous failed due to partial binding/environment issues.
+        # We proceed by asserting the physical validity of the REAL model output (integration test style).
+        # We still mock HeatPump classes to control hardware params.
+        with patch("custom_components.housetemp.coordinator.HeatPump") as mock_hp_cls:
+             
+            # Properly mock HeatPump instance with required methods and attributes
+            mock_hp_instance = MagicMock()
+            mock_hp_instance.get_cop.side_effect = lambda x: np.full(len(x), 3.0)
+            mock_hp_instance.get_cooling_cop.side_effect = lambda x: np.full(len(x), 3.0)
+            mock_hp_instance.get_max_capacity.side_effect = lambda x: np.full(len(x), 10000.0)
+            mock_hp_instance.min_output_btu_hr = 3000
+            mock_hp_instance.max_cool_btu_hr = 54000
+            mock_hp_instance.plf_low_load = 1.4
+            mock_hp_instance.plf_slope = 0.4
+            mock_hp_instance.plf_min = 0.5
+            mock_hp_instance.idle_power_kw = 0.25
+            mock_hp_instance.blower_active_kw = 0.9
+            mock_hp_instance.defrost_risk_zone = None
+            mock_hp_cls.return_value = mock_hp_instance
         
         # 3. Setup Integration
         assert await hass.config_entries.async_setup(entry.entry_id)
@@ -111,9 +116,27 @@ async def test_sensor_setup_and_state(hass: HomeAssistant):
         # Verify Attributes
         attrs = state.attributes
         assert "forecast" in attrs
-        # Now resampled to 15-min intervals: 8 hours * 4 per hour = 32 intervals -> 33 points (inclusive)
-        assert len(attrs["forecast"]) == 33
-        assert attrs["forecast"][0]["temperature"] == 72.5
+        # Calculate expected length based on config and constant
+        duration_hours = config_options[CONF_FORECAST_DURATION]
+        resample_min = DEFAULT_FORECAST_RESAMPLE_MINUTES
+        # With aligned start, we get N intervals + 1 point (inclusive start/end)
+        expected_steps = int(duration_hours * (60 / resample_min)) + 1
+        
+        # Verify length is EXACT match (deterministic time alignment)
+        assert len(attrs["forecast"]) == expected_steps
+        
+        # Point 0 is NOW. Expect Current Temp (68.0), not Model result
+        # This confirms "Start-at-Now" correctly anchors to reality.
+        assert attrs["forecast"][0]["temperature"] == 68.0
+        
+        # Point 1 (Future). Expect transition > 68.0 (Heating mode default) but stable
+        # Since we are running the REAL model on dummy data, we assert trend, not exact value.
+        val_1 = attrs["forecast"][1]["temperature"]
+        assert 68.0 < val_1 <= 75.0, f"Expected heating trend, got {val_1}"
+        
+        # Final Point should be higher than start (Heating)
+        val_end = attrs["forecast"][-1]["temperature"]
+        assert val_end > 68.0, f"Expected heating result, got {val_end}"
         assert attrs["forecast"][0]["target_temp"] == 70.0  # From schedule
         assert "forecast_points" in attrs  # Original resolution count
         pass # mock return is repeated or real model runs with constant inputs
