@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import tempfile
+import math
 from functools import partial
 from typing import Optional
 
@@ -97,12 +98,17 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         
         update_interval_min = config_entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
         
+        # Disable default update_interval to allow custom grid-aligned scheduling
+        self._target_update_interval = timedelta(minutes=update_interval_min)
+        
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(minutes=update_interval_min),
+            # We handle scheduling manually to align with the grid (XX:00, XX:15, etc.)
+            update_interval=None,
         )
+        self._unsub_refresh = None
         self.config_entry = config_entry
 
         self.heat_pump = None
@@ -133,6 +139,11 @@ class HouseTempCoordinator(DataUpdateCoordinator):
             entities.append(sensor_indoor)
         if weather_entity := data.get(CONF_WEATHER_ENTITY):
             entities.append(weather_entity)
+            
+        # Add tracker for self-scheduling if enabled
+        if self._unsub_refresh is None:
+            self._schedule_next_refresh()
+
         if solar_entities := data.get(CONF_SOLAR_ENTITY):
             if isinstance(solar_entities, str):
                 entities.append(solar_entities)
@@ -167,6 +178,12 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         opts = self.config_entry.options
         data = self.config_entry.data
         
+        # Check if update interval changed (requires rescheduling)
+        current_interval_min = opts.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        if self._target_update_interval != timedelta(minutes=current_interval_min):
+             self._target_update_interval = timedelta(minutes=current_interval_min)
+             self._schedule_next_refresh()
+
         def _get_stable_val(val):
             if isinstance(val, (dict, list)):
                  return json.dumps(val, sort_keys=True)
@@ -245,6 +262,49 @@ class HouseTempCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.error("Failed to setup Heat Pump: %s", e)
             self.heat_pump = None
+
+    def _schedule_next_refresh(self):
+        """Schedule the next update aligned to the grid (e.g. XX:00, XX:15)."""
+        # Cancel existing
+        if self._unsub_refresh:
+            self._unsub_refresh()
+            self._unsub_refresh = None
+            
+        interval = self._target_update_interval.total_seconds()
+        if interval <= 0:
+            return
+
+        now = dt_util.now()
+        now_ts = now.timestamp()
+        
+        # Calculate next grid point
+        # ceil(now / interval) * interval
+        # We add a small buffer (1.0s) to 'now' to ensure we don't schedule for the exact same second 
+        # if we are running slightly ahead, ensuring we always move to the NEXT block.
+        next_ts = math.ceil((now_ts + 1.0) / interval) * interval
+        
+        next_dt = datetime.fromtimestamp(next_ts, tz=now.tzinfo)
+        
+        # Safety: Ensure next_dt is strictly in future (at least 1s)
+        if next_dt <= now:
+             next_dt += self._target_update_interval
+
+        _LOGGER.debug("Scheduling next aligned refresh for %s", next_dt)
+        
+        from homeassistant.helpers.event import async_track_point_in_time
+        self._unsub_refresh = async_track_point_in_time(
+            self.hass,
+            self._handle_scheduled_refresh,
+            next_dt
+        )
+
+    async def _handle_scheduled_refresh(self, now):
+        """Handle the timer execution."""
+        self._unsub_refresh = None
+        # Schedule next FIRST to ensure chain continues even if update fails
+        self._schedule_next_refresh()
+        
+        await self.async_request_refresh()
 
     def _expire_cache(self):
         """Remove stale cache entries (past timestamps only)."""

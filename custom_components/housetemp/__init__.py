@@ -542,8 +542,13 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     
     should_reload = False
     if new_interval is not None:
-        if coordinator.update_interval != timedelta(minutes=new_interval):
-            should_reload = True
+        # Check against the internal target, since public update_interval is None (custom scheduling)
+        if hasattr(coordinator, "_target_update_interval"):
+            if coordinator._target_update_interval != timedelta(minutes=new_interval):
+                should_reload = True
+        elif coordinator.update_interval != timedelta(minutes=new_interval):
+             # Fallback for safety if internal attr missing
+             should_reload = True
             
     if should_reload:
         await hass.config_entries.async_reload(entry.entry_id)
@@ -566,6 +571,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Cancel away timer if exists
     if hasattr(coordinator, "_away_timer_unsub") and coordinator._away_timer_unsub:
         coordinator._away_timer_unsub()
+        
+    # Cancel aligned refresh timer if exists
+    if hasattr(coordinator, "_unsub_refresh") and coordinator._unsub_refresh:
+        coordinator._unsub_refresh()
     
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
